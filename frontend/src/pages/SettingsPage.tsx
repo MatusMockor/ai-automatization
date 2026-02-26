@@ -1,5 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '@/context/AuthContext';
+import { api } from '@/lib/api';
+import { settingsSchema, type SettingsFormData } from '@/lib/schemas/settings';
+import type { SettingsResponse } from '@/types';
 import { toast } from 'sonner';
 import { Eye, EyeOff, Save, LogOut } from 'lucide-react';
 
@@ -7,28 +12,63 @@ export function SettingsPage() {
   const { user, logout } = useAuth();
   const [name, setName] = useState(user?.name ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
-  const [claudeApiKey, setClaudeApiKey] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
   const [showClaudeKey, setShowClaudeKey] = useState(false);
-  const [githubToken, setGithubToken] = useState('');
   const [showGithubToken, setShowGithubToken] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [maskedValues, setMaskedValues] = useState<SettingsResponse>({
+    claudeApiKey: null,
+    githubToken: null,
+  });
+
+  const {
+    register,
+    handleSubmit,
+    setError,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<SettingsFormData>({ resolver: zodResolver(settingsSchema) });
+
+  const fetchSettings = async () => {
+    try {
+      const { data } = await api.get<SettingsResponse>('/settings');
+      setMaskedValues(data);
+    } catch {
+      // silently ignore — masked placeholders stay empty
+    }
+  };
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
+    setSavingProfile(true);
     // TODO: api.patch('/auth/profile', { name, email })
     await new Promise((r) => setTimeout(r, 500));
     toast.success('Profile updated');
-    setSaving(false);
+    setSavingProfile(false);
   };
 
-  const handleSaveKeys = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    // TODO: api.patch('/settings', { claudeApiKey, githubToken })
-    await new Promise((r) => setTimeout(r, 500));
-    toast.success('API keys saved');
-    setSaving(false);
+  const onSaveKeys = async (data: SettingsFormData) => {
+    // Only send fields the user actually filled in
+    const payload: Record<string, string> = {};
+    if (data.claudeApiKey) payload.claudeApiKey = data.claudeApiKey;
+    if (data.githubToken) payload.githubToken = data.githubToken;
+
+    if (Object.keys(payload).length === 0) return;
+
+    try {
+      await api.patch('/settings', payload);
+      toast.success('API keys saved');
+      reset();
+      await fetchSettings();
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        'Failed to save API keys';
+      setError('root', { message });
+    }
   };
 
   return (
@@ -62,7 +102,7 @@ export function SettingsPage() {
           </div>
           <button
             type="submit"
-            disabled={saving}
+            disabled={savingProfile}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             <Save className="h-3.5 w-3.5" />
@@ -72,12 +112,17 @@ export function SettingsPage() {
       </form>
 
       {/* API Keys */}
-      <form onSubmit={handleSaveKeys} className="rounded-xl border border-border bg-card p-5">
+      <form onSubmit={handleSubmit(onSaveKeys)} className="rounded-xl border border-border bg-card p-5">
         <h2 className="mb-1 text-sm font-semibold">API Keys</h2>
         <p className="mb-4 text-xs text-muted-foreground">
           Keys are encrypted and stored securely. Required for Claude executions and GitHub access.
         </p>
         <div className="space-y-4">
+          {errors.root && (
+            <div className="rounded-lg bg-red-500/10 px-4 py-2.5 text-sm text-red-400 ring-1 ring-red-500/20">
+              {errors.root.message}
+            </div>
+          )}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
               Claude API Key
@@ -85,9 +130,8 @@ export function SettingsPage() {
             <div className="relative">
               <input
                 type={showClaudeKey ? 'text' : 'password'}
-                value={claudeApiKey}
-                onChange={(e) => setClaudeApiKey(e.target.value)}
-                placeholder="sk-ant-..."
+                {...register('claudeApiKey')}
+                placeholder={maskedValues.claudeApiKey ?? 'sk-ant-...'}
                 className="h-9 w-full rounded-lg border border-border bg-background px-3 pr-10 font-mono text-sm outline-none placeholder:font-sans focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
               />
               <button
@@ -106,9 +150,8 @@ export function SettingsPage() {
             <div className="relative">
               <input
                 type={showGithubToken ? 'text' : 'password'}
-                value={githubToken}
-                onChange={(e) => setGithubToken(e.target.value)}
-                placeholder="ghp_..."
+                {...register('githubToken')}
+                placeholder={maskedValues.githubToken ?? 'ghp_...'}
                 className="h-9 w-full rounded-lg border border-border bg-background px-3 pr-10 font-mono text-sm outline-none placeholder:font-sans focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
               />
               <button
@@ -125,7 +168,7 @@ export function SettingsPage() {
           </div>
           <button
             type="submit"
-            disabled={saving}
+            disabled={isSubmitting}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             <Save className="h-3.5 w-3.5" />
