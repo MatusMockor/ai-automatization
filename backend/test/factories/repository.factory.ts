@@ -26,6 +26,11 @@ type RemoteRepository = {
   remotePath: string;
 };
 
+type ExecFileError = NodeJS.ErrnoException & {
+  stdout?: string;
+  stderr?: string;
+};
+
 export class RepositoryFactory {
   constructor(
     private readonly dataSource: DataSource,
@@ -111,11 +116,26 @@ export class RepositoryFactory {
   }
 
   buildLocalPath(userId: string, fullName: string): string {
-    const [owner, repositoryName] = fullName.toLowerCase().split('/');
+    const segments = fullName.split('/');
+    if (
+      segments.length !== 2 ||
+      segments[0]?.trim().length === 0 ||
+      segments[1]?.trim().length === 0
+    ) {
+      throw new Error('Invalid repository fullName');
+    }
+
+    const [owner, repositoryName] = segments;
+    const safeOwner = this.sanitizeSegment(owner);
+    const safeRepositoryName = this.sanitizeSegment(repositoryName);
+    if (safeOwner.length === 0 || safeRepositoryName.length === 0) {
+      throw new Error('Invalid repository fullName');
+    }
+
     return join(
       this.repositoriesBasePath,
       userId,
-      `${owner ?? ''}__${repositoryName ?? ''}`,
+      `${safeOwner}__${safeRepositoryName}`,
     );
   }
 
@@ -136,14 +156,35 @@ export class RepositoryFactory {
   }
 
   private async runGit(args: string[], cwd?: string): Promise<void> {
-    await execFileAsync('git', args, {
-      cwd,
-      timeout: 20000,
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: '0',
-      },
-    });
+    try {
+      await execFileAsync('git', args, {
+        cwd,
+        timeout: 20000,
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: '0',
+        },
+      });
+    } catch (error) {
+      const execError = error as ExecFileError;
+      const output = [execError.stdout, execError.stderr]
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+        .join('\n');
+
+      throw new Error(
+        `git ${args.join(' ')} failed${output ? `\n${output}` : ''}`,
+      );
+    }
+  }
+
+  private sanitizeSegment(value: string | undefined): string {
+    return (value ?? '')
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
   }
 
   private async runGitCommit(cwd: string, message: string): Promise<void> {

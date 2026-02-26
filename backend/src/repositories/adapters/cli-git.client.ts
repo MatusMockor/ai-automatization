@@ -5,6 +5,7 @@ import { GitClientError } from '../errors/git-client.error';
 import { GitClient } from '../interfaces/git-client.interface';
 
 const DEFAULT_GIT_TIMEOUT_MS = 120000;
+const FORCE_KILL_DELAY_MS = 5000;
 
 @Injectable()
 export class CliGitClient implements GitClient {
@@ -63,11 +64,28 @@ export class CliGitClient implements GitClient {
       let stdout = '';
       let stderr = '';
       let didTimeout = false;
+      let forceKillTimeout: NodeJS.Timeout | undefined;
 
       const timeout = setTimeout(() => {
         didTimeout = true;
         childProcess.kill('SIGTERM');
+
+        forceKillTimeout = setTimeout(() => {
+          if (
+            childProcess.exitCode === null &&
+            childProcess.signalCode === null
+          ) {
+            childProcess.kill('SIGKILL');
+          }
+        }, FORCE_KILL_DELAY_MS);
       }, this.timeoutMs);
+
+      const clearTimers = () => {
+        clearTimeout(timeout);
+        if (forceKillTimeout) {
+          clearTimeout(forceKillTimeout);
+        }
+      };
 
       childProcess.stdout.on('data', (chunk: Buffer) => {
         stdout += chunk.toString('utf8');
@@ -78,12 +96,12 @@ export class CliGitClient implements GitClient {
       });
 
       childProcess.on('error', (error) => {
-        clearTimeout(timeout);
+        clearTimers();
         reject(new GitClientError(error.message, command, stdout, stderr));
       });
 
       childProcess.on('close', (code) => {
-        clearTimeout(timeout);
+        clearTimers();
 
         if (didTimeout) {
           reject(

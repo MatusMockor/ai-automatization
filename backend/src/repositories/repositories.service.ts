@@ -116,14 +116,27 @@ export class RepositoriesService {
     const repository = await this.getOwnedRepository(repositoryId, userId);
 
     try {
-      await rm(repository.localPath, { recursive: true, force: true });
+      const deleteResult = await this.repositoriesRepository.delete({
+        id: repository.id,
+      });
+      if ((deleteResult.affected ?? 0) === 0) {
+        throw new InternalServerErrorException(
+          'Failed to delete repository record',
+        );
+      }
     } catch {
       throw new InternalServerErrorException(
-        'Failed to delete local repository directory',
+        'Failed to delete repository record',
       );
     }
 
-    await this.repositoriesRepository.delete({ id: repository.id });
+    try {
+      await rm(repository.localPath, { recursive: true, force: true });
+    } catch {
+      throw new InternalServerErrorException(
+        'Repository record deleted, but local repository directory cleanup failed',
+      );
+    }
   }
 
   async syncForUser(
@@ -162,7 +175,6 @@ export class RepositoriesService {
       throw error;
     }
 
-    repository.updatedAt = new Date();
     const updatedRepository =
       await this.repositoriesRepository.save(repository);
     return this.mapToResponse(updatedRepository);

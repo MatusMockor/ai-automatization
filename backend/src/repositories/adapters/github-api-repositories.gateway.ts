@@ -17,6 +17,8 @@ type GithubRepositoryResponse = {
 
 @Injectable()
 export class GithubApiRepositoriesGateway implements GithubRepositoriesGateway {
+  private static readonly REQUEST_TIMEOUT_MS = 10000;
+
   async getRepository(
     fullName: string,
     accessToken: string,
@@ -27,6 +29,11 @@ export class GithubApiRepositoriesGateway implements GithubRepositoriesGateway {
       .join('/');
 
     let response: Response;
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      GithubApiRepositoriesGateway.REQUEST_TIMEOUT_MS,
+    );
     try {
       response = await fetch(
         `https://api.github.com/repos/${encodedFullName}`,
@@ -37,10 +44,16 @@ export class GithubApiRepositoriesGateway implements GithubRepositoriesGateway {
             'User-Agent': 'ai-automation-backend',
             'X-GitHub-Api-Version': '2022-11-28',
           },
+          signal: controller.signal,
         },
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new GithubGatewayError('Request to GitHub timed out');
+      }
       throw new GithubGatewayError('Unable to reach GitHub API');
+    } finally {
+      clearTimeout(timeout);
     }
 
     if (response.status === 401 || response.status === 403) {
@@ -62,7 +75,17 @@ export class GithubApiRepositoriesGateway implements GithubRepositoriesGateway {
       );
     }
 
-    const body = (await response.json()) as GithubRepositoryResponse;
+    let body: GithubRepositoryResponse;
+    try {
+      body = (await response.json()) as GithubRepositoryResponse;
+    } catch (error) {
+      const details =
+        error instanceof Error ? `: ${error.message}` : ' for unknown reason';
+      throw new GithubGatewayError(
+        `GitHub API returned invalid JSON${details}`,
+      );
+    }
+
     if (!body.full_name || !body.clone_url || !body.default_branch) {
       throw new GithubGatewayError('GitHub API returned an invalid repository');
     }
