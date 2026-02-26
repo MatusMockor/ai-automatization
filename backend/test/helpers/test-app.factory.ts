@@ -35,6 +35,9 @@ const DEFAULT_TEST_ENV: Record<string, string> = {
     '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff',
   REPOSITORIES_BASE_PATH: '/tmp/ai-automation-repositories-test',
   GIT_COMMAND_TIMEOUT_MS: '120000',
+  TASK_MANAGER_HTTP_TIMEOUT_MS: '15000',
+  TASK_MANAGER_DEFAULT_TASK_LIMIT: '100',
+  TASK_MANAGER_MAX_TASK_LIMIT: '100',
 };
 
 export const createTestApp = async (

@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RepositoriesModule } from './repositories/repositories.module';
 import { SettingsModule } from './settings/settings.module';
+import { TaskManagersModule } from './task-managers/task-managers.module';
 
 const toBoolean = (
   value: string | undefined,
@@ -61,6 +62,7 @@ const toBoolean = (
     AuthModule,
     SettingsModule,
     RepositoriesModule,
+    TaskManagersModule,
   ],
   controllers: [AppController],
   providers: [
