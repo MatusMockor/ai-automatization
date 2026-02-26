@@ -23,8 +23,13 @@ const priorityConfig: Record<string, { label: string; color: string }> = {
 };
 
 export function TaskDetail({ task, executions, onClose, onAction }: TaskDetailProps) {
-  const prefix = prefixConfig[task.prefix];
-  const priority = priorityConfig[task.priority];
+  const prefix =
+    prefixConfig[task.prefix] ?? { activeColor: 'text-muted-foreground bg-foreground/5' };
+  const priority =
+    priorityConfig[task.priority] ?? {
+      label: task.priority ?? 'Unknown',
+      color: 'text-muted-foreground bg-foreground/5 ring-foreground/10',
+    };
 
   return (
     <div className="flex w-[420px] shrink-0 flex-col border-l border-border bg-card/50">
