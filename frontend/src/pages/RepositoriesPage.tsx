@@ -16,6 +16,9 @@ import { api } from '@/lib/api';
 import { timeAgo } from '@/lib/time';
 import type { Repository } from '@/types';
 
+const getApiErrorMessage = (err: unknown, fallback: string) =>
+  (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
+
 export function RepositoriesPage() {
   const [repos, setRepos] = useState<Repository[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,13 +27,14 @@ export function RepositoriesPage() {
   const [adding, setAdding] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [deletingInFlight, setDeletingInFlight] = useState(false);
 
   const fetchRepos = async () => {
     try {
       const { data } = await api.get<Repository[]>('/repositories');
       setRepos(data);
-    } catch {
-      toast.error('Failed to load repositories');
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to load repositories'));
     } finally {
       setLoading(false);
     }
@@ -52,10 +56,7 @@ export function RepositoriesPage() {
       setShowAddForm(false);
       toast.success(`Repository ${data.fullName} cloned`);
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Failed to add repository';
-      toast.error(message);
+      toast.error(getApiErrorMessage(err, 'Failed to add repository'));
     } finally {
       setAdding(false);
     }
@@ -68,27 +69,25 @@ export function RepositoriesPage() {
       setRepos((prev) => prev.map((r) => (r.id === repoId ? data : r)));
       toast.success('Repository synced');
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Failed to sync repository';
-      toast.error(message);
+      toast.error(getApiErrorMessage(err, 'Failed to sync repository'));
     } finally {
       setSyncing(null);
     }
   };
 
   const handleDelete = async (repoId: string) => {
+    if (deletingInFlight) return;
+    setDeletingInFlight(true);
     try {
       await api.delete(`/repositories/${repoId}`);
       setRepos((prev) => prev.filter((r) => r.id !== repoId));
       setDeleting(null);
       toast.success('Repository removed');
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Failed to remove repository';
-      toast.error(message);
+      toast.error(getApiErrorMessage(err, 'Failed to remove repository'));
       setDeleting(null);
+    } finally {
+      setDeletingInFlight(false);
     }
   };
 
@@ -224,9 +223,10 @@ export function RepositoriesPage() {
                     <>
                       <button
                         onClick={() => handleDelete(repo.id)}
-                        className="rounded-lg px-2 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10"
+                        disabled={deletingInFlight}
+                        className="rounded-lg px-2 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"
                       >
-                        Confirm
+                        {deletingInFlight ? 'Removing...' : 'Confirm'}
                       </button>
                       <button
                         onClick={() => setDeleting(null)}
