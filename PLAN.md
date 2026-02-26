@@ -76,17 +76,18 @@ Backend Docker dev experience:
 - `.env` súbor v roote projektu, docker-compose ho načíta cez `env_file: .env` - jedna `.env` pre všetky služby
 - `.env.example` s popismi všetkých premenných (DB, JWT, ENCRYPTION_KEY, porty)
 
-Frontend:
+Frontend (lokálne, bez Dockeru):
 - `npm create vite frontend -- --template react-ts`
 - Tailwind CSS + shadcn/ui init
 - Path aliases (`@/`)
 - Základný routing (React Router v7) - prázdne stránky
+- Spúšťa sa lokálne cez `npm run dev` (Vite dev server s HMR)
+- Vite proxy: `/api` → `http://localhost:3001` (backend v Dockeri)
+- **Nie je v docker-compose** - beží čisto lokálne na `localhost:5173`
 
 Infra:
-- `docker-compose.yml` - postgres + backend + frontend
+- `docker-compose.yml` - **len postgres + backend** (frontend beží lokálne)
 - Backend `Dockerfile` (node:22-alpine + git + claude-code CLI)
-- Frontend `Dockerfile` (multi-stage: node build → nginx serve)
-- `.docker/nginx.conf` (SPA fallback, /api proxy)
 - `.env.example`, `.gitignore`
 
 Docker / PostgreSQL izolácia:
