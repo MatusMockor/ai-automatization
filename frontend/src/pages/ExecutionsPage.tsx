@@ -80,7 +80,11 @@ export function ExecutionsPage() {
             </div>
             <div className="flex items-center gap-1">
               {selected.status === 'running' && (
-                <button className="flex items-center gap-1 rounded px-2 py-1 text-xs text-red-400 hover:bg-red-500/10">
+                <button
+                  type="button"
+                  disabled
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                >
                   <Square className="h-3 w-3" /> Stop
                 </button>
               )}

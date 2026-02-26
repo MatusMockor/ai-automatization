@@ -35,10 +35,16 @@ export function TaskDetail({ task, executions, onClose, onAction }: TaskDetailPr
           <span className="font-mono">{task.externalId}</span>
         </div>
         <div className="flex items-center gap-1">
-          <button className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground">
+          <button
+            type="button"
+            aria-label="Open task externally"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+          >
             <ExternalLink className="h-3.5 w-3.5" />
           </button>
           <button
+            type="button"
+            aria-label="Close task details"
             onClick={onClose}
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
           >

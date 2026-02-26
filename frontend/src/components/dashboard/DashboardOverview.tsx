@@ -83,7 +83,11 @@ export function DashboardOverview() {
         </div>
         <div className="flex items-center gap-3">
           <RepoSelector />
-          <button className="rounded-lg p-2 text-muted-foreground hover:bg-foreground/5">
+          <button
+            type="button"
+            aria-label="Open settings"
+            className="rounded-lg p-2 text-muted-foreground hover:bg-foreground/5"
+          >
             <Settings className="h-4 w-4" />
           </button>
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-xs font-bold text-white">
