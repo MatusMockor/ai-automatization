@@ -46,7 +46,7 @@ export function RepositoriesPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim()) return;
+    if (loading || !fullName.trim()) return;
 
     setAdding(true);
     try {
@@ -108,7 +108,8 @@ export function RepositoriesPage() {
         {!showAddForm && (
           <button
             onClick={() => setShowAddForm(true)}
-            className="flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            disabled={loading}
+            className="flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
             Add repository
@@ -235,6 +236,9 @@ export function RepositoriesPage() {
                       </button>
                       <button
                         onClick={() => setDeleting(null)}
+                        type="button"
+                        aria-label="Cancel repository removal"
+                        title="Cancel"
                         className="rounded-lg p-2 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
                       >
                         <X className="h-4 w-4" />
