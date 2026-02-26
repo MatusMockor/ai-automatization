@@ -84,6 +84,7 @@ export class RepositoryFactory {
     );
     await this.runGit(['add', '.'], seedPath);
     await this.runGitCommit(seedPath, 'Initial commit');
+    await this.runGit(['branch', '-M', 'main'], seedPath);
     await this.runGit(['remote', 'add', 'origin', remotePath], seedPath);
     await this.runGit(['push', '-u', 'origin', 'main'], seedPath);
     await this.runGit([

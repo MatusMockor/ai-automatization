@@ -124,7 +124,11 @@ export class RepositoriesService {
           'Failed to delete repository record',
         );
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof InternalServerErrorException) {
+        throw error;
+      }
+
       throw new InternalServerErrorException(
         'Failed to delete repository record',
       );
