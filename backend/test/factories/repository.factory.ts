@@ -109,7 +109,10 @@ export class RepositoryFactory {
     await writeFile(join(updatePath, fileName), faker.lorem.sentence(), 'utf8');
     await this.runGit(['add', '.'], updatePath);
     await this.runGitCommit(updatePath, 'Update remote repository');
-    await this.runGit(['push', 'origin', defaultBranch], updatePath);
+    await this.runGit(
+      ['push', 'origin', `HEAD:refs/heads/${defaultBranch}`],
+      updatePath,
+    );
     await rm(updatePath, { recursive: true, force: true });
 
     return fileName;
