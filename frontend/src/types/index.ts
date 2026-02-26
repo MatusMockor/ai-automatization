@@ -44,3 +44,8 @@ export interface ActivityItem {
 }
 
 export const ALL_PREFIXES = ['fix', 'feature', 'chore', 'plan', 'refactor'] as const;
+
+export interface SettingsResponse {
+  githubToken: string | null;
+  claudeApiKey: string | null;
+}
