@@ -18,9 +18,21 @@ export class RepositoryPathService {
   }
 
   buildLocalPath(userId: string, fullName: string): string {
-    const [owner, repository] = fullName.split('/');
+    const segments = fullName.split('/');
+    if (
+      segments.length !== 2 ||
+      segments[0]?.trim().length === 0 ||
+      segments[1]?.trim().length === 0
+    ) {
+      throw new Error('Invalid repository fullName');
+    }
+
+    const [owner, repository] = segments;
     const safeOwner = this.sanitizeSegment(owner);
     const safeRepository = this.sanitizeSegment(repository);
+    if (safeOwner.length === 0 || safeRepository.length === 0) {
+      throw new Error('Invalid repository fullName');
+    }
 
     const localPath = resolve(
       join(this.basePath, userId, `${safeOwner}__${safeRepository}`),
