@@ -1,25 +1,63 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationInterface, QueryRunner, Table, TableUnique } from 'typeorm';
 
 export class CreateUsersTable1740571200000 implements MigrationInterface {
   name = 'CreateUsersTable1740571200000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
-    await queryRunner.query(`
-      CREATE TABLE IF NOT EXISTS "users" (
-        "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "email" character varying(255) NOT NULL,
-        "name" character varying(100) NOT NULL,
-        "password_hash" character varying(255) NOT NULL,
-        "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
-        "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CONSTRAINT "PK_users_id" PRIMARY KEY ("id"),
-        CONSTRAINT "UQ_users_email" UNIQUE ("email")
-      )
-    `);
+    if (queryRunner.connection.options.type === 'postgres') {
+      await queryRunner.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
+    }
+
+    await queryRunner.createTable(
+      new Table({
+        name: 'users',
+        columns: [
+          {
+            name: 'id',
+            type: 'uuid',
+            isPrimary: true,
+            isGenerated: true,
+            generationStrategy: 'uuid',
+            default: 'uuid_generate_v4()',
+          },
+          {
+            name: 'email',
+            type: 'varchar',
+            length: '255',
+          },
+          {
+            name: 'name',
+            type: 'varchar',
+            length: '100',
+          },
+          {
+            name: 'password_hash',
+            type: 'varchar',
+            length: '255',
+          },
+          {
+            name: 'created_at',
+            type: 'timestamptz',
+            default: 'now()',
+          },
+          {
+            name: 'updated_at',
+            type: 'timestamptz',
+            default: 'now()',
+          },
+        ],
+        uniques: [
+          new TableUnique({
+            name: 'UQ_users_email',
+            columnNames: ['email'],
+          }),
+        ],
+      }),
+      true,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP TABLE IF EXISTS "users"`);
+    await queryRunner.dropTable('users', true);
   }
 }
