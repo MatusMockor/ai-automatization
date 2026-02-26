@@ -13,7 +13,7 @@ import { AppController } from './app.controller';
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         host: config.get('DB_HOST', 'localhost'),
-        port: config.get<number>('DB_PORT', 5432),
+        port: parseInt(config.get('DB_PORT', '5432'), 10),
         username: config.get('DB_USERNAME', 'ai_automation'),
         password: config.get('DB_PASSWORD', 'ai_automation_secret'),
         database: config.get('DB_DATABASE', 'ai_automation_db'),
