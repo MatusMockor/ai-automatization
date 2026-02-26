@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
+import { ALL_PREFIXES } from '@/types';
 import type { TaskPrefix } from '@/types';
-import { ALL_PREFIXES } from '@/data/mock';
 
 export const prefixConfig: Record<TaskPrefix, { color: string; activeColor: string }> = {
   fix: {

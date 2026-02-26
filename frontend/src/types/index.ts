@@ -42,3 +42,5 @@ export interface ActivityItem {
   detail: string;
   timestamp: string;
 }
+
+export const ALL_PREFIXES = ['fix', 'feature', 'chore', 'plan', 'refactor'] as const;

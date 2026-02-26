@@ -13,23 +13,25 @@ import { ExecutionHistory } from "@/components/shared/ExecutionHistory";
 import { RepoSelector } from "@/components/shared/RepoSelector";
 import { prefixConfig } from "@/components/shared/PrefixFilter";
 import { timeAgo } from "@/lib/time";
-import { mockTasks, mockExecutions, ALL_PREFIXES } from "@/data/mock";
-import type { Task } from "@/types";
+import { ALL_PREFIXES } from "@/types";
+import type { Task, Execution } from "@/types";
 import { cn } from "@/lib/utils";
 
 export function KanbanBoard() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const runningCount = mockExecutions.filter(
+  const tasks: Task[] = [];
+  const executions: Execution[] = [];
+  const runningCount = executions.filter(
     (e) => e.status === "running",
   ).length;
 
   const columns = ALL_PREFIXES.map((prefix) => ({
     prefix,
-    tasks: mockTasks.filter((t) => t.prefix === prefix),
+    tasks: tasks.filter((t) => t.prefix === prefix),
   })).filter((col) => col.tasks.length > 0);
 
   const taskExecutions = selectedTask
-    ? mockExecutions.filter((e) => e.taskId === selectedTask.id)
+    ? executions.filter((e) => e.taskId === selectedTask.id)
     : [];
 
   return (
@@ -63,6 +65,11 @@ export function KanbanBoard() {
 
       {/* Columns */}
       <div className="flex flex-1 gap-5 overflow-x-auto p-5">
+        {columns.length === 0 && (
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            No tasks yet
+          </div>
+        )}
         {columns.map((col) => {
           const cfg = prefixConfig[col.prefix];
           return (

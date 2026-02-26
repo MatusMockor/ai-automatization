@@ -4,8 +4,7 @@ import { TaskList } from './TaskList';
 import { TaskDetail } from './TaskDetail';
 import { ActivityPanel } from './ActivityPanel';
 import { TerminalPanel } from './TerminalPanel';
-import { mockTasks, mockExecutions, mockActivities } from '@/data/mock';
-import type { Task, TaskPrefix, ExecutionAction } from '@/types';
+import type { Task, TaskPrefix, ExecutionAction, Execution, ActivityItem } from '@/types';
 import { Search } from 'lucide-react';
 
 export function Dashboard() {
@@ -14,38 +13,42 @@ export function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [terminalOpen, setTerminalOpen] = useState(true);
 
-  const activeExecution = mockExecutions.find((e) => e.status === 'running');
-  const runningCount = mockExecutions.filter((e) => e.status === 'running').length;
-  const completedCount = mockExecutions.filter((e) => e.status === 'completed').length;
-  const failedCount = mockExecutions.filter((e) => e.status === 'failed').length;
-  const openTasks = mockTasks.filter((t) => t.status === 'open').length;
+  const tasks: Task[] = [];
+  const executions: Execution[] = [];
+  const activities: ActivityItem[] = [];
+
+  const activeExecution = executions.find((e) => e.status === 'running');
+  const runningCount = executions.filter((e) => e.status === 'running').length;
+  const completedCount = executions.filter((e) => e.status === 'completed').length;
+  const failedCount = executions.filter((e) => e.status === 'failed').length;
+  const openTasks = tasks.filter((t) => t.status === 'open').length;
 
   const filteredTasks = useMemo(() => {
-    let tasks = mockTasks;
-    if (selectedPrefix) tasks = tasks.filter((t) => t.prefix === selectedPrefix);
+    let filtered = tasks;
+    if (selectedPrefix) filtered = filtered.filter((t) => t.prefix === selectedPrefix);
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      tasks = tasks.filter(
+      filtered = filtered.filter(
         (t) =>
           t.title.toLowerCase().includes(q) ||
           t.externalId.toLowerCase().includes(q) ||
           t.assignee.toLowerCase().includes(q),
       );
     }
-    return tasks;
-  }, [selectedPrefix, searchQuery]);
+    return filtered;
+  }, [tasks, selectedPrefix, searchQuery]);
 
   const prefixCounts = useMemo(() => {
     const counts: Partial<Record<TaskPrefix, number>> = {};
-    for (const t of mockTasks) {
+    for (const t of tasks) {
       counts[t.prefix] = (counts[t.prefix] ?? 0) + 1;
     }
     return counts;
-  }, []);
+  }, [tasks]);
 
   const taskExecutions = useMemo(
-    () => (selectedTask ? mockExecutions.filter((e) => e.taskId === selectedTask.id) : []),
-    [selectedTask],
+    () => (selectedTask ? executions.filter((e) => e.taskId === selectedTask.id) : []),
+    [executions, selectedTask],
   );
 
   const handleAction = (action: ExecutionAction, task: Task) => {
@@ -114,7 +117,7 @@ export function Dashboard() {
             onAction={(action) => handleAction(action, selectedTask)}
           />
         ) : (
-          <ActivityPanel activities={mockActivities} />
+          <ActivityPanel activities={activities} />
         )}
       </div>
 

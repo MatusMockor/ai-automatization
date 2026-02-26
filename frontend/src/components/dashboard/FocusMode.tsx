@@ -4,23 +4,24 @@ import { PrefixFilter, prefixConfig } from '@/components/shared/PrefixFilter';
 import { ActionButtons } from '@/components/shared/ActionButtons';
 import { ExecutionHistory } from '@/components/shared/ExecutionHistory';
 import { RepoSelector } from '@/components/shared/RepoSelector';
-import { mockTasks, mockExecutions } from '@/data/mock';
 import { timeAgo } from '@/lib/time';
 import { cn } from '@/lib/utils';
-import type { TaskPrefix } from '@/types';
+import type { Task, TaskPrefix, Execution } from '@/types';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 
 export function FocusMode() {
+  const tasks: Task[] = [];
+  const executions: Execution[] = [];
   const [selectedPrefix, setSelectedPrefix] = useState<TaskPrefix | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
 
   const filtered = selectedPrefix
-    ? mockTasks.filter((t) => t.prefix === selectedPrefix)
-    : mockTasks;
+    ? tasks.filter((t) => t.prefix === selectedPrefix)
+    : tasks;
 
   const task = filtered[currentIndex];
   const taskExecutions = task
-    ? mockExecutions.filter((e) => e.taskId === task.id)
+    ? executions.filter((e) => e.taskId === task.id)
     : [];
 
   const goNext = useCallback(() => {
@@ -45,8 +46,8 @@ export function FocusMode() {
 
   if (!task) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
-        No tasks found.
+      <div className="flex h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+        No tasks yet
       </div>
     );
   }

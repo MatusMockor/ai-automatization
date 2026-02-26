@@ -6,22 +6,23 @@ import {
   ExecutionStatusIcon,
 } from "@/components/shared/StatusIcon";
 import { timeAgo } from "@/lib/time";
-import { mockTasks, mockExecutions } from "@/data/mock";
 import { cn } from "@/lib/utils";
-import type { TaskPrefix } from "@/types";
+import type { Task, TaskPrefix, Execution } from "@/types";
 import { Square, Search, Copy } from "lucide-react";
 
 export function TerminalFirst() {
+  const tasks: Task[] = [];
+  const executions: Execution[] = [];
   const [selectedPrefix, setSelectedPrefix] = useState<TaskPrefix | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   const filtered = selectedPrefix
-    ? mockTasks.filter((t) => t.prefix === selectedPrefix)
-    : mockTasks;
+    ? tasks.filter((t) => t.prefix === selectedPrefix)
+    : tasks;
 
-  const activeExecution = mockExecutions.find((e) => e.status === "running");
+  const activeExecution = executions.find((e) => e.status === "running");
 
   const displayTasks = searchQuery
     ? filtered.filter((t) =>
@@ -134,6 +135,11 @@ export function TerminalFirst() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
+          {displayTasks.length === 0 && (
+            <div className="flex flex-1 items-center justify-center py-12 text-sm text-muted-foreground">
+              No tasks yet
+            </div>
+          )}
           {displayTasks.map((task, index) => {
             const cfg = prefixConfig[task.prefix];
             return (
