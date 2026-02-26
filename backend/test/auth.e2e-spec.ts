@@ -71,6 +71,18 @@ describe('Auth (e2e)', () => {
     expect(response.statusCode).toBe(409);
   });
 
+  it('POST /api/auth/register should return 400 for missing email', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        password: 'Password123!',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
   it('POST /api/auth/login should return token for valid credentials', async () => {
     const { user, plainPassword } = await userFactory.create();
 
@@ -110,6 +122,19 @@ describe('Auth (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  it('POST /api/auth/login should return 400 for malformed email', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: 12345,
+        password: 'Password123!',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
   });
 
   it('GET /api/auth/me should return 401 when missing token', async () => {
