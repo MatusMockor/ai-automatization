@@ -21,6 +21,8 @@ export const createTestApp = async (): Promise<TestAppContext> => {
   process.env.JWT_SECRET = 'test-secret';
   process.env.JWT_EXPIRATION = '1h';
   process.env.BCRYPT_SALT_ROUNDS = '4';
+  process.env.ENCRYPTION_KEY =
+    '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
 
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],

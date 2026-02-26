@@ -6,6 +6,7 @@ import { join } from 'path';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { SettingsModule } from './settings/settings.module';
 
 const toBoolean = (
   value: string | undefined,
@@ -57,6 +58,7 @@ const toBoolean = (
       },
     }),
     AuthModule,
+    SettingsModule,
   ],
   controllers: [AppController],
   providers: [
