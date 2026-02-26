@@ -114,10 +114,10 @@ Backend:
 - bcrypt hashing, class-validator DTOs
 
 Frontend:
-- Zustand auth store (tokens, user, isAuthenticated)
-- Axios instance + JWT interceptor (auto-attach Bearer token)
+- Auth cez localStorage (JWT token) + React Context (user info)
+- Axios instance + JWT interceptor (číta token z localStorage, auto-attach Bearer)
 - `LoginPage`, `RegisterPage` (React Hook Form + Zod)
-- `ProtectedRoute` component
+- `ProtectedRoute` component (redirect na login ak nie je token)
 - `AppShell` layout (sidebar + header + outlet)
 
 **Výsledok:** Register → Login → vidíš prázdny dashboard za protected route
@@ -157,7 +157,7 @@ Backend:
 Frontend:
 - `RepositorySection` v settings (add/remove repos)
 - `RepoSelector` dropdown v sidebar
-- Zustand store pre `activeRepoId`
+- `activeRepoId` v localStorage + React Context
 
 **Výsledok:** Pridáš repo → backend ho naklonuje → vidíš ho v selektore
 
@@ -269,7 +269,7 @@ Frontend:
 | Build | Vite 6 |
 | Routing | React Router v7 |
 | Server state | TanStack Query v5 |
-| Client state | Zustand (auth, active repo) |
+| Client state | localStorage + React Context |
 | Styling | Tailwind CSS + shadcn/ui |
 | Terminal | xterm.js |
 | Forms | React Hook Form + Zod |
