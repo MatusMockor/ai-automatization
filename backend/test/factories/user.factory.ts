@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { User } from '../../src/users/entities/user.entity';
 
 type CreateUserInput = {
+  name?: string;
   email?: string;
   password?: string;
 };
@@ -22,6 +23,7 @@ export class UserFactory {
 
     const repository = this.dataSource.getRepository(User);
     const user = repository.create({
+      name: input.name ?? 'Test User',
       email: input.email ?? `${randomUUID()}@example.com`,
       passwordHash,
     });
