@@ -9,6 +9,7 @@ export class CreateUsersTable1740571200000 implements MigrationInterface {
       CREATE TABLE IF NOT EXISTS "users" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
         "email" character varying(255) NOT NULL,
+        "name" character varying(100) NOT NULL,
         "password_hash" character varying(255) NOT NULL,
         "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
         "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),

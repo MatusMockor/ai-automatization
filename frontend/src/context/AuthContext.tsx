@@ -45,37 +45,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    try {
-      const { data } = await api.post('/auth/login', { email, password });
-      const { access_token, user: userData } = data;
-      saveSession(access_token, userData);
-      setToken(access_token);
-      setUser(userData);
-    } catch {
-      // Backend auth not implemented yet — mock login
-      const mockUser: User = { id: '1', name: email.split('@')[0], email };
-      const mockToken = 'mock-jwt-token';
-      saveSession(mockToken, mockUser);
-      setToken(mockToken);
-      setUser(mockUser);
-    }
+    const { data } = await api.post('/auth/login', { email, password });
+    const { accessToken, user: userData } = data;
+    saveSession(accessToken, userData);
+    setToken(accessToken);
+    setUser(userData);
   }, []);
 
   const register = useCallback(async (name: string, email: string, password: string) => {
-    try {
-      const { data } = await api.post('/auth/register', { name, email, password });
-      const { access_token, user: userData } = data;
-      saveSession(access_token, userData);
-      setToken(access_token);
-      setUser(userData);
-    } catch {
-      // Backend auth not implemented yet — mock register
-      const mockUser: User = { id: '1', name, email };
-      const mockToken = 'mock-jwt-token';
-      saveSession(mockToken, mockUser);
-      setToken(mockToken);
-      setUser(mockUser);
-    }
+    const { data } = await api.post('/auth/register', { name, email, password });
+    const { accessToken, user: userData } = data;
+    saveSession(accessToken, userData);
+    setToken(accessToken);
+    setUser(userData);
   }, []);
 
   const logout = useCallback(() => {

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 
 type CreateUserInput = {
+  name: string;
   email: string;
   passwordHash: string;
 };

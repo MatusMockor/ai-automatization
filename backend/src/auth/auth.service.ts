@@ -51,6 +51,7 @@ export class AuthService {
 
     try {
       const user = await this.usersService.create({
+        name: dto.name,
         email: dto.email,
         passwordHash,
       });
@@ -94,6 +95,7 @@ export class AuthService {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
+      name: user.name,
     };
 
     const accessToken = await this.jwtService.signAsync(payload);
@@ -108,6 +110,7 @@ export class AuthService {
     return {
       id: user.id,
       email: user.email,
+      name: user.name,
     };
   }
 
