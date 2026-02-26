@@ -65,7 +65,23 @@ export class RepositoryFactory {
     const normalizedFullName = (
       fullName ?? this.generateFullName()
     ).toLowerCase();
-    const [owner, repositoryName] = normalizedFullName.split('/');
+    const segments = normalizedFullName.split('/');
+    if (
+      segments.length !== 2 ||
+      segments[0]?.trim().length === 0 ||
+      segments[1]?.trim().length === 0
+    ) {
+      throw new Error('Invalid repository fullName');
+    }
+
+    const [ownerRaw, repositoryNameRaw] = segments;
+    const owner = this.sanitizeSegment(ownerRaw);
+    const repositoryName = this.sanitizeSegment(repositoryNameRaw);
+    if (owner.length === 0 || repositoryName.length === 0) {
+      throw new Error('Invalid repository fullName');
+    }
+
+    const sanitizedFullName = `${owner}/${repositoryName}`;
     const fixtureName = `${owner}__${repositoryName}`;
 
     const remotePath = join(this.getRemotesRoot(), `${fixtureName}.git`);
@@ -79,7 +95,7 @@ export class RepositoryFactory {
     await this.runGit(['init', '-b', 'main'], seedPath);
     await writeFile(
       join(seedPath, 'README.md'),
-      `# ${normalizedFullName}\n`,
+      `# ${sanitizedFullName}\n`,
       'utf8',
     );
     await this.runGit(['add', '.'], seedPath);
@@ -97,7 +113,7 @@ export class RepositoryFactory {
     await rm(seedPath, { recursive: true, force: true });
 
     return {
-      fullName: normalizedFullName,
+      fullName: sanitizedFullName,
       cloneUrl: remotePath,
       defaultBranch: 'main',
       remotePath,
