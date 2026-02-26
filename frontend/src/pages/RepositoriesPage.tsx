@@ -25,7 +25,7 @@ export function RepositoriesPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [fullName, setFullName] = useState('');
   const [adding, setAdding] = useState(false);
-  const [syncing, setSyncing] = useState<string | null>(null);
+  const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deletingInFlight, setDeletingInFlight] = useState(false);
 
@@ -63,7 +63,8 @@ export function RepositoriesPage() {
   };
 
   const handleSync = async (repoId: string) => {
-    setSyncing(repoId);
+    if (syncingIds.has(repoId)) return;
+    setSyncingIds((prev) => new Set(prev).add(repoId));
     try {
       const { data } = await api.post<Repository>(`/repositories/${repoId}/sync`);
       setRepos((prev) => prev.map((r) => (r.id === repoId ? data : r)));
@@ -71,7 +72,11 @@ export function RepositoriesPage() {
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to sync repository'));
     } finally {
-      setSyncing(null);
+      setSyncingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(repoId);
+        return next;
+      });
     }
   };
 
@@ -213,11 +218,11 @@ export function RepositoriesPage() {
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => handleSync(repo.id)}
-                    disabled={syncing === repo.id}
+                    disabled={syncingIds.has(repo.id)}
                     className="rounded-lg p-2 text-muted-foreground hover:bg-foreground/5 hover:text-foreground disabled:opacity-50"
                     title="Pull latest changes"
                   >
-                    <RefreshCw className={cn('h-4 w-4', syncing === repo.id && 'animate-spin')} />
+                    <RefreshCw className={cn('h-4 w-4', syncingIds.has(repo.id) && 'animate-spin')} />
                   </button>
                   {deleting === repo.id ? (
                     <>
