@@ -83,7 +83,16 @@ Infra:
 - `.docker/nginx.conf` (SPA fallback, /api proxy)
 - `.env.example`, `.gitignore`
 
-**Výsledok:** `docker-compose up` spustí 3 služby, frontend ukazuje prázdnu stránku, backend vracia healthcheck
+Docker / PostgreSQL izolácia:
+- PostgreSQL beží na **custom porte** (napr. `5433:5432`) aby nekolidoval s lokálnymi PG inštanciami
+- Vlastný **named volume** s project-specific názvom: `ai_automation_pg_data` (nie generický `pg_data`)
+- Vlastný **docker network** (`ai-automation-net`) aby kontajnery boli izolované od iných projektov
+- DB credentials unikátne pre tento projekt (user: `ai_automation`, db: `ai_automation_db`)
+- Backend sa pripája na postgres cez docker network hostname (nie localhost)
+- `docker-compose down` zmaže kontajnery ale **volume zostáva** - data sa nestratia
+- Na úplný reset: `docker-compose down -v` (explicitne s `-v` flagom)
+
+**Výsledok:** `docker-compose up` spustí 3 služby, frontend ukazuje prázdnu stránku, backend vracia healthcheck. PostgreSQL je plne izolovaný od ostatných lokálnych databáz.
 
 ---
 
