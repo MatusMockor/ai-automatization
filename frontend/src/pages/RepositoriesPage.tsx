@@ -175,8 +175,9 @@ export function RepositoriesPage() {
 
       {/* Loading spinner */}
       {loading && (
-        <div className="flex justify-center py-12">
+        <div className="flex justify-center py-12" role="status" aria-live="polite">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <span className="sr-only">Loading repositories...</span>
         </div>
       )}
 
