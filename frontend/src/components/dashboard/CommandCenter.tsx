@@ -7,20 +7,21 @@ import { ExecutionHistory } from "@/components/shared/ExecutionHistory";
 import { RepoSelector } from "@/components/shared/RepoSelector";
 import { TaskStatusDot } from "@/components/shared/StatusIcon";
 import { timeAgo } from "@/lib/time";
-import { mockTasks, mockExecutions } from "@/data/mock";
 import { cn } from "@/lib/utils";
-import type { Task, TaskPrefix } from "@/types";
+import type { Task, TaskPrefix, Execution } from "@/types";
 import { LayoutDashboard, Settings, Activity, Search } from "lucide-react";
 
 export function CommandCenter() {
+  const tasks: Task[] = [];
+  const executions: Execution[] = [];
   const [selectedPrefix, setSelectedPrefix] = useState<TaskPrefix | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(
-    mockTasks[0] ?? null,
+    tasks[0] ?? null,
   );
 
   const filtered = selectedPrefix
-    ? mockTasks.filter((t) => t.prefix === selectedPrefix)
-    : mockTasks;
+    ? tasks.filter((t) => t.prefix === selectedPrefix)
+    : tasks;
 
   useEffect(() => {
     if (filtered.length === 0) {
@@ -33,9 +34,9 @@ export function CommandCenter() {
   }, [filtered]);
 
   const taskExecutions = selectedTask
-    ? mockExecutions.filter((e) => e.taskId === selectedTask.id)
+    ? executions.filter((e) => e.taskId === selectedTask.id)
     : [];
-  const runningCount = mockExecutions.filter(
+  const runningCount = executions.filter(
     (e) => e.status === "running",
   ).length;
 

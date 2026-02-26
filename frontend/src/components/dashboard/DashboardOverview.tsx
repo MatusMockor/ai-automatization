@@ -6,9 +6,8 @@ import { PrefixFilter, prefixConfig } from '@/components/shared/PrefixFilter';
 import { ActionButtons } from '@/components/shared/ActionButtons';
 import { RepoSelector } from '@/components/shared/RepoSelector';
 import { timeAgo } from '@/lib/time';
-import { mockTasks, mockExecutions, mockActivities } from '@/data/mock';
 import { cn } from '@/lib/utils';
-import type { TaskPrefix, ActivityItem } from '@/types';
+import type { Task, TaskPrefix, Execution, ActivityItem } from '@/types';
 import {
   ListTodo,
   Wrench,
@@ -57,13 +56,16 @@ const activityIcons: Record<ActivityItem['type'], { icon: React.ElementType; col
 };
 
 export function DashboardOverview() {
+  const tasks: Task[] = [];
+  const executions: Execution[] = [];
+  const activities: ActivityItem[] = [];
   const [selectedPrefix, setSelectedPrefix] = useState<TaskPrefix | null>(null);
 
   const filtered = selectedPrefix
-    ? mockTasks.filter((t) => t.prefix === selectedPrefix)
-    : mockTasks;
+    ? tasks.filter((t) => t.prefix === selectedPrefix)
+    : tasks;
 
-  const prefixCounts = mockTasks.reduce(
+  const prefixCounts = tasks.reduce(
     (acc, t) => {
       acc[t.prefix] = (acc[t.prefix] ?? 0) + 1;
       return acc;
@@ -101,10 +103,10 @@ export function DashboardOverview() {
         <div className="flex-1 overflow-y-auto p-5">
           {/* Stats */}
           <div className="mb-6 grid grid-cols-4 gap-3">
-            <StatCard label="Total Tasks" value={mockTasks.length} icon={ListTodo} gradient="from-blue-500 to-cyan-500" />
-            <StatCard label="Fix Priority" value={mockTasks.filter((t) => t.prefix === 'fix' && t.status === 'open').length} icon={Wrench} gradient="from-red-500 to-rose-500" />
-            <StatCard label="Running" value={mockExecutions.filter((e) => e.status === 'running').length} icon={Activity} gradient="from-emerald-500 to-green-500" />
-            <StatCard label="Failed" value={mockExecutions.filter((e) => e.status === 'failed').length} icon={AlertTriangle} gradient="from-orange-500 to-amber-500" />
+            <StatCard label="Total Tasks" value={tasks.length} icon={ListTodo} gradient="from-blue-500 to-cyan-500" />
+            <StatCard label="Fix Priority" value={tasks.filter((t) => t.prefix === 'fix' && t.status === 'open').length} icon={Wrench} gradient="from-red-500 to-rose-500" />
+            <StatCard label="Running" value={executions.filter((e) => e.status === 'running').length} icon={Activity} gradient="from-emerald-500 to-green-500" />
+            <StatCard label="Failed" value={executions.filter((e) => e.status === 'failed').length} icon={AlertTriangle} gradient="from-orange-500 to-amber-500" />
           </div>
 
           {/* Filters + tasks */}
@@ -114,6 +116,11 @@ export function DashboardOverview() {
           </div>
 
           <div className="space-y-2">
+            {filtered.length === 0 && (
+              <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                No tasks yet
+              </p>
+            )}
             {filtered.map((task) => {
               const cfg = prefixConfig[task.prefix];
               return (
@@ -150,7 +157,10 @@ export function DashboardOverview() {
           </div>
           <ScrollArea className="h-full">
             <div className="space-y-0.5 p-2">
-              {mockActivities.map((activity) => {
+              {activities.length === 0 && (
+                <p className="px-3 py-6 text-center text-xs text-muted-foreground">No activity yet</p>
+              )}
+              {activities.map((activity) => {
                 const { icon: Icon, color } = activityIcons[activity.type];
                 return (
                   <div key={activity.id} className="flex items-start gap-3 rounded-lg px-3 py-2.5 hover:bg-foreground/[0.02]">

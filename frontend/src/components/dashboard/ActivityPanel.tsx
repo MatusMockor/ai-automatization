@@ -35,6 +35,9 @@ export function ActivityPanel({ activities }: ActivityPanelProps) {
 
       <div className="flex-1 overflow-y-auto">
         <div className="p-2">
+          {activities.length === 0 && (
+            <p className="px-2 py-6 text-center text-xs text-muted-foreground">No activity yet</p>
+          )}
           {activities.map((activity, i) => {
             const { icon: Icon, color } = icons[activity.type];
             return (

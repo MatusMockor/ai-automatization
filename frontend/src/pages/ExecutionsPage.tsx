@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { ExecutionStatusIcon } from '@/components/shared/StatusIcon';
 import { timeAgo } from '@/lib/time';
-import { mockExecutions } from '@/data/mock';
 import { cn } from '@/lib/utils';
 import type { Execution } from '@/types';
 import { Square, Copy, X } from 'lucide-react';
@@ -13,6 +12,7 @@ const actionColors: Record<string, string> = {
 };
 
 export function ExecutionsPage() {
+  const executions: Execution[] = [];
   const [selected, setSelected] = useState<Execution | null>(null);
 
   return (
@@ -22,13 +22,18 @@ export function ExecutionsPage() {
         <div className="border-b border-border px-5 py-3">
           <h1 className="text-sm font-semibold">Executions</h1>
           <p className="text-xs text-muted-foreground">
-            {mockExecutions.length} total · {mockExecutions.filter((e) => e.status === 'running').length} running
+            {executions.length} total · {executions.filter((e) => e.status === 'running').length} running
           </p>
         </div>
 
         <div className="flex-1 overflow-y-auto">
           <div className="divide-y divide-border">
-            {mockExecutions.map((exec) => (
+            {executions.length === 0 && (
+              <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+                No executions yet
+              </div>
+            )}
+            {executions.map((exec) => (
               <button
                 key={exec.id}
                 onClick={() => setSelected(exec)}
