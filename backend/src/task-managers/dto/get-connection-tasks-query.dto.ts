@@ -14,8 +14,13 @@ const toOptionalInteger = (value: unknown): unknown => {
     return value;
   }
 
-  const parsed = Number.parseInt(value, 10);
-  return Number.isNaN(parsed) ? value : parsed;
+  const parsed = Number.parseFloat(value);
+  if (Number.isNaN(parsed)) {
+    return value;
+  }
+
+  // Reject decimal inputs (for example "5.7"), the query accepts integers only.
+  return Number.isInteger(parsed) ? parsed : value;
 };
 
 export class GetConnectionTasksQueryDto {

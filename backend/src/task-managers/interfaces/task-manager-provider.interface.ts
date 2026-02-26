@@ -2,6 +2,8 @@ export type TaskManagerProviderType = 'asana' | 'jira';
 
 export type TaskManagerAuthMode = 'basic' | 'bearer';
 
+export type ConnectionStatus = 'connected' | 'invalid' | 'pending';
+
 export type TaskItemStatus =
   | 'open'
   | 'in_progress'
