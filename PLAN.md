@@ -66,9 +66,15 @@ ai-automatization/
 
 Backend:
 - `nest new backend` (NestJS scaffold)
-- ConfigModule s `.env` validáciou
+- ConfigModule s `.env` validáciou (root `.env` zdieľaný cez docker-compose `env_file`)
 - TypeORM setup + pripojenie na PostgreSQL
 - Healthcheck endpoint (`GET /health`)
+
+Backend Docker dev experience:
+- **Hot reload** v Dockeri - bind mount `./backend/src` do kontajnera + `npm run start:dev` (nestjs `--watch`)
+- Dockerfile s dev targetom (`docker-compose.dev.yml` alebo multi-stage: dev stage používa `nest start --watch`)
+- `.env` súbor v roote projektu, docker-compose ho načíta cez `env_file: .env` - jedna `.env` pre všetky služby
+- `.env.example` s popismi všetkých premenných (DB, JWT, ENCRYPTION_KEY, porty)
 
 Frontend:
 - `npm create vite frontend -- --template react-ts`
