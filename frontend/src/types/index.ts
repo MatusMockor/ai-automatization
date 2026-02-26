@@ -30,9 +30,12 @@ export interface Execution {
 
 export interface Repository {
   id: string;
-  name: string;
   fullName: string;
-  isActive: boolean;
+  cloneUrl: string;
+  defaultBranch: string;
+  isCloned: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ActivityItem {

@@ -6,9 +6,7 @@ import { ChevronDown, Check } from 'lucide-react';
 export function RepoSelector({ className }: { className?: string }) {
   const repositories: Repository[] = [];
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState<Repository | null>(
-    repositories.find((r) => r.isActive) ?? null,
-  );
+  const [active, setActive] = useState<Repository | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
