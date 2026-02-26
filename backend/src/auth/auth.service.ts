@@ -17,8 +17,11 @@ import { User } from '../users/entities/user.entity';
 
 type PostgresError = {
   code?: string;
+  message?: string;
   driverError?: {
     code?: string;
+    errno?: number;
+    message?: string;
   };
 };
 
@@ -109,11 +112,26 @@ export class AuthService {
   }
 
   private isUniqueViolation(error: unknown): boolean {
-    const postgresError = error as PostgresError;
+    if (!(error instanceof QueryFailedError)) {
+      return false;
+    }
+
+    const databaseError = error as PostgresError;
+    const driverCode = databaseError.driverError?.code;
+    const driverErrno = databaseError.driverError?.errno;
+    const errorMessage = (
+      databaseError.driverError?.message ??
+      databaseError.message ??
+      ''
+    ).toLowerCase();
+
     return (
-      error instanceof QueryFailedError &&
-      (postgresError.code === '23505' ||
-        postgresError.driverError?.code === '23505')
+      databaseError.code === '23505' ||
+      driverCode === '23505' ||
+      databaseError.code === 'SQLITE_CONSTRAINT' ||
+      driverCode === 'SQLITE_CONSTRAINT' ||
+      driverErrno === 19 ||
+      errorMessage.includes('unique constraint failed')
     );
   }
 }

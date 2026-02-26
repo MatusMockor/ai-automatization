@@ -1,8 +1,7 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import { Request } from 'express';
 import { RequestUser } from '../../auth/interfaces/request-user.interface';
 
-type RequestWithUser = Request & {
+type RequestWithUser = {
   user: RequestUser;
 };
 
