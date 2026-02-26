@@ -1,0 +1,4 @@
+export const GITHUB_REPOSITORIES_GATEWAY = Symbol(
+  'GITHUB_REPOSITORIES_GATEWAY',
+);
+export const GIT_CLIENT = Symbol('GIT_CLIENT');
