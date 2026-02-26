@@ -2,6 +2,10 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 
 type Theme = 'light' | 'dark' | 'system';
 
+function isTheme(value: string | null): value is Theme {
+  return value === 'light' || value === 'dark' || value === 'system';
+}
+
 interface ThemeContextValue {
   theme: Theme;
   resolved: 'light' | 'dark';
@@ -16,7 +20,8 @@ function getSystemTheme(): 'light' | 'dark' {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
-    return (localStorage.getItem('theme') as Theme) ?? 'dark';
+    const stored = localStorage.getItem('theme');
+    return isTheme(stored) ? stored : 'dark';
   });
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(() => getSystemTheme());
 

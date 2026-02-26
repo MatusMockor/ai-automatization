@@ -55,6 +55,24 @@ export function TerminalFirst() {
           e.preventDefault();
           setSearchOpen(true);
           break;
+        case "f":
+        case "F":
+          e.preventDefault();
+          setSelectedPrefix("fix");
+          setSelectedIndex(0);
+          break;
+        case "e":
+        case "E":
+          e.preventDefault();
+          setSelectedPrefix("feature");
+          setSelectedIndex(0);
+          break;
+        case "p":
+        case "P":
+          e.preventDefault();
+          setSelectedPrefix("plan");
+          setSelectedIndex(0);
+          break;
       }
     },
     [displayTasks.length, searchOpen],
