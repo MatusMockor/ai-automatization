@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai_automation_postgres
+    environment:
+      POSTGRES_USER: ai_automation
+      POSTGRES_PASSWORD: ai_automation_secret
+      POSTGRES_DB: ai_automation_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - ai_automation_pg_data:/var/lib/postgresql/data
+    networks:
+      - ai-automation-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_automation -d ai_automation_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai_automation_backend
+    env_file: .env
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend/src:/app/src
+      - repos_data:/app/repos
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ai-automation-net
+    restart: unless-stopped
+
+volumes:
+  ai_automation_pg_data:
+  repos_data:
+
+networks:
+  ai-automation-net:
+    name: ai-automation-net
