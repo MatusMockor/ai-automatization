@@ -86,6 +86,9 @@ export class RepositoryFactory {
     await this.runGitCommit(seedPath, 'Initial commit');
     await this.runGit(['remote', 'add', 'origin', remotePath], seedPath);
     await this.runGit(['push', '-u', 'origin', 'main'], seedPath);
+    await this.runGit(
+      ['--git-dir', remotePath, 'symbolic-ref', 'HEAD', 'refs/heads/main'],
+    );
     await rm(seedPath, { recursive: true, force: true });
 
     return {
@@ -103,7 +106,9 @@ export class RepositoryFactory {
     const updateFolderName = `update-${Date.now()}-${faker.string.alphanumeric(6).toLowerCase()}`;
     const updatePath = join(this.getWorkingRoot(), updateFolderName);
 
-    await this.runGit(['clone', remotePath, updatePath]);
+    await this.runGit(
+      ['clone', '--branch', defaultBranch, '--single-branch', remotePath, updatePath],
+    );
 
     const fileName = `update-${faker.string.alphanumeric(8).toLowerCase()}.txt`;
     await writeFile(join(updatePath, fileName), faker.lorem.sentence(), 'utf8');
