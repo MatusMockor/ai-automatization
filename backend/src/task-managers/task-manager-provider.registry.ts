@@ -16,9 +16,22 @@ export class TaskManagerProviderRegistry {
     @Inject(TASK_MANAGER_PROVIDERS)
     providers: TaskManagerProvider[],
   ) {
-    this.providersByType = new Map(
-      providers.map((provider) => [provider.provider, provider]),
-    );
+    this.providersByType = new Map();
+
+    for (const provider of providers) {
+      const existingProvider = this.providersByType.get(provider.provider);
+      if (existingProvider) {
+        const existingName =
+          existingProvider.constructor?.name ?? 'UnknownProvider';
+        const duplicateName = provider.constructor?.name ?? 'UnknownProvider';
+
+        throw new Error(
+          `Duplicate task manager provider registration for "${provider.provider}" (${existingName} and ${duplicateName})`,
+        );
+      }
+
+      this.providersByType.set(provider.provider, provider);
+    }
   }
 
   getProvider(type: TaskManagerProviderType): TaskManagerProvider {

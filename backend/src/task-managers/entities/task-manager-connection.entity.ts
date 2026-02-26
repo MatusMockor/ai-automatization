@@ -10,6 +10,7 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
+import type { ConnectionStatus } from '../interfaces/task-manager-provider.interface';
 import { User } from '../../users/entities/user.entity';
 import { TaskPrefix } from './task-prefix.entity';
 
@@ -63,14 +64,14 @@ export class TaskManagerConnection {
   @Column({ name: 'auth_mode', type: 'varchar', length: 16, nullable: true })
   authMode!: string | null;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  email!: string | null;
+  @Column({ name: 'email_encrypted', type: 'text', nullable: true })
+  emailEncrypted!: string | null;
 
   @Column({ name: 'secret_encrypted', type: 'text' })
   secretEncrypted!: string;
 
   @Column({ type: 'varchar', length: 16, default: 'connected' })
-  status!: string;
+  status!: ConnectionStatus;
 
   @Column({
     name: 'last_validated_at',

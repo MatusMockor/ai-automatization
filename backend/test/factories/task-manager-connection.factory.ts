@@ -55,11 +55,14 @@ export class TaskManagerConnectionFactory {
             ? faker.string.alpha({ length: 4 }).toUpperCase()
             : null),
         authMode: input.authMode ?? (provider === 'jira' ? 'bearer' : null),
-        email:
-          input.email ??
-          (provider === 'jira' && (input.authMode ?? 'bearer') === 'basic'
-            ? faker.internet.email().toLowerCase()
-            : null),
+        emailEncrypted:
+          provider === 'jira' && (input.authMode ?? 'bearer') === 'basic'
+            ? input.email === null
+              ? null
+              : this.encryptionService.encrypt(
+                  input.email ?? faker.internet.email().toLowerCase(),
+                )
+            : null,
         secretEncrypted: this.encryptionService.encrypt(secret),
         status: input.status ?? 'connected',
         lastValidatedAt: input.lastValidatedAt ?? new Date(),

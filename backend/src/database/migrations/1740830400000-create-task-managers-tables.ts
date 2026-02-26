@@ -73,9 +73,8 @@ export class CreateTaskManagersTables1740830400000 implements MigrationInterface
             isNullable: true,
           },
           {
-            name: 'email',
-            type: 'varchar',
-            length: '255',
+            name: 'email_encrypted',
+            type: 'text',
             isNullable: true,
           },
           {

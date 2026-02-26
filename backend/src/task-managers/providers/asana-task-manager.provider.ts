@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as Asana from 'asana';
+import { parsePositiveInteger } from '../../common/utils/parse.utils';
 import {
   TaskManagerProviderAuthError,
   TaskManagerProviderConfigurationError,
@@ -40,7 +41,7 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
   private readonly timeoutMs: number;
 
   constructor(private readonly configService: ConfigService) {
-    this.timeoutMs = this.parsePositiveInteger(
+    this.timeoutMs = parsePositiveInteger(
       this.configService.get<string>('TASK_MANAGER_HTTP_TIMEOUT_MS', '15000'),
       15000,
     );
@@ -152,8 +153,8 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
       }));
   }
 
-  private createClient(accessToken: string): any {
-    return (Asana as any).Client.create().useAccessToken(accessToken);
+  private createClient(accessToken: string): Asana.Client {
+    return Asana.Client.create().useAccessToken(accessToken);
   }
 
   private assertAsanaConfig(
@@ -281,14 +282,5 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
     }
 
     return timestamp.toISOString();
-  }
-
-  private parsePositiveInteger(value: string, fallback: number): number {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed) || parsed <= 0) {
-      return fallback;
-    }
-
-    return parsed;
   }
 }

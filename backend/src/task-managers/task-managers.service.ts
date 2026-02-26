@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { EncryptionService } from '../common/encryption/encryption.service';
+import { parsePositiveInteger } from '../common/utils/parse.utils';
 import { AddTaskPrefixDto } from './dto/add-task-prefix.dto';
 import { ConnectionTasksResponseDto } from './dto/connection-tasks-response.dto';
 import { CreateTaskManagerConnectionDto } from './dto/create-task-manager-connection.dto';
@@ -53,11 +54,11 @@ export class TaskManagersService {
     private readonly taskFilterService: TaskFilterService,
     private readonly configService: ConfigService,
   ) {
-    this.defaultTaskLimit = this.parsePositiveInteger(
+    this.defaultTaskLimit = parsePositiveInteger(
       this.configService.get<string>('TASK_MANAGER_DEFAULT_TASK_LIMIT', '100'),
       100,
     );
-    this.maxTaskLimit = this.parsePositiveInteger(
+    this.maxTaskLimit = parsePositiveInteger(
       this.configService.get<string>('TASK_MANAGER_MAX_TASK_LIMIT', '100'),
       this.defaultTaskLimit,
     );
@@ -115,10 +116,10 @@ export class TaskManagersService {
           : null,
       authMode:
         validationConfig.provider === 'jira' ? validationConfig.authMode : null,
-      email:
+      emailEncrypted:
         validationConfig.provider === 'jira' &&
         validationConfig.authMode === 'basic'
-          ? validationConfig.email
+          ? this.encryptionService.encrypt(validationConfig.email)
           : null,
       secretEncrypted: this.encryptionService.encrypt(
         this.extractSecret(validationConfig),
@@ -369,7 +370,7 @@ export class TaskManagersService {
     }
 
     if (connection.authMode === 'basic') {
-      if (!connection.baseUrl || !connection.email) {
+      if (!connection.baseUrl || !connection.emailEncrypted) {
         throw new BadRequestException(
           'Stored Jira connection is invalid and cannot be used',
         );
@@ -380,7 +381,7 @@ export class TaskManagersService {
         baseUrl: connection.baseUrl,
         projectKey: connection.projectKey,
         authMode: 'basic',
-        email: connection.email,
+        email: this.encryptionService.decrypt(connection.emailEncrypted),
         apiToken: secret,
       };
     }
@@ -453,15 +454,6 @@ export class TaskManagersService {
     }
 
     return Math.min(Math.max(1, requestedLimit), this.maxTaskLimit);
-  }
-
-  private parsePositiveInteger(value: string, fallback: number): number {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed) || parsed <= 0) {
-      return fallback;
-    }
-
-    return parsed;
   }
 
   private isUniqueViolation(error: unknown): boolean {

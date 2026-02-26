@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Version3Client } from 'jira.js';
+import { parsePositiveInteger } from '../../common/utils/parse.utils';
 import {
   TaskManagerProviderAuthError,
   TaskManagerProviderConfigurationError,
@@ -41,7 +42,7 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
   private readonly timeoutMs: number;
 
   constructor(private readonly configService: ConfigService) {
-    this.timeoutMs = this.parsePositiveInteger(
+    this.timeoutMs = parsePositiveInteger(
       this.configService.get<string>('TASK_MANAGER_HTTP_TIMEOUT_MS', '15000'),
       15000,
     );
@@ -53,7 +54,7 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
 
     try {
       await this.withTimeout(
-        (client as any).myself.getCurrentUser(),
+        client.myself.getCurrentUser(),
         'Jira validation request timed out before completion',
       );
     } catch (error) {
@@ -63,7 +64,7 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
     if (jiraConfig.projectKey) {
       try {
         await this.withTimeout(
-          (client as any).projects.getProject({
+          client.projects.getProject({
             projectIdOrKey: jiraConfig.projectKey,
           }),
           'Jira project validation request timed out before completion',
@@ -97,7 +98,7 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
 
     try {
       response = (await this.withTimeout(
-        (client as any).issueSearch.searchForIssuesUsingJqlPost({
+        client.issueSearch.searchForIssuesUsingJqlPost({
           jql,
           maxResults: limit,
           fields: ['summary', 'description', 'status', 'assignee', 'updated'],
@@ -132,7 +133,7 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
     if (jiraConfig.projectKey) {
       try {
         const project = (await this.withTimeout(
-          (client as any).projects.getProject({
+          client.projects.getProject({
             projectIdOrKey: jiraConfig.projectKey,
           }),
           'Jira project fetch request timed out before completion',
@@ -155,7 +156,7 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
 
     try {
       const response = (await this.withTimeout(
-        (client as any).projectSearch.searchProjects({
+        client.projects.searchProjects({
           maxResults: 100,
         }),
         'Jira projects fetch request timed out before completion',
@@ -346,14 +347,5 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
         clearTimeout(timeoutId);
       }
     }
-  }
-
-  private parsePositiveInteger(value: string, fallback: number): number {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed) || parsed <= 0) {
-      return fallback;
-    }
-
-    return parsed;
   }
 }
