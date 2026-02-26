@@ -1,3 +1,4 @@
+import { faker } from '@faker-js/faker';
 import { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DataSource } from 'typeorm';
 import { User } from '../src/users/entities/user.entity';
@@ -25,11 +26,7 @@ describe('Auth (e2e)', () => {
   });
 
   it('POST /api/auth/register should create user and return token', async () => {
-    const payload = {
-      name: 'New User',
-      email: 'new-user@example.com',
-      password: 'Password123!',
-    };
+    const payload = userFactory.buildCreateInput();
 
     const response = await app.inject({
       method: 'POST',
@@ -58,16 +55,16 @@ describe('Auth (e2e)', () => {
   });
 
   it('POST /api/auth/register should reject duplicate email', async () => {
-    const email = 'duplicate@example.com';
-    await userFactory.create({ email });
+    const duplicateUser = userFactory.buildCreateInput();
+    await userFactory.create({ email: duplicateUser.email });
 
     const response = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
       payload: {
-        name: 'Duplicate User',
-        email,
-        password: 'Password123!',
+        name: faker.person.fullName(),
+        email: duplicateUser.email,
+        password: userFactory.buildCreateInput().password,
       },
     });
 
@@ -79,7 +76,8 @@ describe('Auth (e2e)', () => {
       method: 'POST',
       url: '/api/auth/register',
       payload: {
-        password: 'Password123!',
+        name: faker.person.fullName(),
+        password: userFactory.buildCreateInput().password,
       },
     });
 
@@ -114,14 +112,15 @@ describe('Auth (e2e)', () => {
   });
 
   it('POST /api/auth/login should reject invalid credentials', async () => {
-    const { user } = await userFactory.create();
+    const { user, plainPassword } = await userFactory.create();
+    const wrongPassword = `${plainPassword}x`;
 
     const response = await app.inject({
       method: 'POST',
       url: '/api/auth/login',
       payload: {
         email: user.email,
-        password: 'WrongPassword123!',
+        password: wrongPassword,
       },
     });
 
@@ -134,7 +133,7 @@ describe('Auth (e2e)', () => {
       url: '/api/auth/login',
       payload: {
         email: 12345,
-        password: 'Password123!',
+        password: userFactory.buildCreateInput().password,
       },
     });
 

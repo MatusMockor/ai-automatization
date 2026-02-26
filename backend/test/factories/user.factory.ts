@@ -1,5 +1,5 @@
+import { faker } from '@faker-js/faker';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
 import { DataSource } from 'typeorm';
 import { User } from '../../src/users/entities/user.entity';
 
@@ -17,14 +17,23 @@ type CreatedUser = {
 export class UserFactory {
   constructor(private readonly dataSource: DataSource) {}
 
+  buildCreateInput(input: CreateUserInput = {}): Required<CreateUserInput> {
+    return {
+      name: input.name ?? faker.person.fullName(),
+      email: input.email ?? faker.internet.email().toLowerCase(),
+      password: input.password ?? UserFactory.generateStrongPassword(),
+    };
+  }
+
   async create(input: CreateUserInput = {}): Promise<CreatedUser> {
-    const plainPassword = input.password ?? 'Password123!';
+    const generatedInput = this.buildCreateInput(input);
+    const plainPassword = generatedInput.password;
     const passwordHash = await bcrypt.hash(plainPassword, 4);
 
     const repository = this.dataSource.getRepository(User);
     const user = repository.create({
-      name: input.name ?? 'Test User',
-      email: input.email ?? `${randomUUID()}@example.com`,
+      name: generatedInput.name,
+      email: generatedInput.email,
       passwordHash,
     });
 
@@ -32,5 +41,9 @@ export class UserFactory {
       user: await repository.save(user),
       plainPassword,
     };
+  }
+
+  private static generateStrongPassword(): string {
+    return `Aa1!${faker.string.alphanumeric(12)}`;
   }
 }
