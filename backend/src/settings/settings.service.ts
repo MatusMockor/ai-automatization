@@ -27,6 +27,15 @@ export class SettingsService {
     return this.toSettingsResponse(settings);
   }
 
+  async getGithubTokenForUserOrNull(userId: string): Promise<string | null> {
+    const settings = await this.settingsRepository.findOneBy({ userId });
+    if (!settings?.githubTokenEncrypted) {
+      return null;
+    }
+
+    return this.encryptionService.decrypt(settings.githubTokenEncrypted);
+  }
+
   async updateSettings(
     userId: string,
     dto: UpdateSettingsDto,
