@@ -177,7 +177,9 @@ describe('Auth (e2e)', () => {
 
     expect(meResponse.statusCode).toBe(200);
 
-    expect(meResponse.json<{ id: string; email: string; name: string }>()).toEqual({
+    expect(
+      meResponse.json<{ id: string; email: string; name: string }>(),
+    ).toEqual({
       id: user.id,
       email: user.email,
       name: user.name,
