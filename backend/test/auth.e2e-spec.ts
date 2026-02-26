@@ -26,6 +26,7 @@ describe('Auth (e2e)', () => {
 
   it('POST /api/auth/register should create user and return token', async () => {
     const payload = {
+      name: 'New User',
       email: 'new-user@example.com',
       password: 'Password123!',
     };
@@ -40,11 +41,12 @@ describe('Auth (e2e)', () => {
 
     const body = response.json<{
       accessToken: string;
-      user: { id: string; email: string };
+      user: { id: string; email: string; name: string };
     }>();
 
     expect(body.accessToken).toEqual(expect.any(String));
     expect(body.user.email).toBe(payload.email);
+    expect(body.user.name).toBe(payload.name);
     expect(body.user.id).toEqual(expect.any(String));
 
     const storedUser = await dataSource
@@ -63,6 +65,7 @@ describe('Auth (e2e)', () => {
       method: 'POST',
       url: '/api/auth/register',
       payload: {
+        name: 'Duplicate User',
         email,
         password: 'Password123!',
       },
@@ -99,13 +102,14 @@ describe('Auth (e2e)', () => {
 
     const body = response.json<{
       accessToken: string;
-      user: { id: string; email: string };
+      user: { id: string; email: string; name: string };
     }>();
 
     expect(body.accessToken).toEqual(expect.any(String));
     expect(body.user).toEqual({
       id: user.id,
       email: user.email,
+      name: user.name,
     });
   });
 
@@ -173,9 +177,10 @@ describe('Auth (e2e)', () => {
 
     expect(meResponse.statusCode).toBe(200);
 
-    expect(meResponse.json<{ id: string; email: string }>()).toEqual({
+    expect(meResponse.json<{ id: string; email: string; name: string }>()).toEqual({
       id: user.id,
       email: user.email,
+      name: user.name,
     });
   });
 });
