@@ -218,8 +218,10 @@ export function RepositoriesPage() {
 
                 <div className="flex items-center gap-1">
                   <button
+                    type="button"
                     onClick={() => handleSync(repo.id)}
                     disabled={syncingIds.has(repo.id)}
+                    aria-label={`Sync ${repo.fullName}`}
                     className="rounded-lg p-2 text-muted-foreground hover:bg-foreground/5 hover:text-foreground disabled:opacity-50"
                     title="Pull latest changes"
                   >
@@ -246,7 +248,9 @@ export function RepositoriesPage() {
                     </>
                   ) : (
                     <button
+                      type="button"
                       onClick={() => setDeleting(repo.id)}
+                      aria-label={`Remove ${repo.fullName}`}
                       className="rounded-lg p-2 text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
                       title="Remove repository"
                     >
