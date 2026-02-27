@@ -284,7 +284,10 @@ describe('Executions (e2e)', () => {
     const created = response.json<{ id: string; status: string }>();
     expect(['running', 'pending', 'completed']).toContain(created.status);
 
-    const execution = await waitForExecution(created.id);
+    const execution = await waitForExecution(
+      created.id,
+      (current) => current.status !== 'pending',
+    );
     expect(['running', 'completed']).toContain(execution.status);
   });
 

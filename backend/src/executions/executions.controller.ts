@@ -85,21 +85,25 @@ export class ExecutionsController {
         reply.raw.write(`data: ${data}\n\n`);
       },
       complete: () => {
-        if (!reply.raw.writableEnded) {
-          reply.raw.end();
+        if (reply.raw.writableEnded || reply.raw.destroyed) {
+          return;
         }
+
+        reply.raw.end();
       },
       error: (error: unknown) => {
-        if (!reply.raw.writableEnded) {
-          this.logger.error('Execution stream failed', error);
-          reply.raw.write('event: error\n');
-          reply.raw.write(
-            `data: ${JSON.stringify({
-              message: 'An error occurred while streaming',
-            })}\n\n`,
-          );
-          reply.raw.end();
+        this.logger.error('Execution stream failed', error);
+        if (reply.raw.writableEnded || reply.raw.destroyed) {
+          return;
         }
+
+        reply.raw.write('event: error\n');
+        reply.raw.write(
+          `data: ${JSON.stringify({
+            message: 'An error occurred while streaming',
+          })}\n\n`,
+        );
+        reply.raw.end();
       },
     });
 
