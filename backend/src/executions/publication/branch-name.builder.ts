@@ -4,7 +4,14 @@ import { Injectable } from '@nestjs/common';
 export class BranchNameBuilder {
   buildBaseBranchName(prefix: string, taskExternalId: string): string {
     const normalizedPrefix =
-      prefix.trim().replace(/\/+$/g, '').replace(/^\/+/, '') || 'feature/ai';
+      prefix
+        .trim()
+        .replace(/\/+$/g, '')
+        .replace(/^\/+/, '')
+        .split('/')
+        .map((segment) => this.sanitizeSegment(segment))
+        .filter((segment) => segment.length > 0)
+        .join('/') || 'feature/ai';
     const normalizedTaskId = this.sanitizeSegment(taskExternalId);
 
     return `${normalizedPrefix}/${normalizedTaskId || 'task'}`;
@@ -21,7 +28,7 @@ export class BranchNameBuilder {
   private sanitizeSegment(value: string): string {
     return value
       .toLowerCase()
-      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/[^a-z0-9_-]+/g, '-')
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '')
       .slice(0, 80);

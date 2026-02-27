@@ -20,4 +20,19 @@ describe('BranchNameBuilder', () => {
       'feature/ai/task-1-3',
     );
   });
+
+  it('sanitizes each prefix segment and falls back when all are invalid', () => {
+    expect(builder.buildBaseBranchName('feature/.AI///..', 'TASK-99')).toBe(
+      'feature/ai/task-99',
+    );
+    expect(builder.buildBaseBranchName('///...///', 'TASK-99')).toBe(
+      'feature/ai/task-99',
+    );
+  });
+
+  it('removes dots from task identifier segment', () => {
+    expect(builder.buildBaseBranchName('feature/ai', 'task..id')).toBe(
+      'feature/ai/task-id',
+    );
+  });
 });

@@ -27,7 +27,9 @@ export class PullRequestTemplateResolver {
     try {
       const directoryStat = await stat(templateDirectory);
       if (!directoryStat.isDirectory()) {
-        return null;
+        return this.readIfExists(
+          join(repositoryPath, 'pull_request_template.md'),
+        );
       }
 
       const files = await readdir(templateDirectory);
@@ -44,7 +46,7 @@ export class PullRequestTemplateResolver {
         }
       }
     } catch {
-      return null;
+      // Ignore template directory probing errors and continue to root fallback.
     }
 
     return this.readIfExists(join(repositoryPath, 'pull_request_template.md'));

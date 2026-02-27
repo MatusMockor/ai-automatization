@@ -53,4 +53,17 @@ describe('PullRequestTemplateResolver', () => {
 
     expect(content).toBe('a-template');
   });
+
+  it('falls back to root template when template directory probe fails', async () => {
+    await mkdir(join(TEST_DIR, '.github'), { recursive: true });
+    await writeFile(
+      join(TEST_DIR, 'pull_request_template.md'),
+      'root fallback',
+      'utf8',
+    );
+
+    const content = await resolver.resolve(TEST_DIR);
+
+    expect(content).toBe('root fallback');
+  });
 });

@@ -68,10 +68,19 @@ export class PublicationContentResolver {
 
   private parseClaudeContract(output: string): ParsedClaudeContract {
     const titleMatch = output.match(/^PR_TITLE:\s*(.+)$/im);
-    const bodyMatch = output.match(/^PR_BODY:\s*([\s\S]*)$/im);
+    const bodyTagRegex = /^PR_BODY:\s*/gim;
+    let lastBodyStartIndex: number | null = null;
+    let match: RegExpExecArray | null = null;
+
+    while ((match = bodyTagRegex.exec(output)) !== null) {
+      lastBodyStartIndex = match.index + match[0].length;
+    }
 
     const title = titleMatch?.[1]?.trim() || null;
-    const body = bodyMatch?.[1]?.trim() || null;
+    const body =
+      lastBodyStartIndex === null
+        ? null
+        : output.slice(lastBodyStartIndex).trim() || null;
 
     return { title, body };
   }

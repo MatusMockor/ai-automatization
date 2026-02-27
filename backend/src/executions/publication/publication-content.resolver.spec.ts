@@ -31,6 +31,20 @@ describe('PublicationContentResolver', () => {
     expect(result.pullRequestBody).toBe('Detailed body');
   });
 
+  it('uses the last PR_BODY block when output contains multiple markers', () => {
+    const result = resolver.resolve({
+      taskTitle: 'Fix issue',
+      taskExternalId: 'TASK-2',
+      taskSource: 'jira',
+      taskDescription: null,
+      executionOutput:
+        'PR_TITLE: Update service\nPR_BODY: First body\nnoise\nPR_BODY: Second body\n',
+      templateBody: null,
+    });
+
+    expect(result.pullRequestBody).toBe('Second body');
+  });
+
   it('removes forbidden terms from commit/PR content', () => {
     const result = resolver.resolve({
       taskTitle: 'Claude AI fix',
