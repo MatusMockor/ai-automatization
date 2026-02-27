@@ -147,9 +147,10 @@ export function ConnectionsPage() {
   };
 
   const handleDeletePrefix = async (connectionId: string, prefixId: string) => {
-    if (deletingPrefix.has(prefixId)) return;
+    const deleteKey = `${connectionId}:${prefixId}`;
+    if (deletingPrefix.has(deleteKey)) return;
 
-    setDeletingPrefix((prev) => new Set(prev).add(prefixId));
+    setDeletingPrefix((prev) => new Set(prev).add(deleteKey));
     try {
       await api.delete(`/task-managers/connections/${connectionId}/prefixes/${prefixId}`);
       setConnections((prev) =>
@@ -164,7 +165,7 @@ export function ConnectionsPage() {
     } finally {
       setDeletingPrefix((prev) => {
         const next = new Set(prev);
-        next.delete(prefixId);
+        next.delete(deleteKey);
         return next;
       });
     }
@@ -235,9 +236,10 @@ export function ConnectionsPage() {
                         <button
                           onClick={() => setDeleting(null)}
                           type="button"
+                          disabled={deletingInFlight}
                           aria-label="Cancel connection removal"
                           title="Cancel"
-                          className="rounded-lg p-2 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                          className="rounded-lg p-2 text-muted-foreground hover:bg-foreground/5 hover:text-foreground disabled:opacity-50"
                         >
                           <X className="h-4 w-4" />
                         </button>
@@ -245,9 +247,10 @@ export function ConnectionsPage() {
                     ) : (
                       <button
                         type="button"
+                        disabled={deletingInFlight}
                         onClick={() => setDeleting(conn.id)}
                         aria-label={`Remove ${conn.name ?? info.name} connection`}
-                        className="rounded-lg p-2 text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
+                        className="rounded-lg p-2 text-muted-foreground hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
                         title="Remove connection"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -269,7 +272,7 @@ export function ConnectionsPage() {
                         <button
                           type="button"
                           onClick={() => handleDeletePrefix(conn.id, prefix.id)}
-                          disabled={deletingPrefix.has(prefix.id)}
+                          disabled={deletingPrefix.has(`${conn.id}:${prefix.id}`)}
                           aria-label={`Remove prefix ${prefix.value}`}
                           className="ml-0.5 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
                         >
