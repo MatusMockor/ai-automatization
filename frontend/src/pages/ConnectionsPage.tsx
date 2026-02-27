@@ -55,7 +55,7 @@ export function ConnectionsPage() {
   const fetchConnections = async () => {
     try {
       const { data } = await api.get<TaskManagerConnection[]>('/task-managers/connections');
-      setConnections(data);
+      setConnections(data.map((c) => ({ ...c, prefixes: Array.isArray(c.prefixes) ? c.prefixes : [] })));
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Failed to load connections'));
     } finally {
@@ -90,9 +90,10 @@ export function ConnectionsPage() {
       }
 
       const { data } = await api.post<TaskManagerConnection>('/task-managers/connections', body);
-      setConnections((prev) => [data, ...prev]);
+      setConnections((prev) => [{ ...data, prefixes: Array.isArray(data.prefixes) ? data.prefixes : [] }, ...prev]);
       setAddingProvider(null);
       setFormData({});
+      setShowSecrets({});
       toast.success(`${providerInfo[addingProvider].name} connected`);
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Failed to connect'));
@@ -282,6 +283,7 @@ export function ConnectionsPage() {
                     >
                       <input
                         type="text"
+                        aria-label={`Add prefix for ${conn.name ?? info.name}`}
                         value={prefixInput[conn.id] ?? ''}
                         onChange={(e) =>
                           setPrefixInput((prev) => ({ ...prev, [conn.id]: e.target.value }))
@@ -358,7 +360,7 @@ export function ConnectionsPage() {
             </h2>
             <button
               type="button"
-              onClick={() => { setAddingProvider(null); setFormData({}); }}
+              onClick={() => { setAddingProvider(null); setFormData({}); setShowSecrets({}); }}
               className="text-xs text-muted-foreground hover:text-foreground"
             >
               Cancel
