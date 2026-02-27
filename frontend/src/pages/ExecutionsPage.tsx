@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ExecutionStatusIcon } from '@/components/shared/StatusIcon';
 import { timeAgo } from '@/lib/time';
 import { cn } from '@/lib/utils';
-import { api } from '@/lib/api';
+import { api, getApiErrorMessage } from '@/lib/api';
 import { toast } from 'sonner';
 import type { Execution } from '@/types';
 import { Square, Copy, X } from 'lucide-react';
@@ -12,9 +12,6 @@ const actionColors: Record<string, string> = {
   feature: 'bg-violet-500/15 text-violet-400',
   plan: 'bg-teal-500/15 text-teal-400',
 };
-
-const getApiErrorMessage = (err: unknown, fallback: string) =>
-  (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
 
 export function ExecutionsPage() {
   const [executions, setExecutions] = useState<Execution[]>([]);

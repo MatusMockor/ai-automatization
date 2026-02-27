@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 
 interface ActivityPanelProps {
-  activities: ActivityItem[];
+  activities?: ActivityItem[];
 }
 
 const icons: Record<ActivityItem['type'], { icon: React.ElementType; color: string }> = {
@@ -20,16 +20,12 @@ const icons: Record<ActivityItem['type'], { icon: React.ElementType; color: stri
   repo_synced: { icon: Package, color: 'text-amber-400 bg-amber-500/10' },
 };
 
-export function ActivityPanel({ activities }: ActivityPanelProps) {
+export function ActivityPanel({ activities = [] }: ActivityPanelProps) {
   return (
     <div className="flex w-[240px] shrink-0 flex-col border-l border-border">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Activity
-        </span>
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
         </span>
       </div>
 

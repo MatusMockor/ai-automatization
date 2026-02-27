@@ -13,6 +13,9 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+export const getApiErrorMessage = (err: unknown, fallback: string) =>
+  (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
+
 api.interceptors.response.use(
   (res) => res,
   (error) => {

@@ -12,12 +12,9 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { api } from '@/lib/api';
+import { api, getApiErrorMessage } from '@/lib/api';
 import { timeAgo } from '@/lib/time';
 import type { Repository } from '@/types';
-
-const getApiErrorMessage = (err: unknown, fallback: string) =>
-  (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
 
 export function RepositoriesPage() {
   const [repos, setRepos] = useState<Repository[]>([]);
