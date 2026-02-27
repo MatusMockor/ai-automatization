@@ -27,13 +27,16 @@ const toOptionalInteger = (value: unknown): unknown => {
     return value;
   }
 
-  const parsed = Number.parseFloat(value);
-  if (Number.isNaN(parsed)) {
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  if (!/^[+-]?\d+$/.test(normalizedValue)) {
     return value;
   }
 
-  // Reject decimal inputs (for example "5.7"), the query accepts integers only.
-  return Number.isInteger(parsed) ? parsed : value;
+  return Number.parseInt(normalizedValue, 10);
 };
 
 const toOptionalPrefixes = (value: unknown): unknown => {

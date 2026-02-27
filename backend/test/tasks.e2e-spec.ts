@@ -681,7 +681,7 @@ describe('Tasks (e2e)', () => {
   it('GET /api/tasks should return 400 for invalid limit values', async () => {
     const session = await createLoginSession();
 
-    const invalidLimits = ['0', '-1', '5.7', 'abc'];
+    const invalidLimits = ['0', '-1', '5.7', 'abc', '5abc', '1_000', '1e2'];
 
     for (const limit of invalidLimits) {
       const response = await app.inject({
