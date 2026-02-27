@@ -104,6 +104,7 @@ export function AppShell() {
       <div className="mx-3 flex items-center justify-center gap-1 py-2">
         {themeOptions.map((opt) => (
           <button
+            type="button"
             key={opt.value}
             onClick={() => setTheme(opt.value)}
             className={cn(
@@ -112,6 +113,8 @@ export function AppShell() {
                 ? 'bg-foreground/5 text-foreground'
                 : 'text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground',
             )}
+            aria-label={`Switch theme to ${opt.label}`}
+            aria-pressed={theme === opt.value}
             title={opt.label}
           >
             <opt.icon className="h-3.5 w-3.5" />
@@ -130,8 +133,10 @@ export function AppShell() {
             <div className="truncate text-[10px] text-muted-foreground">{user?.email}</div>
           </div>
           <button
+            type="button"
             onClick={logout}
             className="rounded-md p-1.5 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+            aria-label="Sign out"
             title="Sign out"
           >
             <LogOut className="h-3.5 w-3.5" />
@@ -158,14 +163,18 @@ export function AppShell() {
 
       {/* Mobile drawer */}
       <aside
+        id="mobile-sidebar-drawer"
+        aria-hidden={!sidebarOpen}
         className={cn(
           'fixed inset-y-0 left-0 z-40 flex w-[220px] flex-col border-r border-border bg-background transition-transform duration-200 lg:hidden',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full invisible pointer-events-none',
         )}
       >
         {/* Close button */}
         <div className="flex justify-end p-2">
           <button
+            type="button"
+            aria-label="Close sidebar"
             onClick={() => setSidebarOpen(false)}
             className="rounded-md p-1.5 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
           >
@@ -180,6 +189,10 @@ export function AppShell() {
         {/* Mobile top bar */}
         <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4 lg:hidden">
           <button
+            type="button"
+            aria-label="Open sidebar"
+            aria-controls="mobile-sidebar-drawer"
+            aria-expanded={sidebarOpen}
             onClick={() => setSidebarOpen(true)}
             className="rounded-md p-1.5 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
           >
