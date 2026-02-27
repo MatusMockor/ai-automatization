@@ -40,6 +40,7 @@ In production, avoid wildcard origins and explicitly set `ALLOWED_ORIGINS`.
 
 Execution publication settings control automatic `branch -> commit -> push -> PR` flow for completed `fix` and `feature` executions:
 
+- `GITHUB_API_BASE_URL` default: `https://api.github.com`
 - `EXECUTION_GIT_AUTHOR_NAME` default: `Automation Bot`
 - `EXECUTION_GIT_AUTHOR_EMAIL` default: `automation@local`
 - `EXECUTION_AUTOPR_RETRY_COUNT` default: `3`

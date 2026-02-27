@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { GithubPullRequestError } from '../errors/execution-publication.errors';
 import type {
   CreatePullRequestInput,
@@ -15,6 +16,13 @@ type CreatePullRequestResponse = {
 @Injectable()
 export class GithubApiPullRequestsGateway implements GithubPullRequestsGateway {
   private static readonly REQUEST_TIMEOUT_MS = 10000;
+  private readonly githubApiBaseUrl: string;
+
+  constructor(private readonly configService: ConfigService) {
+    this.githubApiBaseUrl = this.normalizeGithubApiBaseUrl(
+      this.configService.get<string>('GITHUB_API_BASE_URL'),
+    );
+  }
 
   async createPullRequest(
     input: CreatePullRequestInput,
@@ -33,7 +41,7 @@ export class GithubApiPullRequestsGateway implements GithubPullRequestsGateway {
     let response: Response;
     try {
       response = await fetch(
-        `https://api.github.com/repos/${encodedFullName}/pulls`,
+        `${this.githubApiBaseUrl}/repos/${encodedFullName}/pulls`,
         {
           method: 'POST',
           headers: {
@@ -116,5 +124,14 @@ export class GithubApiPullRequestsGateway implements GithubPullRequestsGateway {
     } catch {
       return '';
     }
+  }
+
+  private normalizeGithubApiBaseUrl(value: string | undefined): string {
+    const trimmedValue = value?.trim();
+    if (!trimmedValue) {
+      return 'https://api.github.com';
+    }
+
+    return trimmedValue.replace(/\/+$/, '');
   }
 }
