@@ -16,6 +16,16 @@ interface TaskDetailProps {
 }
 
 export function TaskDetail({ task, executions, onClose, onAction }: TaskDetailProps) {
+  const openExternalTask = (rawUrl: string) => {
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+      window.open(parsed.toString(), '_blank', 'noopener,noreferrer');
+    } catch {
+      // ignore invalid URL
+    }
+  };
+
   const prefix = task.matchedPrefix
     ? (prefixConfig[task.matchedPrefix as TaskPrefix] ?? { activeColor: 'text-muted-foreground bg-foreground/5' })
     : null;
@@ -32,7 +42,7 @@ export function TaskDetail({ task, executions, onClose, onAction }: TaskDetailPr
           <button
             type="button"
             aria-label="Open task externally"
-            onClick={() => window.open(task.url, '_blank', 'noopener,noreferrer')}
+            onClick={() => openExternalTask(task.url)}
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
           >
             <ExternalLink className="h-3.5 w-3.5" />
