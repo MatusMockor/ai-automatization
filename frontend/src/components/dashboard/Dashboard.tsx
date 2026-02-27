@@ -22,6 +22,7 @@ export function Dashboard() {
   const [tasks, setTasks] = useState<TaskFeedItem[]>([]);
   const [feedErrors, setFeedErrors] = useState<TaskFeedConnectionError[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const executions: Execution[] = [];
   const activities: ActivityItem[] = [];
@@ -29,11 +30,16 @@ export function Dashboard() {
   useEffect(() => {
     const fetchTasks = async () => {
       try {
+        setLoadError(null);
         const { data } = await api.get<TaskFeedResponse>('/tasks');
         setTasks(data.items);
         setFeedErrors(data.errors);
       } catch (err) {
-        toast.error(getApiErrorMessage(err, 'Failed to load tasks'));
+        const message = getApiErrorMessage(err, 'Failed to load tasks');
+        setLoadError(message);
+        setTasks([]);
+        setFeedErrors([]);
+        toast.error(message);
       } finally {
         setLoading(false);
       }
@@ -130,20 +136,24 @@ export function Dashboard() {
         </div>
       )}
 
-      {/* Connection errors banner */}
-      {feedErrors.length > 0 && !loading && (
+      {/* Error banner */}
+      {!loading && (loadError || feedErrors.length > 0) && (
         <div className="mx-5 mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
             <div className="min-w-0">
-              <p className="text-sm font-medium text-amber-500">Some connections failed to load tasks</p>
-              <ul className="mt-1 space-y-0.5">
-                {feedErrors.map((error) => (
-                  <li key={error.connectionId} className="text-xs text-amber-500/80">
-                    {error.provider}: {error.message}
-                  </li>
-                ))}
-              </ul>
+              <p className="text-sm font-medium text-amber-500">
+                {loadError ?? 'Some connections failed to load tasks'}
+              </p>
+              {!loadError && (
+                <ul className="mt-1 space-y-0.5">
+                  {feedErrors.map((error) => (
+                    <li key={error.connectionId} className="text-xs text-amber-500/80">
+                      {error.provider}: {error.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>
