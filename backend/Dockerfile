@@ -16,7 +16,7 @@ COPY . .
 
 RUN npm run build
 
-RUN chown -R appuser:appgroup /app
+RUN mkdir -p /app/repos && chown -R appuser:appgroup /app
 
 USER appuser
 
