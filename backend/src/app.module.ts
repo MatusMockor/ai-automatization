@@ -10,6 +10,7 @@ import { RepositoriesModule } from './repositories/repositories.module';
 import { SettingsModule } from './settings/settings.module';
 import { TaskManagersModule } from './task-managers/task-managers.module';
 import { TasksModule } from './tasks/tasks.module';
+import { ExecutionsModule } from './executions/executions.module';
 
 const toBoolean = (
   value: string | undefined,
@@ -63,6 +64,7 @@ const toBoolean = (
     AuthModule,
     SettingsModule,
     RepositoriesModule,
+    ExecutionsModule,
     TaskManagersModule,
     TasksModule,
   ],

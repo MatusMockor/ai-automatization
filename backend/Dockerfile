@@ -2,6 +2,8 @@ FROM node:22-alpine
 
 RUN apk add --no-cache git
 
+RUN npm install -g @anthropic-ai/claude-code
+
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 WORKDIR /app

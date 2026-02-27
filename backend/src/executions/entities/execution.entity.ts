@@ -1,0 +1,101 @@
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
+import { ManagedRepository } from '../../repositories/entities/repository.entity';
+import { User } from '../../users/entities/user.entity';
+import type {
+  ExecutionAction,
+  ExecutionStatus,
+  TaskSource,
+} from '../interfaces/execution.types';
+
+const EXECUTION_DATETIME_COLUMN_TYPE =
+  process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz';
+
+@Entity({ name: 'executions' })
+@Index('IDX_executions_user_created_at', ['userId', 'createdAt'])
+@Index('IDX_executions_user_status', ['userId', 'status'])
+export class Execution {
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
+
+  @Column({ name: 'user_id', type: 'uuid' })
+  userId!: string;
+
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'user_id' })
+  user!: User;
+
+  @Column({ name: 'repository_id', type: 'uuid' })
+  repositoryId!: string;
+
+  @ManyToOne(() => ManagedRepository, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'repository_id' })
+  repository!: ManagedRepository;
+
+  @Column({ name: 'task_id', type: 'varchar', length: 255 })
+  taskId!: string;
+
+  @Column({ name: 'task_external_id', type: 'varchar', length: 255 })
+  taskExternalId!: string;
+
+  @Column({ name: 'task_title', type: 'text' })
+  taskTitle!: string;
+
+  @Column({ name: 'task_description', type: 'text', nullable: true })
+  taskDescription!: string | null;
+
+  @Column({ name: 'task_source', type: 'varchar', length: 16 })
+  taskSource!: TaskSource;
+
+  @Column({ type: 'varchar', length: 16 })
+  action!: ExecutionAction;
+
+  @Column({ type: 'text' })
+  prompt!: string;
+
+  @Column({ type: 'varchar', length: 16, default: 'pending' })
+  status!: ExecutionStatus;
+
+  @Column({ type: 'text', default: '' })
+  output!: string;
+
+  @Column({ name: 'output_truncated', type: 'boolean', default: false })
+  outputTruncated!: boolean;
+
+  @Column({ type: 'integer', nullable: true })
+  pid!: number | null;
+
+  @Column({
+    name: 'started_at',
+    type: EXECUTION_DATETIME_COLUMN_TYPE,
+    nullable: true,
+  })
+  startedAt!: Date | null;
+
+  @Column({
+    name: 'finished_at',
+    type: EXECUTION_DATETIME_COLUMN_TYPE,
+    nullable: true,
+  })
+  finishedAt!: Date | null;
+
+  @Column({ name: 'exit_code', type: 'integer', nullable: true })
+  exitCode!: number | null;
+
+  @Column({ name: 'error_message', type: 'text', nullable: true })
+  errorMessage!: string | null;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt!: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt!: Date;
+}

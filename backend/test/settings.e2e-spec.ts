@@ -64,10 +64,12 @@ describe('Settings (e2e)', () => {
       response.json<{
         githubToken: string | null;
         claudeApiKey: string | null;
+        executionTimeoutMs: number | null;
       }>(),
     ).toEqual({
       githubToken: null,
       claudeApiKey: null,
+      executionTimeoutMs: null,
     });
   });
 
@@ -88,10 +90,12 @@ describe('Settings (e2e)', () => {
     const body = response.json<{
       githubToken: string | null;
       claudeApiKey: string | null;
+      executionTimeoutMs: number | null;
     }>();
 
     expect(body.githubToken).toBe(maskToken(savedSettings.githubToken));
     expect(body.claudeApiKey).toBe(maskToken(savedSettings.claudeApiKey));
+    expect(body.executionTimeoutMs).toBe(savedSettings.executionTimeoutMs);
   });
 
   it('PATCH /api/settings should encrypt and persist tokens', async () => {
@@ -99,6 +103,7 @@ describe('Settings (e2e)', () => {
     const payload = userSettingsFactory.buildCreateInput({
       githubToken: `ghp_${faker.string.alphanumeric(36)}`,
       claudeApiKey: `sk-ant-${faker.string.alphanumeric(40)}`,
+      executionTimeoutMs: 1800000,
     });
 
     const patchResponse = await app.inject({
@@ -115,10 +120,12 @@ describe('Settings (e2e)', () => {
       patchResponse.json<{
         githubToken: string | null;
         claudeApiKey: string | null;
+        executionTimeoutMs: number | null;
       }>(),
     ).toEqual({
       githubToken: maskToken(payload.githubToken),
       claudeApiKey: maskToken(payload.claudeApiKey),
+      executionTimeoutMs: payload.executionTimeoutMs,
     });
 
     const storedSettings = await dataSource
@@ -163,6 +170,7 @@ describe('Settings (e2e)', () => {
       },
       payload: {
         githubToken: null,
+        executionTimeoutMs: 600000,
       },
     });
 
@@ -171,10 +179,12 @@ describe('Settings (e2e)', () => {
       updateResponse.json<{
         githubToken: string | null;
         claudeApiKey: string | null;
+        executionTimeoutMs: number | null;
       }>(),
     ).toEqual({
       githubToken: null,
       claudeApiKey: maskToken(initialPayload.claudeApiKey),
+      executionTimeoutMs: 600000,
     });
 
     const storedSettings = await dataSource
@@ -185,6 +195,56 @@ describe('Settings (e2e)', () => {
 
     expect(storedSettings?.githubTokenEncrypted).toBeNull();
     expect(storedSettings?.claudeApiKeyEncrypted).toEqual(expect.any(String));
+    expect(storedSettings?.executionTimeoutMs).toBe(600000);
+  });
+
+  it('PATCH /api/settings should validate executionTimeoutMs bounds and support null reset', async () => {
+    const session = await createLoginSession();
+
+    const invalidResponse = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        executionTimeoutMs: 50000,
+      },
+    });
+
+    expect(invalidResponse.statusCode).toBe(400);
+
+    const validResponse = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        executionTimeoutMs: 120000,
+      },
+    });
+    expect(validResponse.statusCode).toBe(200);
+    expect(
+      validResponse.json<{ executionTimeoutMs: number | null }>()
+        .executionTimeoutMs,
+    ).toBe(120000);
+
+    const resetResponse = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        executionTimeoutMs: null,
+      },
+    });
+    expect(resetResponse.statusCode).toBe(200);
+    expect(
+      resetResponse.json<{ executionTimeoutMs: number | null }>()
+        .executionTimeoutMs,
+    ).toBeNull();
   });
 
   const createLoginSession = async (): Promise<LoginSession> => {

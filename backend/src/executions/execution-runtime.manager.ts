@@ -1,0 +1,355 @@
+import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { parsePositiveInteger } from '../common/utils/parse.utils';
+import { CLAUDE_CLI_RUNNER } from './constants/executions.tokens';
+import { ExecutionStreamEventDto } from './dto/execution-stream-event.dto';
+import { Execution } from './entities/execution.entity';
+import type {
+  ClaudeCliProcess,
+  ClaudeCliRunner,
+} from './interfaces/claude-cli-runner.interface';
+import type { ExecutionStatus } from './interfaces/execution.types';
+import { ExecutionStreamHub } from './execution-stream.hub';
+
+type StartExecutionInput = {
+  executionId: string;
+  action: 'fix' | 'feature' | 'plan';
+  prompt: string;
+  cwd: string;
+  anthropicApiKey: string;
+  timeoutMs: number;
+};
+
+type ActiveExecution = {
+  process: ClaudeCliProcess;
+  cancelRequested: boolean;
+  timedOut: boolean;
+  killTimeoutId: NodeJS.Timeout | null;
+  timeoutId: NodeJS.Timeout | null;
+  output: string;
+  outputTruncated: boolean;
+  writeQueue: Promise<void>;
+};
+
+@Injectable()
+export class ExecutionRuntimeManager implements OnModuleDestroy {
+  private readonly logger = new Logger(ExecutionRuntimeManager.name);
+  private readonly outputMaxBytes: number;
+  private readonly gracefulStopMs: number;
+  private readonly activeExecutions = new Map<string, ActiveExecution>();
+
+  constructor(
+    @InjectRepository(Execution)
+    private readonly executionRepository: Repository<Execution>,
+    @Inject(CLAUDE_CLI_RUNNER)
+    private readonly claudeCliRunner: ClaudeCliRunner,
+    private readonly streamHub: ExecutionStreamHub,
+    private readonly configService: ConfigService,
+  ) {
+    this.outputMaxBytes = parsePositiveInteger(
+      this.configService.get<string>('EXECUTION_OUTPUT_MAX_BYTES', '204800'),
+      204800,
+    );
+    this.gracefulStopMs = parsePositiveInteger(
+      this.configService.get<string>('EXECUTION_GRACEFUL_STOP_MS', '5000'),
+      5000,
+    );
+  }
+
+  async ensureRunnerAvailable(): Promise<void> {
+    await this.claudeCliRunner.ensureAvailable();
+  }
+
+  async startExecution(input: StartExecutionInput): Promise<void> {
+    const execution = await this.executionRepository.findOneBy({
+      id: input.executionId,
+    });
+    if (!execution) {
+      return;
+    }
+
+    const process = await this.claudeCliRunner.start({
+      prompt: input.prompt,
+      action: input.action,
+      cwd: input.cwd,
+      anthropicApiKey: input.anthropicApiKey,
+    });
+
+    const activeExecution: ActiveExecution = {
+      process,
+      cancelRequested: false,
+      timedOut: false,
+      killTimeoutId: null,
+      timeoutId: null,
+      output: execution.output ?? '',
+      outputTruncated: execution.outputTruncated ?? false,
+      writeQueue: Promise.resolve(),
+    };
+    this.activeExecutions.set(input.executionId, activeExecution);
+
+    const startedAt = new Date();
+    await this.executionRepository.update(
+      { id: input.executionId },
+      {
+        status: 'running',
+        pid: process.pid,
+        startedAt,
+      },
+    );
+    this.publish({
+      type: 'status',
+      payload: {
+        type: 'status',
+        executionId: input.executionId,
+        status: 'running',
+      },
+    });
+
+    process.onStdout((chunk) => {
+      void this.appendOutput(input.executionId, chunk);
+      this.publish({
+        type: 'stdout',
+        payload: {
+          type: 'stdout',
+          executionId: input.executionId,
+          chunk,
+        },
+      });
+    });
+
+    process.onStderr((chunk) => {
+      void this.appendOutput(input.executionId, chunk);
+      this.publish({
+        type: 'stderr',
+        payload: {
+          type: 'stderr',
+          executionId: input.executionId,
+          chunk,
+        },
+      });
+    });
+
+    process.onExit((exitInfo) => {
+      void this.handleExit(input.executionId, exitInfo.code);
+    });
+
+    const timeoutMs = Math.max(1, input.timeoutMs);
+    activeExecution.timeoutId = setTimeout(() => {
+      void this.handleTimeout(input.executionId);
+    }, timeoutMs);
+  }
+
+  async cancelExecution(executionId: string): Promise<boolean> {
+    const activeExecution = this.activeExecutions.get(executionId);
+    if (!activeExecution) {
+      return false;
+    }
+
+    activeExecution.cancelRequested = true;
+    this.terminateProcess(executionId, activeExecution);
+    return true;
+  }
+
+  isExecutionActive(executionId: string): boolean {
+    return this.activeExecutions.has(executionId);
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    for (const [executionId, activeExecution] of this.activeExecutions) {
+      activeExecution.cancelRequested = true;
+      this.terminateProcess(executionId, activeExecution);
+    }
+
+    if (this.activeExecutions.size > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.gracefulStopMs));
+    }
+
+    for (const [, activeExecution] of this.activeExecutions) {
+      try {
+        activeExecution.process.kill('SIGKILL');
+      } catch {
+        // Best effort force kill during shutdown.
+      }
+    }
+  }
+
+  private async appendOutput(
+    executionId: string,
+    chunk: string,
+  ): Promise<void> {
+    const activeExecution = this.activeExecutions.get(executionId);
+    if (!activeExecution || activeExecution.outputTruncated) {
+      return;
+    }
+
+    activeExecution.writeQueue = activeExecution.writeQueue.then(async () => {
+      if (activeExecution.outputTruncated) {
+        return;
+      }
+
+      const currentBytes = Buffer.byteLength(activeExecution.output, 'utf8');
+      if (currentBytes >= this.outputMaxBytes) {
+        activeExecution.outputTruncated = true;
+        await this.executionRepository.update(
+          { id: executionId },
+          {
+            output: activeExecution.output,
+            outputTruncated: true,
+          },
+        );
+        return;
+      }
+
+      const chunkBuffer = Buffer.from(chunk, 'utf8');
+      const remainingBytes = this.outputMaxBytes - currentBytes;
+      const nextBuffer = chunkBuffer.subarray(0, remainingBytes);
+
+      activeExecution.output += nextBuffer.toString('utf8');
+      if (chunkBuffer.length > remainingBytes) {
+        activeExecution.outputTruncated = true;
+      }
+
+      await this.executionRepository.update(
+        { id: executionId },
+        {
+          output: activeExecution.output,
+          outputTruncated: activeExecution.outputTruncated,
+        },
+      );
+    });
+
+    await activeExecution.writeQueue;
+  }
+
+  private async handleTimeout(executionId: string): Promise<void> {
+    const activeExecution = this.activeExecutions.get(executionId);
+    if (!activeExecution) {
+      return;
+    }
+
+    activeExecution.timedOut = true;
+    activeExecution.cancelRequested = true;
+    this.publish({
+      type: 'status',
+      payload: {
+        type: 'status',
+        executionId,
+        status: 'failed',
+        errorMessage: 'Execution timed out',
+      },
+    });
+    this.terminateProcess(executionId, activeExecution);
+  }
+
+  private terminateProcess(
+    executionId: string,
+    activeExecution: ActiveExecution,
+  ): void {
+    try {
+      activeExecution.process.kill('SIGTERM');
+    } catch {
+      // Process may already be gone.
+    }
+
+    if (activeExecution.killTimeoutId) {
+      return;
+    }
+
+    activeExecution.killTimeoutId = setTimeout(() => {
+      const runningExecution = this.activeExecutions.get(executionId);
+      if (!runningExecution) {
+        return;
+      }
+
+      try {
+        runningExecution.process.kill('SIGKILL');
+      } catch {
+        // Best effort force kill.
+      }
+    }, this.gracefulStopMs);
+  }
+
+  private async handleExit(
+    executionId: string,
+    exitCode: number | null,
+  ): Promise<void> {
+    const activeExecution = this.activeExecutions.get(executionId);
+    if (!activeExecution) {
+      return;
+    }
+
+    if (activeExecution.timeoutId) {
+      clearTimeout(activeExecution.timeoutId);
+    }
+
+    if (activeExecution.killTimeoutId) {
+      clearTimeout(activeExecution.killTimeoutId);
+    }
+
+    await activeExecution.writeQueue;
+
+    const finishedAt = new Date();
+    let status: ExecutionStatus;
+    let errorMessage: string | null = null;
+
+    if (activeExecution.timedOut) {
+      status = 'failed';
+      errorMessage = 'Execution timed out';
+    } else if (activeExecution.cancelRequested) {
+      status = 'cancelled';
+      errorMessage = 'Execution cancelled';
+    } else if (exitCode === 0) {
+      status = 'completed';
+    } else {
+      status = 'failed';
+      errorMessage = 'Execution process failed';
+    }
+
+    await this.executionRepository.update(
+      { id: executionId },
+      {
+        status,
+        finishedAt,
+        exitCode,
+        errorMessage,
+      },
+    );
+
+    if (status === 'completed') {
+      this.publish(
+        {
+          type: 'completed',
+          payload: {
+            type: 'completed',
+            executionId,
+            status,
+            exitCode,
+          },
+        },
+        true,
+      );
+    } else {
+      this.publish(
+        {
+          type: 'error',
+          payload: {
+            type: 'error',
+            executionId,
+            status,
+            exitCode,
+            errorMessage: errorMessage ?? 'Execution failed',
+          },
+        },
+        true,
+      );
+    }
+
+    this.activeExecutions.delete(executionId);
+  }
+
+  private publish(event: ExecutionStreamEventDto, terminal = false): void {
+    this.streamHub.publish(event.payload.executionId, event, terminal);
+  }
+}
