@@ -19,14 +19,37 @@ export interface Task {
 
 export interface Execution {
   id: string;
+  repositoryId: string;
   taskId: string;
   taskExternalId: string;
+  taskTitle: string;
+  taskSource: TaskSource;
   action: ExecutionAction;
   status: ExecutionStatus;
   output: string;
+  outputTruncated: boolean;
+  exitCode: number | null;
+  errorMessage: string | null;
   createdAt: string;
-  completedAt?: string;
+  startedAt: string | null;
+  finishedAt: string | null;
 }
+
+export interface CreateExecutionRequest {
+  repositoryId: string;
+  action: ExecutionAction;
+  taskId: string;
+  taskExternalId: string;
+  taskTitle: string;
+  taskDescription?: string;
+  taskSource: TaskSource;
+}
+
+export type ExecutionStreamEvent =
+  | { type: 'snapshot'; executionId: string; status: ExecutionStatus; output: string; outputTruncated: boolean }
+  | { type: 'stdout' | 'stderr'; executionId: string; chunk: string }
+  | { type: 'status'; executionId: string; status: ExecutionStatus; errorMessage?: string }
+  | { type: 'completed' | 'error'; executionId: string; status: ExecutionStatus; exitCode: number | null; errorMessage?: string };
 
 export interface Repository {
   id: string;

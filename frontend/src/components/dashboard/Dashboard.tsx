@@ -1,12 +1,14 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { StatsBar } from './StatsBar';
 import { TaskList } from './TaskList';
 import { TaskDetail } from './TaskDetail';
 import { ActivityPanel } from './ActivityPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { api } from '@/lib/api';
+import { useRepo } from '@/context/RepoContext';
+import { useExecutionStream } from '@/lib/useExecutionStream';
 import { toast } from 'sonner';
-import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, TaskPrefix, ExecutionAction, Execution, ActivityItem } from '@/types';
+import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, TaskPrefix, ExecutionAction, Execution, ActivityItem, CreateExecutionRequest } from '@/types';
 import { ALL_PREFIXES } from '@/types';
 import { Search, AlertTriangle } from 'lucide-react';
 
@@ -14,6 +16,8 @@ const getApiErrorMessage = (err: unknown, fallback: string) =>
   (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
 
 export function Dashboard() {
+  const { selectedRepo } = useRepo();
+
   const [selectedPrefix, setSelectedPrefix] = useState<TaskPrefix | null>(null);
   const [selectedTask, setSelectedTask] = useState<TaskFeedItem | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -24,9 +28,11 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const executions: Execution[] = [];
+  const [executions, setExecutions] = useState<Execution[]>([]);
+  const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
   const activities: ActivityItem[] = [];
 
+  // Fetch tasks
   useEffect(() => {
     const fetchTasks = async () => {
       try {
@@ -47,7 +53,45 @@ export function Dashboard() {
     fetchTasks();
   }, []);
 
-  const activeExecution = executions.find((e) => e.status === 'running');
+  // Fetch executions
+  useEffect(() => {
+    const fetchExecutions = async () => {
+      try {
+        const { data } = await api.get<Execution[]>('/executions', { params: { limit: 50 } });
+        setExecutions(data);
+      } catch {
+        // Non-critical — executions list just stays empty
+      }
+    };
+    fetchExecutions();
+  }, []);
+
+  // SSE stream
+  const handleStreamEvent = useCallback((event: import('@/types').ExecutionStreamEvent) => {
+    if (event.type === 'status' || event.type === 'completed' || event.type === 'error') {
+      setExecutions((prev) =>
+        prev.map((e) => (e.id === event.executionId ? { ...e, status: event.status } : e)),
+      );
+    }
+  }, []);
+
+  const { output: streamOutput, status: streamStatus } = useExecutionStream({
+    executionId: activeExecutionId,
+    onEvent: handleStreamEvent,
+  });
+
+  // Build active execution for TerminalPanel by merging stream data
+  const activeExecution = useMemo(() => {
+    if (!activeExecutionId) return undefined;
+    const base = executions.find((e) => e.id === activeExecutionId);
+    if (!base) return undefined;
+    return {
+      ...base,
+      output: streamOutput || base.output,
+      status: streamStatus ?? base.status,
+    };
+  }, [activeExecutionId, executions, streamOutput, streamStatus]);
+
   const runningCount = executions.filter((e) => e.status === 'running').length;
   const completedCount = executions.filter((e) => e.status === 'completed').length;
   const failedCount = executions.filter((e) => e.status === 'failed').length;
@@ -84,9 +128,38 @@ export function Dashboard() {
     [executions, selectedTask],
   );
 
-  const handleAction = (action: ExecutionAction, task: TaskFeedItem) => {
-    console.log(`[${action}]`, task.externalId, task.title);
-    setTerminalOpen(true);
+  const handleAction = async (action: ExecutionAction, task: TaskFeedItem) => {
+    if (!selectedRepo) {
+      toast.error('Select a repository first');
+      return;
+    }
+    try {
+      const body: CreateExecutionRequest = {
+        repositoryId: selectedRepo.id,
+        action,
+        taskId: task.id,
+        taskExternalId: task.externalId,
+        taskTitle: task.title,
+        taskDescription: task.description,
+        taskSource: task.source,
+      };
+      const { data } = await api.post<Execution>('/executions', body);
+      setExecutions((prev) => [data, ...prev]);
+      setActiveExecutionId(data.id);
+      setTerminalOpen(true);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Failed to create execution'));
+    }
+  };
+
+  const handleCancel = async (executionId: string) => {
+    try {
+      const { data } = await api.post<Execution>(`/executions/${executionId}/cancel`);
+      setExecutions((prev) => prev.map((e) => (e.id === executionId ? { ...e, status: data.status } : e)));
+      toast.success('Execution cancelled');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Failed to cancel execution'));
+    }
   };
 
   const stats = [
@@ -193,6 +266,7 @@ export function Dashboard() {
           execution={activeExecution}
           isOpen={terminalOpen}
           onToggle={() => setTerminalOpen(!terminalOpen)}
+          onCancel={() => handleCancel(activeExecution.id)}
         />
       )}
     </div>

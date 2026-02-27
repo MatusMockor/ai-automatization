@@ -3,6 +3,7 @@ import { Toaster } from 'sonner';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { ProtectedRoute } from '@/components/shared/ProtectedRoute';
+import { RepoProvider } from '@/context/RepoContext';
 import { AppShell } from '@/components/dashboard/AppShell';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { LoginPage } from '@/pages/LoginPage';
@@ -60,7 +61,9 @@ function App() {
             <Route
               element={
                 <ProtectedRoute>
-                  <AppShell />
+                  <RepoProvider>
+                    <AppShell />
+                  </RepoProvider>
                 </ProtectedRoute>
               }
             >

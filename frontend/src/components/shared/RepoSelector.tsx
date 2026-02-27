@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import type { Repository } from '@/types';
+import { useRepo } from '@/context/RepoContext';
 import { ChevronDown, Check } from 'lucide-react';
 
 export function RepoSelector({ className }: { className?: string }) {
-  const repositories: Repository[] = [];
+  const { repositories, selectedRepo, selectRepo } = useRepo();
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState<Repository | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -23,8 +22,8 @@ export function RepoSelector({ className }: { className?: string }) {
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 rounded-lg bg-foreground/5 px-3 py-1.5 text-sm transition-colors hover:bg-foreground/8"
       >
-        <div className={cn('h-2 w-2 rounded-full', active ? 'bg-emerald-400' : 'bg-muted-foreground/30')} />
-        <span className="font-medium">{active?.fullName ?? 'No repositories'}</span>
+        <div className={cn('h-2 w-2 rounded-full', selectedRepo ? 'bg-emerald-400' : 'bg-muted-foreground/30')} />
+        <span className="font-medium">{selectedRepo?.fullName ?? 'No repositories'}</span>
         <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
@@ -38,14 +37,14 @@ export function RepoSelector({ className }: { className?: string }) {
           {repositories.map((repo) => (
             <button
               key={repo.id}
-              onClick={() => { setActive(repo); setOpen(false); }}
+              onClick={() => { selectRepo(repo); setOpen(false); }}
               className="flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-foreground/5"
             >
-              <div className={cn('h-2 w-2 rounded-full', repo.id === active?.id ? 'bg-emerald-400' : 'bg-muted-foreground/30')} />
-              <span className={cn(repo.id === active?.id ? 'text-foreground' : 'text-muted-foreground')}>
+              <div className={cn('h-2 w-2 rounded-full', repo.id === selectedRepo?.id ? 'bg-emerald-400' : 'bg-muted-foreground/30')} />
+              <span className={cn(repo.id === selectedRepo?.id ? 'text-foreground' : 'text-muted-foreground')}>
                 {repo.fullName}
               </span>
-              {repo.id === active?.id && <Check className="ml-auto h-3.5 w-3.5 text-emerald-400" />}
+              {repo.id === selectedRepo?.id && <Check className="ml-auto h-3.5 w-3.5 text-emerald-400" />}
             </button>
           ))}
         </div>
