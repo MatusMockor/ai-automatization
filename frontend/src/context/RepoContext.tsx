@@ -29,6 +29,7 @@ export function RepoProvider({ children }: { children: ReactNode }) {
         setSelectedRepo(saved ?? data[0] ?? null);
       } catch {
         setRepositories([]);
+        setSelectedRepo(null);
       } finally {
         setLoading(false);
       }
