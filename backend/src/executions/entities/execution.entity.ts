@@ -12,6 +12,7 @@ import { ManagedRepository } from '../../repositories/entities/repository.entity
 import { User } from '../../users/entities/user.entity';
 import { getTimestampColumnType } from '../../common/utils/database-column.utils';
 import type {
+  AutomationStatus,
   ExecutionAction,
   ExecutionStatus,
   TaskSource,
@@ -63,6 +64,42 @@ export class Execution {
 
   @Column({ type: 'varchar', length: 16, default: 'pending' })
   status!: ExecutionStatus;
+
+  @Column({
+    name: 'automation_status',
+    type: 'varchar',
+    length: 24,
+    default: 'pending',
+  })
+  automationStatus!: AutomationStatus;
+
+  @Column({ name: 'automation_attempts', type: 'integer', default: 0 })
+  automationAttempts!: number;
+
+  @Column({ name: 'branch_name', type: 'varchar', length: 255, nullable: true })
+  branchName!: string | null;
+
+  @Column({ name: 'commit_sha', type: 'varchar', length: 64, nullable: true })
+  commitSha!: string | null;
+
+  @Column({ name: 'pull_request_number', type: 'integer', nullable: true })
+  pullRequestNumber!: number | null;
+
+  @Column({ name: 'pull_request_url', type: 'text', nullable: true })
+  pullRequestUrl!: string | null;
+
+  @Column({ name: 'pull_request_title', type: 'text', nullable: true })
+  pullRequestTitle!: string | null;
+
+  @Column({ name: 'automation_error_message', type: 'text', nullable: true })
+  automationErrorMessage!: string | null;
+
+  @Column({
+    name: 'automation_completed_at',
+    type: EXECUTION_DATETIME_COLUMN_TYPE,
+    nullable: true,
+  })
+  automationCompletedAt!: Date | null;
 
   @Column({ type: 'text', default: '' })
   output!: string;

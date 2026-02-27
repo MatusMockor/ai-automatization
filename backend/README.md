@@ -36,6 +36,17 @@ The backend supports production hardening controls through environment variables
 With default values, Swagger stays disabled and rate limiting applies globally, while `GET /api/health` is excluded.
 In production, avoid wildcard origins and explicitly set `ALLOWED_ORIGINS`.
 
+## Execution publication automation
+
+Execution publication settings control automatic `branch -> commit -> push -> PR` flow for completed `fix` and `feature` executions:
+
+- `EXECUTION_GIT_AUTHOR_NAME` default: `Automation Bot`
+- `EXECUTION_GIT_AUTHOR_EMAIL` default: `automation@local`
+- `EXECUTION_AUTOPR_RETRY_COUNT` default: `3`
+- `EXECUTION_AUTOPR_RETRY_BACKOFF_MS` default: `2000`
+- `EXECUTION_PRE_PR_CHECK_COMMAND` default: empty (disabled)
+- `EXECUTION_AUTOPR_BRANCH_PREFIX` default: `feature/ai`
+
 ## Project setup
 
 ```bash

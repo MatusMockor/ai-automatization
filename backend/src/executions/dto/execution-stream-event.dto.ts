@@ -1,4 +1,5 @@
 import type {
+  AutomationStatus,
   ExecutionStatus,
   ExecutionStreamEventType,
 } from '../interfaces/execution.types';
@@ -8,6 +9,7 @@ export type ExecutionStreamEventPayload =
       type: 'snapshot';
       executionId: string;
       status: ExecutionStatus;
+      automationStatus: AutomationStatus;
       output: string;
       outputTruncated: boolean;
     }
@@ -26,6 +28,14 @@ export type ExecutionStreamEventPayload =
       executionId: string;
       status: ExecutionStatus;
       errorMessage?: string;
+    }
+  | {
+      type: 'publication';
+      executionId: string;
+      automationStatus: AutomationStatus;
+      branchName?: string;
+      pullRequestUrl?: string;
+      message?: string;
     }
   | {
       type: 'completed';

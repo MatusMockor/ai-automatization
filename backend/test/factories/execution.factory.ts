@@ -2,6 +2,7 @@ import { faker } from '@faker-js/faker';
 import { DataSource } from 'typeorm';
 import { Execution } from '../../src/executions/entities/execution.entity';
 import type {
+  AutomationStatus,
   ExecutionAction,
   ExecutionStatus,
   TaskSource,
@@ -18,6 +19,15 @@ type CreateExecutionInput = {
   action?: ExecutionAction;
   prompt?: string;
   status?: ExecutionStatus;
+  automationStatus?: AutomationStatus;
+  automationAttempts?: number;
+  branchName?: string | null;
+  commitSha?: string | null;
+  pullRequestNumber?: number | null;
+  pullRequestUrl?: string | null;
+  pullRequestTitle?: string | null;
+  automationErrorMessage?: string | null;
+  automationCompletedAt?: Date | null;
   output?: string;
   outputTruncated?: boolean;
   pid?: number | null;
@@ -59,6 +69,15 @@ export class ExecutionFactory {
       action: input.action ?? 'fix',
       prompt: input.prompt ?? faker.lorem.paragraph(),
       status,
+      automationStatus: input.automationStatus ?? 'pending',
+      automationAttempts: input.automationAttempts ?? 0,
+      branchName: input.branchName ?? null,
+      commitSha: input.commitSha ?? null,
+      pullRequestNumber: input.pullRequestNumber ?? null,
+      pullRequestUrl: input.pullRequestUrl ?? null,
+      pullRequestTitle: input.pullRequestTitle ?? null,
+      automationErrorMessage: input.automationErrorMessage ?? null,
+      automationCompletedAt: input.automationCompletedAt ?? null,
       output: input.output ?? faker.lorem.paragraph(),
       outputTruncated: input.outputTruncated ?? false,
       pid: input.pid ?? null,
