@@ -92,7 +92,10 @@ export class ChildProcessClaudeCliRunner implements ClaudeCliRunner {
     });
   }
 
-  private buildArgs(action: string, prompt: string): string[] {
+  private buildArgs(
+    action: ClaudeCliStartOptions['action'],
+    prompt: string,
+  ): string[] {
     const args = [
       '-p',
       prompt,
