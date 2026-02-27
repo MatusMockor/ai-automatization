@@ -48,7 +48,8 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
       let buffer = '';
       let currentEventType = '';
 
-      const processLine = (line: string) => {
+      const processLine = (rawLine: string) => {
+        const line = rawLine.replace(/\r$/, '');
         if (line.startsWith('event:')) {
           currentEventType = line.slice(6).trim();
         } else if (line.startsWith('data:')) {
