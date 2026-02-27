@@ -4,16 +4,13 @@ import { TaskList } from './TaskList';
 import { TaskDetail } from './TaskDetail';
 import { ActivityPanel } from './ActivityPanel';
 import { TerminalPanel } from './TerminalPanel';
-import { api } from '@/lib/api';
+import { api, getApiErrorMessage } from '@/lib/api';
 import { useRepo } from '@/context/RepoContext';
 import { useExecutionStream } from '@/lib/useExecutionStream';
 import { toast } from 'sonner';
-import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, TaskPrefix, ExecutionAction, Execution, ActivityItem, CreateExecutionRequest } from '@/types';
+import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, TaskPrefix, ExecutionAction, Execution, CreateExecutionRequest } from '@/types';
 import { ALL_PREFIXES } from '@/types';
 import { Search, AlertTriangle } from 'lucide-react';
-
-const getApiErrorMessage = (err: unknown, fallback: string) =>
-  (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
 
 export function Dashboard() {
   const { selectedRepo } = useRepo();
@@ -30,7 +27,6 @@ export function Dashboard() {
 
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
-  const activities: ActivityItem[] = [];
 
   // Fetch tasks
   useEffect(() => {
@@ -255,7 +251,7 @@ export function Dashboard() {
               onAction={(action) => handleAction(action, selectedTask)}
             />
           ) : (
-            <ActivityPanel activities={activities} />
+            <ActivityPanel />
           )}
         </div>
       )}

@@ -123,6 +123,9 @@
     body {
         @apply bg-background text-foreground antialiased;
     }
+    button {
+        cursor: pointer;
+    }
 }
 
 /* Scrollbar styling */

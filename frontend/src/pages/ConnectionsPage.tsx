@@ -14,12 +14,9 @@ import {
   Clock,
   Loader2,
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, getApiErrorMessage } from '@/lib/api';
 import { timeAgo } from '@/lib/time';
 import type { TaskManagerConnection, TaskManagerProvider, ConnectionPrefix } from '@/types';
-
-const getApiErrorMessage = (err: unknown, fallback: string) =>
-  (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
 
 const providerInfo = {
   jira: {

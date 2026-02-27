@@ -10,9 +10,6 @@ import { Eye, EyeOff, Save, LogOut } from 'lucide-react';
 
 export function SettingsPage() {
   const { user, logout } = useAuth();
-  const [name, setName] = useState(user?.name ?? '');
-  const [email, setEmail] = useState(user?.email ?? '');
-  const [savingProfile, setSavingProfile] = useState(false);
   const [showClaudeKey, setShowClaudeKey] = useState(false);
   const [showGithubToken, setShowGithubToken] = useState(false);
   const [maskedValues, setMaskedValues] = useState<SettingsResponse>({
@@ -40,15 +37,6 @@ export function SettingsPage() {
   useEffect(() => {
     fetchSettings();
   }, []);
-
-  const handleSaveProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSavingProfile(true);
-    // TODO: api.patch('/auth/profile', { name, email })
-    await new Promise((r) => setTimeout(r, 500));
-    toast.success('Profile updated');
-    setSavingProfile(false);
-  };
 
   const onSaveKeys = async (data: SettingsFormData) => {
     // Only send fields the user actually filled in
@@ -79,37 +67,19 @@ export function SettingsPage() {
       </div>
 
       {/* Profile */}
-      <form onSubmit={handleSaveProfile} className="rounded-xl border border-border bg-card p-5">
+      <div className="rounded-xl border border-border bg-card p-5">
         <h2 className="mb-4 text-sm font-semibold">Profile</h2>
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
-            />
+            <span className="block text-xs font-medium text-muted-foreground">Name</span>
+            <span className="text-sm">{user?.name ?? '—'}</span>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
-            />
+            <span className="block text-xs font-medium text-muted-foreground">Email</span>
+            <span className="text-sm">{user?.email ?? '—'}</span>
           </div>
-          <button
-            type="submit"
-            disabled={savingProfile}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            <Save className="h-3.5 w-3.5" />
-            Save changes
-          </button>
         </div>
-      </form>
+      </div>
 
       {/* API Keys */}
       <form onSubmit={handleSubmit(onSaveKeys)} className="rounded-xl border border-border bg-card p-5">
