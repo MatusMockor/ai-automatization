@@ -122,7 +122,8 @@ export class CliGitPublicationClient implements GitPublicationClient {
       };
     }
 
-    const result = await this.runProcess('/bin/sh', ['-c', command], localPath);
+    const { executable, args } = this.parseCommand(command);
+    const result = await this.runProcess(executable, args, localPath);
     return {
       success: result.code === 0,
       stdout: result.stdout,
@@ -268,6 +269,75 @@ export class CliGitPublicationClient implements GitPublicationClient {
         });
       });
     });
+  }
+
+  private parseCommand(command: string): {
+    executable: string;
+    args: string[];
+  } {
+    const tokens: string[] = [];
+    let current = '';
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+    let escaping = false;
+
+    for (let index = 0; index < command.length; index += 1) {
+      const character = command[index];
+
+      if (escaping) {
+        current += character;
+        escaping = false;
+        continue;
+      }
+
+      if (character === '\\') {
+        escaping = true;
+        continue;
+      }
+
+      if (character === "'" && !inDoubleQuote) {
+        inSingleQuote = !inSingleQuote;
+        continue;
+      }
+
+      if (character === '"' && !inSingleQuote) {
+        inDoubleQuote = !inDoubleQuote;
+        continue;
+      }
+
+      if (!inSingleQuote && !inDoubleQuote && /\s/.test(character)) {
+        if (current.length > 0) {
+          tokens.push(current);
+          current = '';
+        }
+        continue;
+      }
+
+      current += character;
+    }
+
+    if (escaping || inSingleQuote || inDoubleQuote) {
+      throw new ExecutionPublicationError(
+        'Invalid pre-PR check command',
+        'Unterminated escape sequence or quote in EXECUTION_PRE_PR_CHECK_COMMAND',
+      );
+    }
+
+    if (current.length > 0) {
+      tokens.push(current);
+    }
+
+    if (tokens.length === 0) {
+      throw new ExecutionPublicationError(
+        'Invalid pre-PR check command',
+        'EXECUTION_PRE_PR_CHECK_COMMAND does not contain an executable',
+      );
+    }
+
+    return {
+      executable: tokens[0],
+      args: tokens.slice(1),
+    };
   }
 
   private formatOutput(stdout: string, stderr: string): string {
