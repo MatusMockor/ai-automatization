@@ -55,6 +55,7 @@ class FakeClaudeCliProcess implements ClaudeCliProcess {
 
   private readonly stdoutListeners = new Set<(chunk: string) => void>();
   private readonly stderrListeners = new Set<(chunk: string) => void>();
+  private readonly errorListeners = new Set<(error: Error) => void>();
   private readonly exitListeners = new Set<
     (info: { code: number | null; signal: NodeJS.Signals | null }) => void
   >();
@@ -71,6 +72,10 @@ class FakeClaudeCliProcess implements ClaudeCliProcess {
 
   onStderr(listener: (chunk: string) => void): void {
     this.stderrListeners.add(listener);
+  }
+
+  onError(listener: (error: Error) => void): void {
+    this.errorListeners.add(listener);
   }
 
   onExit(

@@ -75,6 +75,10 @@ export class ExecutionsController {
 
     const subscription = stream.subscribe({
       next: (event) => {
+        if (reply.raw.writableEnded || reply.raw.destroyed) {
+          return;
+        }
+
         const eventType = event.type ?? 'message';
         const data = JSON.stringify(event.data ?? null);
         reply.raw.write(`event: ${eventType}\n`);

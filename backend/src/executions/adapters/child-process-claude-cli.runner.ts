@@ -28,6 +28,10 @@ class ChildProcessClaudeCliProcess implements ClaudeCliProcess {
     );
   }
 
+  onError(listener: (error: Error) => void): void {
+    this.process.on('error', listener);
+  }
+
   onExit(
     listener: (info: {
       code: number | null;
@@ -71,7 +75,11 @@ export class ChildProcessClaudeCliRunner implements ClaudeCliRunner {
 
       function handleSpawn(): void {
         childProcess.removeListener('error', handleError);
-        resolve(new ChildProcessClaudeCliProcess(childProcess));
+        const processWrapper = new ChildProcessClaudeCliProcess(childProcess);
+        processWrapper.onError(() => {
+          // Keep child-process errors observed after spawn to avoid unhandled emitter errors.
+        });
+        resolve(processWrapper);
       }
 
       function handleError(error: Error): void {

@@ -67,6 +67,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       id: input.executionId,
     });
     if (!execution) {
+      this.logger.warn(
+        `Cannot start execution: record not found for id=${input.executionId}`,
+      );
       return;
     }
 
@@ -108,7 +111,12 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     });
 
     process.onStdout((chunk) => {
-      void this.appendOutput(input.executionId, chunk);
+      this.appendOutput(input.executionId, chunk).catch((error: unknown) => {
+        this.logger.error(
+          `Failed to append stdout for execution ${input.executionId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
       this.publish({
         type: 'stdout',
         payload: {
@@ -120,7 +128,12 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     });
 
     process.onStderr((chunk) => {
-      void this.appendOutput(input.executionId, chunk);
+      this.appendOutput(input.executionId, chunk).catch((error: unknown) => {
+        this.logger.error(
+          `Failed to append stderr for execution ${input.executionId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
       this.publish({
         type: 'stderr',
         payload: {
@@ -132,12 +145,30 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     });
 
     process.onExit((exitInfo) => {
-      void this.handleExit(input.executionId, exitInfo.code);
+      this.handleExit(input.executionId, exitInfo.code).catch(
+        (error: unknown) => {
+          this.logger.error(
+            `Failed to finalize execution ${input.executionId}`,
+            error instanceof Error ? error.stack : String(error),
+          );
+        },
+      );
+    });
+
+    process.onError((error) => {
+      this.logger.error(
+        `Execution process error for ${input.executionId}: ${error.message}`,
+      );
     });
 
     const timeoutMs = Math.max(1, input.timeoutMs);
     activeExecution.timeoutId = setTimeout(() => {
-      void this.handleTimeout(input.executionId);
+      this.handleTimeout(input.executionId).catch((error: unknown) => {
+        this.logger.error(
+          `Failed to handle timeout for execution ${input.executionId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
     }, timeoutMs);
   }
 
@@ -184,45 +215,52 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       return;
     }
 
-    activeExecution.writeQueue = activeExecution.writeQueue.then(async () => {
-      if (activeExecution.outputTruncated) {
-        return;
-      }
+    activeExecution.writeQueue = activeExecution.writeQueue
+      .then(async () => {
+        if (activeExecution.outputTruncated) {
+          return;
+        }
 
-      const currentBytes = Buffer.byteLength(activeExecution.output, 'utf8');
-      if (currentBytes >= this.outputMaxBytes) {
-        activeExecution.outputTruncated = true;
+        const currentBytes = Buffer.byteLength(activeExecution.output, 'utf8');
+        if (currentBytes >= this.outputMaxBytes) {
+          activeExecution.outputTruncated = true;
+          await this.executionRepository.update(
+            { id: executionId },
+            {
+              output: activeExecution.output,
+              outputTruncated: true,
+            },
+          );
+          return;
+        }
+
+        const chunkBuffer = Buffer.from(chunk, 'utf8');
+        const remainingBytes = this.outputMaxBytes - currentBytes;
+        const safeLength = this.findSafeUtf8TruncationPoint(
+          chunkBuffer,
+          remainingBytes,
+        );
+        const nextBuffer = chunkBuffer.subarray(0, safeLength);
+
+        activeExecution.output += nextBuffer.toString('utf8');
+        if (chunkBuffer.length > remainingBytes) {
+          activeExecution.outputTruncated = true;
+        }
+
         await this.executionRepository.update(
           { id: executionId },
           {
             output: activeExecution.output,
-            outputTruncated: true,
+            outputTruncated: activeExecution.outputTruncated,
           },
         );
-        return;
-      }
-
-      const chunkBuffer = Buffer.from(chunk, 'utf8');
-      const remainingBytes = this.outputMaxBytes - currentBytes;
-      const safeLength = this.findSafeUtf8TruncationPoint(
-        chunkBuffer,
-        remainingBytes,
-      );
-      const nextBuffer = chunkBuffer.subarray(0, safeLength);
-
-      activeExecution.output += nextBuffer.toString('utf8');
-      if (chunkBuffer.length > remainingBytes) {
-        activeExecution.outputTruncated = true;
-      }
-
-      await this.executionRepository.update(
-        { id: executionId },
-        {
-          output: activeExecution.output,
-          outputTruncated: activeExecution.outputTruncated,
-        },
-      );
-    });
+      })
+      .catch((error: unknown) => {
+        this.logger.error(
+          `Failed to persist output for execution ${executionId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
 
     await activeExecution.writeQueue;
   }
