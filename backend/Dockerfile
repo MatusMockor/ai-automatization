@@ -2,7 +2,8 @@ FROM node:22-alpine
 
 RUN apk add --no-cache git
 
-RUN npm install -g @anthropic-ai/claude-code
+ARG CLAUDE_CODE_VERSION=2.1.44
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 

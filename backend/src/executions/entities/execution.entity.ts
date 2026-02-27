@@ -10,14 +10,14 @@ import {
 } from 'typeorm';
 import { ManagedRepository } from '../../repositories/entities/repository.entity';
 import { User } from '../../users/entities/user.entity';
+import { getTimestampColumnType } from '../../common/utils/database-column.utils';
 import type {
   ExecutionAction,
   ExecutionStatus,
   TaskSource,
 } from '../interfaces/execution.types';
 
-const EXECUTION_DATETIME_COLUMN_TYPE =
-  process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz';
+const EXECUTION_DATETIME_COLUMN_TYPE = getTimestampColumnType();
 
 @Entity({ name: 'executions' })
 @Index('IDX_executions_user_created_at', ['userId', 'createdAt'])

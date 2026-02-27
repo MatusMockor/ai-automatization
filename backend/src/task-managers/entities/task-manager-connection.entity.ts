@@ -13,9 +13,9 @@ import {
 import type { ConnectionStatus } from '../interfaces/task-manager-provider.interface';
 import { User } from '../../users/entities/user.entity';
 import { TaskPrefix } from './task-prefix.entity';
+import { getTimestampColumnType } from '../../common/utils/database-column.utils';
 
-const LAST_VALIDATED_AT_COLUMN_TYPE =
-  process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz';
+const LAST_VALIDATED_AT_COLUMN_TYPE = getTimestampColumnType();
 
 @Entity({ name: 'task_manager_connections' })
 @Unique('UQ_task_manager_connections_user_provider_scope', [

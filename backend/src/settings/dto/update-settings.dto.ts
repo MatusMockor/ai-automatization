@@ -8,6 +8,7 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+import { parseOptionalInteger } from '../../common/utils/parse.utils';
 
 const normalizeNullableString = (value: unknown): unknown => {
   if (typeof value !== 'string') {
@@ -19,24 +20,9 @@ const normalizeNullableString = (value: unknown): unknown => {
 };
 
 const toOptionalIntegerOrNull = (value: unknown): unknown => {
-  if (value === undefined || value === null || value === '') {
-    return value;
-  }
-
-  if (typeof value === 'number') {
-    return Number.isInteger(value) ? value : value;
-  }
-
-  if (typeof value !== 'string') {
-    return value;
-  }
-
-  const normalizedValue = value.trim();
-  if (!/^[+-]?\d+$/.test(normalizedValue)) {
-    return value;
-  }
-
-  return Number.parseInt(normalizedValue, 10);
+  return parseOptionalInteger(value, {
+    nullAsUndefined: false,
+  });
 };
 
 export class UpdateSettingsDto {

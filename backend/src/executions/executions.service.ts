@@ -11,11 +11,12 @@ import { access } from 'fs/promises';
 import { join } from 'path';
 import { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { parsePositiveInteger } from '../common/utils/parse.utils';
 import { ManagedRepository } from '../repositories/entities/repository.entity';
 import { RepositoriesService } from '../repositories/repositories.service';
 import { SettingsService } from '../settings/settings.service';
+import { User } from '../users/entities/user.entity';
 import { CreateExecutionDto } from './dto/create-execution.dto';
 import {
   ExecutionDetailResponseDto,
@@ -72,32 +73,41 @@ export class ExecutionsService {
     }
 
     await this.ensureRunnerAvailable();
-    await this.assertConcurrentExecutionLimit(userId);
 
     const timeoutMs = await this.resolveExecutionTimeoutMs(userId);
     const prompt = this.buildPrompt(dto.action, dto);
 
-    const execution = this.executionsRepository.create({
-      userId,
-      repositoryId: repository.id,
-      taskId: dto.taskId,
-      taskExternalId: dto.taskExternalId,
-      taskTitle: dto.taskTitle,
-      taskDescription: dto.taskDescription ?? null,
-      taskSource: dto.taskSource,
-      action: dto.action,
-      prompt,
-      status: 'pending',
-      output: '',
-      outputTruncated: false,
-      pid: null,
-      startedAt: null,
-      finishedAt: null,
-      exitCode: null,
-      errorMessage: null,
-    });
+    const savedExecution = await this.executionsRepository.manager.transaction(
+      async (manager) => {
+        await this.assertConcurrentExecutionLimitWithinTransaction(
+          manager,
+          userId,
+        );
 
-    const savedExecution = await this.executionsRepository.save(execution);
+        const executionRepository = manager.getRepository(Execution);
+        const execution = executionRepository.create({
+          userId,
+          repositoryId: repository.id,
+          taskId: dto.taskId,
+          taskExternalId: dto.taskExternalId,
+          taskTitle: dto.taskTitle,
+          taskDescription: dto.taskDescription ?? null,
+          taskSource: dto.taskSource,
+          action: dto.action,
+          prompt,
+          status: 'pending',
+          output: '',
+          outputTruncated: false,
+          pid: null,
+          startedAt: null,
+          finishedAt: null,
+          exitCode: null,
+          errorMessage: null,
+        });
+
+        return executionRepository.save(execution);
+      },
+    );
 
     try {
       await this.runtimeManager.startExecution({
@@ -256,8 +266,26 @@ export class ExecutionsService {
     }
   }
 
-  private async assertConcurrentExecutionLimit(userId: string): Promise<void> {
-    const activeCount = await this.executionsRepository.count({
+  private async assertConcurrentExecutionLimitWithinTransaction(
+    manager: EntityManager,
+    userId: string,
+  ): Promise<void> {
+    if (
+      this.executionsRepository.metadata.connection.options.type === 'postgres'
+    ) {
+      const user = await manager
+        .getRepository(User)
+        .createQueryBuilder('user')
+        .setLock('pessimistic_write')
+        .where('user.id = :userId', { userId })
+        .getOne();
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+    }
+
+    const activeCount = await manager.getRepository(Execution).count({
       where: {
         userId,
         status: In(['pending', 'running']),
