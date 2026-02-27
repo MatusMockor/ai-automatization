@@ -52,3 +52,29 @@ export interface SettingsResponse {
   githubToken: string | null;
   claudeApiKey: string | null;
 }
+
+export type TaskManagerProvider = 'asana' | 'jira';
+
+export interface ConnectionPrefix {
+  id: string;
+  connectionId: string;
+  value: string;
+  normalizedValue: string;
+  createdAt: string;
+}
+
+export interface TaskManagerConnection {
+  id: string;
+  provider: TaskManagerProvider;
+  name: string | null;
+  status: string;
+  baseUrl: string | null;
+  workspaceId: string | null;
+  projectId: string | null;
+  projectKey: string | null;
+  hasSecret: boolean;
+  lastValidatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  prefixes: ConnectionPrefix[];
+}
