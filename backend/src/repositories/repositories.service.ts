@@ -184,6 +184,13 @@ export class RepositoriesService {
     return this.mapToResponse(updatedRepository);
   }
 
+  async assertOwnedRepository(
+    userId: string,
+    repositoryId: string,
+  ): Promise<void> {
+    await this.getOwnedRepository(repositoryId, userId);
+  }
+
   private async getOwnedRepository(
     repositoryId: string,
     userId: string,

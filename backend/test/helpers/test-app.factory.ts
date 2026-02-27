@@ -38,6 +38,8 @@ const DEFAULT_TEST_ENV: Record<string, string> = {
   TASK_MANAGER_HTTP_TIMEOUT_MS: '15000',
   TASK_MANAGER_DEFAULT_TASK_LIMIT: '100',
   TASK_MANAGER_MAX_TASK_LIMIT: '100',
+  TASKS_DEFAULT_LIMIT: '100',
+  TASKS_MAX_LIMIT: '200',
 };
 
 export const createTestApp = async (
