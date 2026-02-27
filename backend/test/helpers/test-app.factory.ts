@@ -1,4 +1,3 @@
-import { ValidationPipe } from '@nestjs/common';
 import {
   FastifyAdapter,
   NestFastifyApplication,
@@ -6,6 +5,7 @@ import {
 import { Test, TestingModule, TestingModuleBuilder } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../../src/app.module';
+import { configureApplication } from '../../src/common/bootstrap/app-bootstrap';
 
 type ProviderOverride = {
   token: string | symbol | Function;
@@ -46,6 +46,10 @@ const DEFAULT_TEST_ENV: Record<string, string> = {
   EXECUTION_MAX_CONCURRENT_PER_USER: '2',
   EXECUTION_OUTPUT_MAX_BYTES: '204800',
   EXECUTION_GRACEFUL_STOP_MS: '5000',
+  ENABLE_SWAGGER: 'false',
+  SWAGGER_PATH: 'api/docs',
+  THROTTLE_TTL_MS: '60000',
+  THROTTLE_LIMIT: '60',
 };
 
 export const createTestApp = async (
@@ -74,13 +78,7 @@ export const createTestApp = async (
   const app = moduleFixture.createNestApplication<NestFastifyApplication>(
     new FastifyAdapter(),
   );
-  app.setGlobalPrefix('api');
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-    }),
-  );
+  configureApplication(app);
 
   await app.init();
   await app.getHttpAdapter().getInstance().ready();

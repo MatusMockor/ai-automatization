@@ -1,11 +1,13 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { join } from 'path';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { parsePositiveInteger } from './common/utils/parse.utils';
 import { RepositoriesModule } from './repositories/repositories.module';
 import { SettingsModule } from './settings/settings.module';
 import { TaskManagersModule } from './task-managers/task-managers.module';
@@ -27,6 +29,18 @@ const toBoolean = (
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+    }),
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => [
+        {
+          ttl: parsePositiveInteger(
+            config.get('THROTTLE_TTL_MS', '60000'),
+            60000,
+          ),
+          limit: parsePositiveInteger(config.get('THROTTLE_LIMIT', '60'), 60),
+        },
+      ],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
@@ -70,6 +84,10 @@ const toBoolean = (
   ],
   controllers: [AppController],
   providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
