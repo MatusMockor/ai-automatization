@@ -5,31 +5,20 @@ import { TaskStatusDot } from '@/components/shared/StatusIcon';
 import { prefixConfig } from '@/components/shared/PrefixFilter';
 import { timeAgo } from '@/lib/time';
 import { cn } from '@/lib/utils';
-import type { Task, Execution, ExecutionAction } from '@/types';
+import type { TaskFeedItem, TaskPrefix, Execution, ExecutionAction } from '@/types';
 import { X, ExternalLink } from 'lucide-react';
 
 interface TaskDetailProps {
-  task: Task;
+  task: TaskFeedItem;
   executions: Execution[];
   onClose: () => void;
   onAction: (action: ExecutionAction) => void;
 }
 
-const priorityConfig: Record<string, { label: string; color: string }> = {
-  critical: { label: 'Critical', color: 'text-red-400 bg-red-500/10 ring-red-500/20' },
-  high: { label: 'High', color: 'text-orange-400 bg-orange-500/10 ring-orange-500/20' },
-  medium: { label: 'Medium', color: 'text-amber-400 bg-amber-500/10 ring-amber-500/20' },
-  low: { label: 'Low', color: 'text-muted-foreground bg-foreground/5 ring-foreground/10' },
-};
-
 export function TaskDetail({ task, executions, onClose, onAction }: TaskDetailProps) {
-  const prefix =
-    prefixConfig[task.prefix] ?? { activeColor: 'text-muted-foreground bg-foreground/5' };
-  const priority =
-    priorityConfig[task.priority] ?? {
-      label: task.priority ?? 'Unknown',
-      color: 'text-muted-foreground bg-foreground/5 ring-foreground/10',
-    };
+  const prefix = task.matchedPrefix
+    ? (prefixConfig[task.matchedPrefix as TaskPrefix] ?? { activeColor: 'text-muted-foreground bg-foreground/5' })
+    : null;
 
   return (
     <div className="flex w-[420px] shrink-0 flex-col border-l border-border bg-card/50">
@@ -43,6 +32,7 @@ export function TaskDetail({ task, executions, onClose, onAction }: TaskDetailPr
           <button
             type="button"
             aria-label="Open task externally"
+            onClick={() => window.open(task.url, '_blank', 'noopener,noreferrer')}
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
           >
             <ExternalLink className="h-3.5 w-3.5" />
@@ -63,25 +53,24 @@ export function TaskDetail({ task, executions, onClose, onAction }: TaskDetailPr
         <div className="p-5">
           {/* Title */}
           <div className="mb-4">
-            <span className={cn('mb-2 inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide', prefix.activeColor)}>
-              {task.prefix}
-            </span>
+            {prefix && task.matchedPrefix && (
+              <span className={cn('mb-2 inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide', prefix.activeColor)}>
+                {task.matchedPrefix}
+              </span>
+            )}
             <h2 className="text-lg font-semibold leading-snug">{task.title}</h2>
           </div>
 
           {/* Meta */}
           <div className="mb-5 flex flex-wrap items-center gap-2">
-            <span className={cn('inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1', priority.color)}>
-              {priority.label}
-            </span>
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <TaskStatusDot status={task.status} />
               <span className="capitalize">{task.status.replace('_', ' ')}</span>
             </div>
             <span className="text-xs text-muted-foreground">·</span>
-            <span className="text-xs text-muted-foreground">{task.assignee}</span>
+            <span className="text-xs text-muted-foreground">{task.assignee ?? '—'}</span>
             <span className="text-xs text-muted-foreground">·</span>
-            <span className="text-xs text-muted-foreground tabular-nums">{timeAgo(task.createdAt)}</span>
+            <span className="text-xs text-muted-foreground tabular-nums">{timeAgo(task.updatedAt)}</span>
           </div>
 
           {/* Description */}

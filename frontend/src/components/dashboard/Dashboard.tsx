@@ -1,21 +1,45 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { StatsBar } from './StatsBar';
 import { TaskList } from './TaskList';
 import { TaskDetail } from './TaskDetail';
 import { ActivityPanel } from './ActivityPanel';
 import { TerminalPanel } from './TerminalPanel';
-import type { Task, TaskPrefix, ExecutionAction, Execution, ActivityItem } from '@/types';
-import { Search } from 'lucide-react';
+import { api } from '@/lib/api';
+import { toast } from 'sonner';
+import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, TaskPrefix, ExecutionAction, Execution, ActivityItem } from '@/types';
+import { ALL_PREFIXES } from '@/types';
+import { Search, AlertTriangle } from 'lucide-react';
+
+const getApiErrorMessage = (err: unknown, fallback: string) =>
+  (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
 
 export function Dashboard() {
   const [selectedPrefix, setSelectedPrefix] = useState<TaskPrefix | null>(null);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedTask, setSelectedTask] = useState<TaskFeedItem | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [terminalOpen, setTerminalOpen] = useState(true);
 
-  const tasks: Task[] = [];
+  const [tasks, setTasks] = useState<TaskFeedItem[]>([]);
+  const [feedErrors, setFeedErrors] = useState<TaskFeedConnectionError[]>([]);
+  const [loading, setLoading] = useState(true);
+
   const executions: Execution[] = [];
   const activities: ActivityItem[] = [];
+
+  useEffect(() => {
+    const fetchTasks = async () => {
+      try {
+        const { data } = await api.get<TaskFeedResponse>('/tasks');
+        setTasks(data.items);
+        setFeedErrors(data.errors);
+      } catch (err) {
+        toast.error(getApiErrorMessage(err, 'Failed to load tasks'));
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchTasks();
+  }, []);
 
   const activeExecution = executions.find((e) => e.status === 'running');
   const runningCount = executions.filter((e) => e.status === 'running').length;
@@ -25,14 +49,14 @@ export function Dashboard() {
 
   const filteredTasks = useMemo(() => {
     let filtered = tasks;
-    if (selectedPrefix) filtered = filtered.filter((t) => t.prefix === selectedPrefix);
+    if (selectedPrefix) filtered = filtered.filter((t) => t.matchedPrefix === selectedPrefix);
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(
         (t) =>
           t.title.toLowerCase().includes(q) ||
           t.externalId.toLowerCase().includes(q) ||
-          t.assignee.toLowerCase().includes(q),
+          (t.assignee ?? '').toLowerCase().includes(q),
       );
     }
     return filtered;
@@ -41,7 +65,10 @@ export function Dashboard() {
   const prefixCounts = useMemo(() => {
     const counts: Partial<Record<TaskPrefix, number>> = {};
     for (const t of tasks) {
-      counts[t.prefix] = (counts[t.prefix] ?? 0) + 1;
+      if (t.matchedPrefix && (ALL_PREFIXES as readonly string[]).includes(t.matchedPrefix)) {
+        const key = t.matchedPrefix as TaskPrefix;
+        counts[key] = (counts[key] ?? 0) + 1;
+      }
     }
     return counts;
   }, [tasks]);
@@ -51,7 +78,7 @@ export function Dashboard() {
     [executions, selectedTask],
   );
 
-  const handleAction = (action: ExecutionAction, task: Task) => {
+  const handleAction = (action: ExecutionAction, task: TaskFeedItem) => {
     console.log(`[${action}]`, task.externalId, task.title);
     setTerminalOpen(true);
   };
@@ -95,31 +122,60 @@ export function Dashboard() {
       {/* Stats */}
       <StatsBar stats={stats} />
 
-      {/* Content */}
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <TaskList
-            tasks={filteredTasks}
-            selectedTask={selectedTask}
-            selectedPrefix={selectedPrefix}
-            prefixCounts={prefixCounts}
-            onSelectTask={setSelectedTask}
-            onSelectPrefix={setSelectedPrefix}
-            onAction={handleAction}
-          />
+      {/* Loading */}
+      {loading && (
+        <div className="flex justify-center py-12" role="status" aria-live="polite">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <span className="sr-only">Loading tasks...</span>
         </div>
+      )}
 
-        {selectedTask ? (
-          <TaskDetail
-            task={selectedTask}
-            executions={taskExecutions}
-            onClose={() => setSelectedTask(null)}
-            onAction={(action) => handleAction(action, selectedTask)}
-          />
-        ) : (
-          <ActivityPanel activities={activities} />
-        )}
-      </div>
+      {/* Connection errors banner */}
+      {feedErrors.length > 0 && !loading && (
+        <div className="mx-5 mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-amber-500">Some connections failed to load tasks</p>
+              <ul className="mt-1 space-y-0.5">
+                {feedErrors.map((error) => (
+                  <li key={error.connectionId} className="text-xs text-amber-500/80">
+                    {error.provider}: {error.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Content */}
+      {!loading && (
+        <div className="flex min-h-0 flex-1">
+          <div className="flex min-w-0 flex-1 flex-col">
+            <TaskList
+              tasks={filteredTasks}
+              selectedTask={selectedTask}
+              selectedPrefix={selectedPrefix}
+              prefixCounts={prefixCounts}
+              onSelectTask={setSelectedTask}
+              onSelectPrefix={setSelectedPrefix}
+              onAction={handleAction}
+            />
+          </div>
+
+          {selectedTask ? (
+            <TaskDetail
+              task={selectedTask}
+              executions={taskExecutions}
+              onClose={() => setSelectedTask(null)}
+              onAction={(action) => handleAction(action, selectedTask)}
+            />
+          ) : (
+            <ActivityPanel activities={activities} />
+          )}
+        </div>
+      )}
 
       {/* Terminal */}
       {activeExecution && (

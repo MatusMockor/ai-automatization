@@ -4,24 +4,17 @@ import { ActionButtons } from '@/components/shared/ActionButtons';
 import { TaskStatusDot } from '@/components/shared/StatusIcon';
 import { timeAgo } from '@/lib/time';
 import { cn } from '@/lib/utils';
-import type { Task, TaskPrefix, ExecutionAction } from '@/types';
+import type { TaskFeedItem, TaskPrefix, ExecutionAction } from '@/types';
 
 interface TaskListProps {
-  tasks: Task[];
-  selectedTask: Task | null;
+  tasks: TaskFeedItem[];
+  selectedTask: TaskFeedItem | null;
   selectedPrefix: TaskPrefix | null;
   prefixCounts: Partial<Record<TaskPrefix, number>>;
-  onSelectTask: (task: Task) => void;
+  onSelectTask: (task: TaskFeedItem) => void;
   onSelectPrefix: (prefix: TaskPrefix | null) => void;
-  onAction: (action: ExecutionAction, task: Task) => void;
+  onAction: (action: ExecutionAction, task: TaskFeedItem) => void;
 }
-
-const priorityIndicator: Record<string, string> = {
-  critical: 'bg-red-500',
-  high: 'bg-orange-400',
-  medium: 'bg-amber-400',
-  low: 'bg-muted-foreground/30',
-};
 
 export function TaskList({
   tasks,
@@ -76,12 +69,14 @@ function TaskRow({
   onSelect,
   onAction,
 }: {
-  task: Task;
+  task: TaskFeedItem;
   isSelected: boolean;
   onSelect: () => void;
   onAction: (action: ExecutionAction) => void;
 }) {
-  const cfg = prefixConfig[task.prefix];
+  const cfg = task.matchedPrefix
+    ? (prefixConfig[task.matchedPrefix as TaskPrefix] ?? { activeColor: 'text-muted-foreground bg-foreground/8', color: 'text-muted-foreground' })
+    : null;
 
   return (
     <button
@@ -98,30 +93,27 @@ function TaskRow({
         <div className="absolute inset-y-0 left-0 w-0.5 bg-primary" />
       )}
 
-      {/* Priority dot */}
-      <div className="mt-2 flex flex-col items-center gap-1">
-        <span className={cn('h-2 w-2 rounded-full', priorityIndicator[task.priority])} />
-      </div>
-
       {/* Content */}
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-2">
-          <span className={cn('rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide', cfg.activeColor)}>
-            {task.prefix}
-          </span>
+          {cfg && task.matchedPrefix && (
+            <span className={cn('rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide', cfg.activeColor)}>
+              {task.matchedPrefix}
+            </span>
+          )}
           <span className="text-[13px] font-medium leading-snug">{task.title}</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <SourceBadge source={task.source} />
           <span>{task.externalId}</span>
           <span className="opacity-30">·</span>
-          <span>{task.assignee}</span>
+          <span>{task.assignee ?? '—'}</span>
           <span className="opacity-30">·</span>
           <div className="flex items-center gap-1">
             <TaskStatusDot status={task.status} />
             <span className="capitalize">{task.status.replace('_', ' ')}</span>
           </div>
-          <span className="ml-auto tabular-nums">{timeAgo(task.createdAt)}</span>
+          <span className="ml-auto tabular-nums">{timeAgo(task.updatedAt)}</span>
         </div>
       </div>
 

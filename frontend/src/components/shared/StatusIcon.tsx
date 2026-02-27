@@ -1,4 +1,4 @@
-import type { ExecutionStatus, TaskStatus } from '@/types';
+import type { ExecutionStatus, TaskFeedStatus } from '@/types';
 
 export function ExecutionStatusIcon({ status }: { status: ExecutionStatus }) {
   switch (status) {
@@ -36,13 +36,14 @@ export function ExecutionStatusIcon({ status }: { status: ExecutionStatus }) {
   }
 }
 
-const statusColors: Record<TaskStatus, string> = {
+const statusColors: Record<TaskFeedStatus, string> = {
   open: 'bg-emerald-400',
   in_progress: 'bg-blue-400',
   done: 'bg-muted-foreground/50',
   closed: 'bg-muted-foreground/30',
+  unknown: 'bg-muted-foreground/20',
 };
 
-export function TaskStatusDot({ status }: { status: TaskStatus }) {
+export function TaskStatusDot({ status }: { status: TaskFeedStatus }) {
   return <span className={`inline-block h-1.5 w-1.5 rounded-full ${statusColors[status]}`} />;
 }
