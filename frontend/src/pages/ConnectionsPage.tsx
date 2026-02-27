@@ -366,8 +366,9 @@ export function ConnectionsPage() {
             </h2>
             <button
               type="button"
+              disabled={saving}
               onClick={() => { setAddingProvider(null); setFormData({}); setShowSecrets({}); }}
-              className="text-xs text-muted-foreground hover:text-foreground"
+              className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
             >
               Cancel
             </button>
