@@ -12,7 +12,12 @@ export type ExecutionStreamEventPayload =
       outputTruncated: boolean;
     }
   | {
-      type: 'stdout' | 'stderr';
+      type: 'stdout';
+      executionId: string;
+      chunk: string;
+    }
+  | {
+      type: 'stderr';
       executionId: string;
       chunk: string;
     }
@@ -23,7 +28,14 @@ export type ExecutionStreamEventPayload =
       errorMessage?: string;
     }
   | {
-      type: 'completed' | 'error';
+      type: 'completed';
+      executionId: string;
+      status: ExecutionStatus;
+      exitCode: number | null;
+      errorMessage?: string;
+    }
+  | {
+      type: 'error';
       executionId: string;
       status: ExecutionStatus;
       exitCode: number | null;
@@ -31,6 +43,8 @@ export type ExecutionStreamEventPayload =
     };
 
 export type ExecutionStreamEventDto = {
-  type: ExecutionStreamEventType;
-  payload: ExecutionStreamEventPayload;
-};
+  [Type in ExecutionStreamEventType]: {
+    type: Type;
+    payload: Extract<ExecutionStreamEventPayload, { type: Type }>;
+  };
+}[ExecutionStreamEventType];

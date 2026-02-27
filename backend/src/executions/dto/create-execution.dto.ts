@@ -11,8 +11,8 @@ import type {
   TaskSource,
 } from '../interfaces/execution.types';
 
-const ACTIONS: ExecutionAction[] = ['fix', 'feature', 'plan'];
-const TASK_SOURCES: TaskSource[] = ['asana', 'jira'];
+const ACTIONS = ['fix', 'feature', 'plan'] as const;
+const TASK_SOURCES = ['asana', 'jira'] as const;
 
 export class CreateExecutionDto {
   @IsUUID()

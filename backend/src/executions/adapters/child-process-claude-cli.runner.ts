@@ -58,17 +58,30 @@ export class ChildProcessClaudeCliRunner implements ClaudeCliRunner {
 
   async start(options: ClaudeCliStartOptions): Promise<ClaudeCliProcess> {
     const args = this.buildArgs(options.action, options.prompt);
-    const childProcess = spawn('claude', args, {
-      cwd: options.cwd,
-      env: {
-        ...process.env,
-        ANTHROPIC_API_KEY: options.anthropicApiKey,
-        GIT_TERMINAL_PROMPT: '0',
-      },
-      stdio: 'pipe',
-    });
+    return new Promise<ClaudeCliProcess>((resolve, reject) => {
+      const childProcess = spawn('claude', args, {
+        cwd: options.cwd,
+        env: {
+          ...process.env,
+          ANTHROPIC_API_KEY: options.anthropicApiKey,
+          GIT_TERMINAL_PROMPT: '0',
+        },
+        stdio: 'pipe',
+      });
 
-    return new ChildProcessClaudeCliProcess(childProcess);
+      function handleSpawn(): void {
+        childProcess.removeListener('error', handleError);
+        resolve(new ChildProcessClaudeCliProcess(childProcess));
+      }
+
+      function handleError(error: Error): void {
+        childProcess.removeListener('spawn', handleSpawn);
+        reject(error);
+      }
+
+      childProcess.once('error', handleError);
+      childProcess.once('spawn', handleSpawn);
+    });
   }
 
   private buildArgs(action: string, prompt: string): string[] {

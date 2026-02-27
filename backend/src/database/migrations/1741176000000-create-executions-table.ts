@@ -139,6 +139,10 @@ export class CreateExecutionsTable1741176000000 implements MigrationInterface {
             name: 'IDX_executions_user_status',
             columnNames: ['user_id', 'status'],
           }),
+          new TableIndex({
+            name: 'IDX_executions_repository_id',
+            columnNames: ['repository_id'],
+          }),
         ],
         checks: [
           new TableCheck({

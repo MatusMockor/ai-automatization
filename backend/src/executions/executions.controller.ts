@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Logger,
   Param,
   ParseUUIDPipe,
   Post,
@@ -22,6 +23,8 @@ import { ExecutionsService } from './executions.service';
 
 @Controller('executions')
 export class ExecutionsController {
+  private readonly logger = new Logger(ExecutionsController.name);
+
   constructor(private readonly executionsService: ExecutionsService) {}
 
   @Post()
@@ -84,12 +87,11 @@ export class ExecutionsController {
       },
       error: (error: unknown) => {
         if (!reply.raw.writableEnded) {
-          const message =
-            error instanceof Error ? error.message : 'Stream failed';
+          this.logger.error('Execution stream failed', error);
           reply.raw.write('event: error\n');
           reply.raw.write(
             `data: ${JSON.stringify({
-              message,
+              message: 'An error occurred while streaming',
             })}\n\n`,
           );
           reply.raw.end();

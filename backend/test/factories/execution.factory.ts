@@ -31,7 +31,8 @@ export class ExecutionFactory {
   constructor(private readonly dataSource: DataSource) {}
 
   async create(input: CreateExecutionInput): Promise<Execution> {
-    const execution = this.dataSource.getRepository(Execution).create({
+    const executionRepository = this.dataSource.getRepository(Execution);
+    const execution = executionRepository.create({
       userId: input.userId,
       repositoryId: input.repositoryId,
       taskId: input.taskId ?? faker.string.alphanumeric(12).toLowerCase(),
@@ -54,6 +55,6 @@ export class ExecutionFactory {
       errorMessage: input.errorMessage ?? null,
     });
 
-    return this.dataSource.getRepository(Execution).save(execution);
+    return executionRepository.save(execution);
   }
 }

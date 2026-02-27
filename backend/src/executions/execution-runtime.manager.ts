@@ -204,7 +204,11 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
 
       const chunkBuffer = Buffer.from(chunk, 'utf8');
       const remainingBytes = this.outputMaxBytes - currentBytes;
-      const nextBuffer = chunkBuffer.subarray(0, remainingBytes);
+      const safeLength = this.findSafeUtf8TruncationPoint(
+        chunkBuffer,
+        remainingBytes,
+      );
+      const nextBuffer = chunkBuffer.subarray(0, safeLength);
 
       activeExecution.output += nextBuffer.toString('utf8');
       if (chunkBuffer.length > remainingBytes) {
@@ -221,6 +225,57 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     });
 
     await activeExecution.writeQueue;
+  }
+
+  private findSafeUtf8TruncationPoint(
+    buffer: Buffer,
+    maxBytes: number,
+  ): number {
+    const limit = Math.min(maxBytes, buffer.length);
+    if (limit >= buffer.length) {
+      return buffer.length;
+    }
+
+    let safeBoundary = limit;
+    while (
+      safeBoundary > 0 &&
+      (buffer[safeBoundary] & 0b11000000) === 0b10000000
+    ) {
+      safeBoundary -= 1;
+    }
+
+    if (safeBoundary === 0) {
+      return 0;
+    }
+
+    const leadingByte = buffer[safeBoundary];
+    const expectedLength = this.resolveUtf8CodePointLength(leadingByte);
+
+    if (safeBoundary + expectedLength <= limit) {
+      return limit;
+    }
+
+    return safeBoundary;
+  }
+
+  private resolveUtf8CodePointLength(byte: number): number {
+    if ((byte & 0b10000000) === 0) {
+      return 1;
+    }
+
+    if ((byte & 0b11100000) === 0b11000000) {
+      return 2;
+    }
+
+    if ((byte & 0b11110000) === 0b11100000) {
+      return 3;
+    }
+
+    if ((byte & 0b11111000) === 0b11110000) {
+      return 4;
+    }
+
+    return 1;
   }
 
   private async handleTimeout(executionId: string): Promise<void> {
