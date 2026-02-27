@@ -78,3 +78,36 @@ export interface TaskManagerConnection {
   updatedAt: string;
   prefixes: ConnectionPrefix[];
 }
+
+export type TaskFeedStatus = 'open' | 'in_progress' | 'done' | 'closed' | 'unknown';
+export type TaskFeedErrorCode = 'bad_request' | 'not_found' | 'bad_gateway' | 'unknown';
+
+export interface TaskFeedItem {
+  id: string;
+  connectionId: string;
+  externalId: string;
+  title: string;
+  description: string;
+  url: string;
+  status: TaskFeedStatus;
+  assignee: string | null;
+  source: TaskSource;
+  matchedPrefix: string | null;
+  updatedAt: string;
+}
+
+export interface TaskFeedConnectionError {
+  connectionId: string;
+  provider: TaskSource;
+  statusCode: number;
+  code: TaskFeedErrorCode;
+  message: string;
+}
+
+export interface TaskFeedResponse {
+  repositoryId: string | null;
+  appliedPrefixes: string[];
+  total: number;
+  items: TaskFeedItem[];
+  errors: TaskFeedConnectionError[];
+}
