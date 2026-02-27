@@ -3,6 +3,7 @@ import { Toaster } from 'sonner';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { ProtectedRoute } from '@/components/shared/ProtectedRoute';
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { RepoProvider } from '@/context/RepoContext';
 import { AppShell } from '@/components/dashboard/AppShell';
 import { Dashboard } from '@/components/dashboard/Dashboard';
@@ -51,42 +52,46 @@ function ThemedToaster() {
 
 function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
 
-            <Route
-              element={
-                <ProtectedRoute>
-                  <RepoProvider>
-                    <AppShell />
-                  </RepoProvider>
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Dashboard />} />
-              <Route path="executions" element={<ExecutionsPage />} />
-              <Route path="connections" element={<ConnectionsPage />} />
-              <Route path="repositories" element={<RepositoriesPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-              <Route path="variants" element={<VariantSelector />} />
-            </Route>
+              <Route
+                element={
+                  <ProtectedRoute>
+                    <RepoProvider>
+                      <ErrorBoundary>
+                        <AppShell />
+                      </ErrorBoundary>
+                    </RepoProvider>
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Dashboard />} />
+                <Route path="executions" element={<ExecutionsPage />} />
+                <Route path="connections" element={<ConnectionsPage />} />
+                <Route path="repositories" element={<RepositoriesPage />} />
+                <Route path="settings" element={<SettingsPage />} />
+                <Route path="variants" element={<VariantSelector />} />
+              </Route>
 
-            <Route path="/v1" element={<><BackButton /><CommandCenter /></>} />
-            <Route path="/v2" element={<><BackButton /><KanbanBoard /></>} />
-            <Route path="/v3" element={<><BackButton /><TerminalFirst /></>} />
-            <Route path="/v4" element={<><BackButton /><DashboardOverview /></>} />
-            <Route path="/v5" element={<><BackButton /><FocusMode /></>} />
+              <Route path="/v1" element={<><BackButton /><CommandCenter /></>} />
+              <Route path="/v2" element={<><BackButton /><KanbanBoard /></>} />
+              <Route path="/v3" element={<><BackButton /><TerminalFirst /></>} />
+              <Route path="/v4" element={<><BackButton /><DashboardOverview /></>} />
+              <Route path="/v5" element={<><BackButton /><FocusMode /></>} />
 
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
-        <ThemedToaster />
-      </AuthProvider>
-    </ThemeProvider>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+          <ThemedToaster />
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 
