@@ -24,7 +24,7 @@ type LoginSession = {
   userId: string;
 };
 
-const TEST_REPOSITORIES_BASE_PATH = '/tmp/ai-automation-repositories-test';
+const TEST_REPOSITORIES_BASE_PATH = `/tmp/ai-automation-repositories-test-repositories-${process.env.JEST_WORKER_ID ?? '0'}-${process.pid}`;
 
 class FakeGithubRepositoriesGateway implements GithubRepositoriesGateway {
   private readonly repositories = new Map<string, GithubRepositoryMetadata>();

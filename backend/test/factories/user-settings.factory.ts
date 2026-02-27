@@ -6,12 +6,14 @@ import { UserSettings } from '../../src/settings/entities/user-settings.entity';
 type CreateUserSettingsInput = {
   githubToken?: string | null;
   claudeApiKey?: string | null;
+  executionTimeoutMs?: number | null;
 };
 
 type CreatedUserSettings = {
   settings: UserSettings;
   githubToken: string | null;
   claudeApiKey: string | null;
+  executionTimeoutMs: number | null;
 };
 
 export class UserSettingsFactory {
@@ -24,9 +26,18 @@ export class UserSettingsFactory {
     input: CreateUserSettingsInput = {},
   ): Required<CreateUserSettingsInput> {
     return {
-      githubToken: input.githubToken ?? `ghp_${faker.string.alphanumeric(36)}`,
+      githubToken:
+        input.githubToken === undefined
+          ? `ghp_${faker.string.alphanumeric(36)}`
+          : input.githubToken,
       claudeApiKey:
-        input.claudeApiKey ?? `sk-ant-${faker.string.alphanumeric(40)}`,
+        input.claudeApiKey === undefined
+          ? `sk-ant-${faker.string.alphanumeric(40)}`
+          : input.claudeApiKey,
+      executionTimeoutMs:
+        input.executionTimeoutMs === undefined
+          ? 1800000
+          : input.executionTimeoutMs,
     };
   }
 
@@ -47,12 +58,14 @@ export class UserSettingsFactory {
         generatedInput.claudeApiKey === null
           ? null
           : this.encryptionService.encrypt(generatedInput.claudeApiKey),
+      executionTimeoutMs: generatedInput.executionTimeoutMs,
     });
 
     return {
       settings: await repository.save(settings),
       githubToken: generatedInput.githubToken,
       claudeApiKey: generatedInput.claudeApiKey,
+      executionTimeoutMs: generatedInput.executionTimeoutMs,
     };
   }
 }

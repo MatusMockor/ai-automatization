@@ -21,6 +21,7 @@ export class SettingsService {
       return {
         githubToken: null,
         claudeApiKey: null,
+        executionTimeoutMs: null,
       };
     }
 
@@ -36,6 +37,22 @@ export class SettingsService {
     return this.encryptionService.decrypt(settings.githubTokenEncrypted);
   }
 
+  async getClaudeApiKeyForUserOrNull(userId: string): Promise<string | null> {
+    const settings = await this.settingsRepository.findOneBy({ userId });
+    if (!settings?.claudeApiKeyEncrypted) {
+      return null;
+    }
+
+    return this.encryptionService.decrypt(settings.claudeApiKeyEncrypted);
+  }
+
+  async getExecutionTimeoutMsForUserOrNull(
+    userId: string,
+  ): Promise<number | null> {
+    const settings = await this.settingsRepository.findOneBy({ userId });
+    return settings?.executionTimeoutMs ?? null;
+  }
+
   async updateSettings(
     userId: string,
     dto: UpdateSettingsDto,
@@ -46,6 +63,7 @@ export class SettingsService {
         userId,
         githubTokenEncrypted: null,
         claudeApiKeyEncrypted: null,
+        executionTimeoutMs: null,
       });
 
     if (dto.githubToken !== undefined) {
@@ -58,6 +76,10 @@ export class SettingsService {
       settings.claudeApiKeyEncrypted = this.encryptNullableSecret(
         dto.claudeApiKey,
       );
+    }
+
+    if (dto.executionTimeoutMs !== undefined) {
+      settings.executionTimeoutMs = dto.executionTimeoutMs;
     }
 
     const savedSettings = await this.settingsRepository.save(settings);
@@ -76,6 +98,7 @@ export class SettingsService {
     return {
       githubToken: this.maskEncryptedSecret(settings.githubTokenEncrypted),
       claudeApiKey: this.maskEncryptedSecret(settings.claudeApiKeyEncrypted),
+      executionTimeoutMs: settings.executionTimeoutMs,
     };
   }
 

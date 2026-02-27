@@ -191,6 +191,13 @@ export class RepositoriesService {
     await this.getOwnedRepository(repositoryId, userId);
   }
 
+  async getOwnedRepositoryForUser(
+    userId: string,
+    repositoryId: string,
+  ): Promise<ManagedRepository> {
+    return this.getOwnedRepository(repositoryId, userId);
+  }
+
   private async getOwnedRepository(
     repositoryId: string,
     userId: string,

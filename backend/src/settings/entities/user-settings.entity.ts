@@ -24,6 +24,9 @@ export class UserSettings {
   @Column({ name: 'claude_api_key', type: 'text', nullable: true })
   claudeApiKeyEncrypted!: string | null;
 
+  @Column({ name: 'execution_timeout_ms', type: 'integer', nullable: true })
+  executionTimeoutMs!: number | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

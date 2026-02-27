@@ -22,10 +22,12 @@ type TestAppContext = {
   dataSource: DataSource;
 };
 
+const TEST_ENV_SUFFIX = `${process.env.JEST_WORKER_ID ?? '0'}-${process.pid}`;
+
 const DEFAULT_TEST_ENV: Record<string, string> = {
   NODE_ENV: 'test',
   DB_TYPE: 'sqljs',
-  DB_SQLJS_LOCATION: '/tmp/ai-automation-test.db',
+  DB_SQLJS_LOCATION: `/tmp/ai-automation-test-${TEST_ENV_SUFFIX}.db`,
   DB_SYNCHRONIZE: 'true',
   DB_MIGRATIONS_RUN: 'false',
   JWT_SECRET: 'test-secret',
@@ -33,13 +35,17 @@ const DEFAULT_TEST_ENV: Record<string, string> = {
   BCRYPT_SALT_ROUNDS: '4',
   ENCRYPTION_KEY:
     '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff',
-  REPOSITORIES_BASE_PATH: '/tmp/ai-automation-repositories-test',
+  REPOSITORIES_BASE_PATH: `/tmp/ai-automation-repositories-test-${TEST_ENV_SUFFIX}`,
   GIT_COMMAND_TIMEOUT_MS: '120000',
   TASK_MANAGER_HTTP_TIMEOUT_MS: '15000',
   TASK_MANAGER_DEFAULT_TASK_LIMIT: '100',
   TASK_MANAGER_MAX_TASK_LIMIT: '100',
   TASKS_DEFAULT_LIMIT: '100',
   TASKS_MAX_LIMIT: '200',
+  EXECUTION_DEFAULT_TIMEOUT_MS: '1800000',
+  EXECUTION_MAX_CONCURRENT_PER_USER: '2',
+  EXECUTION_OUTPUT_MAX_BYTES: '204800',
+  EXECUTION_GRACEFUL_STOP_MS: '5000',
 };
 
 export const createTestApp = async (
