@@ -32,6 +32,30 @@ export class TaskManagerConnectionFactory {
   ): Promise<TaskManagerConnection> {
     const provider = input.provider ?? 'asana';
     const secret = input.secret ?? faker.string.alphanumeric(24);
+    const baseUrl =
+      input.baseUrl ??
+      (provider === 'jira' ? 'https://example.atlassian.net' : null);
+    const workspaceId =
+      input.workspaceId ??
+      (provider === 'asana' ? faker.string.numeric(10) : null);
+    const projectId =
+      input.projectId ??
+      (provider === 'asana' ? faker.string.numeric(10) : null);
+    const projectKey =
+      input.projectKey ??
+      (provider === 'jira'
+        ? faker.string.alpha({ length: 4 }).toUpperCase()
+        : null);
+    const authMode = input.authMode ?? (provider === 'jira' ? 'bearer' : null);
+    const scopeKey =
+      input.scopeKey ??
+      this.buildScopeKey({
+        provider,
+        baseUrl,
+        workspaceId,
+        projectId,
+        projectKey,
+      });
 
     const connection = this.dataSource
       .getRepository(TaskManagerConnection)
@@ -39,24 +63,14 @@ export class TaskManagerConnectionFactory {
         userId: input.userId,
         provider,
         name: input.name ?? faker.company.name(),
-        scopeKey: input.scopeKey ?? this.buildScopeKey(provider),
-        baseUrl:
-          input.baseUrl ??
-          (provider === 'jira' ? 'https://example.atlassian.net' : null),
-        workspaceId:
-          input.workspaceId ??
-          (provider === 'asana' ? faker.string.numeric(10) : null),
-        projectId:
-          input.projectId ??
-          (provider === 'asana' ? faker.string.numeric(10) : null),
-        projectKey:
-          input.projectKey ??
-          (provider === 'jira'
-            ? faker.string.alpha({ length: 4 }).toUpperCase()
-            : null),
-        authMode: input.authMode ?? (provider === 'jira' ? 'bearer' : null),
+        scopeKey,
+        baseUrl,
+        workspaceId,
+        projectId,
+        projectKey,
+        authMode,
         emailEncrypted:
-          provider === 'jira' && (input.authMode ?? 'bearer') === 'basic'
+          provider === 'jira' && authMode === 'basic'
             ? input.email === null
               ? null
               : this.encryptionService.encrypt(
@@ -73,11 +87,18 @@ export class TaskManagerConnectionFactory {
       .save(connection);
   }
 
-  private buildScopeKey(provider: TaskManagerProvider): string {
-    if (provider === 'asana') {
-      return `asana:${faker.string.numeric(10)}:${faker.string.numeric(10)}`;
+  private buildScopeKey(input: {
+    provider: TaskManagerProvider;
+    baseUrl: string | null;
+    workspaceId: string | null;
+    projectId: string | null;
+    projectKey: string | null;
+  }): string {
+    if (input.provider === 'asana') {
+      return `asana:${input.workspaceId ?? '*'}:${input.projectId ?? '*'}`;
     }
 
-    return `jira:https://example.atlassian.net:${faker.string.alpha({ length: 4 }).toUpperCase()}`;
+    const normalizedBaseUrl = input.baseUrl?.toLowerCase() ?? '*';
+    return `jira:${normalizedBaseUrl}:${input.projectKey ?? '*'}`;
   }
 }
