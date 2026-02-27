@@ -15,7 +15,8 @@ const normalizeOptionalString = (value: unknown): unknown => {
     return value;
   }
 
-  return value.trim();
+  const normalizedValue = value.trim();
+  return normalizedValue.length === 0 ? undefined : normalizedValue;
 };
 
 const toOptionalInteger = (value: unknown): unknown => {
@@ -53,11 +54,8 @@ const toOptionalPrefixes = (value: unknown): unknown => {
     .map((prefix) => prefix.trim().toLowerCase())
     .filter((prefix) => prefix.length > 0);
 
-  if (normalizedPrefixes.some((prefix) => prefix.length > 64)) {
-    return value;
-  }
-
-  return [...new Set(normalizedPrefixes)];
+  const dedupedPrefixes = [...new Set(normalizedPrefixes)];
+  return dedupedPrefixes.length === 0 ? undefined : dedupedPrefixes;
 };
 
 export class GetTasksQueryDto {
