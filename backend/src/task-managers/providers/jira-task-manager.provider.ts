@@ -220,6 +220,14 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
   }
 
   private throwMappedJiraError(error: unknown, message: string): never {
+    if (
+      error instanceof TaskManagerProviderAuthError ||
+      error instanceof TaskManagerProviderNotFoundError ||
+      error instanceof TaskManagerProviderRequestError
+    ) {
+      throw error;
+    }
+
     const statusCode = this.extractStatusCode(error);
 
     if (statusCode === 401 || statusCode === 403) {

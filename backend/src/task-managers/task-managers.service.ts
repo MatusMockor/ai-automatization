@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -42,6 +43,7 @@ type DatabaseError = {
 
 @Injectable()
 export class TaskManagersService {
+  private readonly logger = new Logger(TaskManagersService.name);
   private readonly defaultTaskLimit: number;
   private readonly maxTaskLimit: number;
 
@@ -430,19 +432,23 @@ export class TaskManagersService {
 
   private throwMappedProviderError(error: unknown): never {
     if (error instanceof TaskManagerProviderAuthError) {
-      throw new BadRequestException(error.message);
+      this.logProviderError(error, 'Task manager authentication failed');
+      throw new BadRequestException('Task manager authentication failed');
     }
 
     if (error instanceof TaskManagerProviderNotFoundError) {
-      throw new NotFoundException(error.message);
+      this.logProviderError(error, 'Task manager resource not found');
+      throw new NotFoundException('Task manager resource not found');
     }
 
     if (error instanceof TaskManagerProviderConfigurationError) {
-      throw new BadRequestException(error.message);
+      this.logProviderError(error, 'Task manager configuration is invalid');
+      throw new BadRequestException('Task manager configuration is invalid');
     }
 
     if (error instanceof TaskManagerProviderRequestError) {
-      throw new BadGatewayException(error.message);
+      this.logProviderError(error, 'Task manager provider request failed');
+      throw new BadGatewayException('Task manager provider request failed');
     }
 
     throw error;
@@ -453,7 +459,28 @@ export class TaskManagersService {
       return Math.min(this.defaultTaskLimit, this.maxTaskLimit);
     }
 
-    return Math.min(Math.max(1, requestedLimit), this.maxTaskLimit);
+    if (!Number.isFinite(requestedLimit)) {
+      return Math.min(this.defaultTaskLimit, this.maxTaskLimit);
+    }
+
+    const normalizedLimit = Math.trunc(requestedLimit);
+    return Math.min(Math.max(1, normalizedLimit), this.maxTaskLimit);
+  }
+
+  private logProviderError(error: unknown, message: string): void {
+    if (error instanceof Error) {
+      this.logger.error(`${message}: ${error.message}`, error.stack);
+      return;
+    }
+
+    let details = 'unknown error';
+    try {
+      details = JSON.stringify(error);
+    } catch {
+      // Ignore serialization failures and keep generic fallback.
+    }
+
+    this.logger.error(`${message}: ${details}`);
   }
 
   private isUniqueViolation(error: unknown): boolean {

@@ -2,6 +2,7 @@ import {
   MigrationInterface,
   QueryRunner,
   Table,
+  TableCheck,
   TableForeignKey,
   TableIndex,
   TableUnique,
@@ -121,6 +122,20 @@ export class CreateTaskManagersTables1740830400000 implements MigrationInterface
           new TableIndex({
             name: 'IDX_task_manager_connections_user_id',
             columnNames: ['user_id'],
+          }),
+        ],
+        checks: [
+          new TableCheck({
+            name: 'CHK_task_manager_connections_provider',
+            expression: `provider IN ('asana', 'jira')`,
+          }),
+          new TableCheck({
+            name: 'CHK_task_manager_connections_status',
+            expression: `status IN ('connected', 'invalid', 'pending')`,
+          }),
+          new TableCheck({
+            name: 'CHK_task_manager_connections_auth_mode',
+            expression: `auth_mode IS NULL OR auth_mode IN ('basic', 'bearer')`,
           }),
         ],
       }),
