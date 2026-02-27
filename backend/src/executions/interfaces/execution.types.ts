@@ -9,10 +9,19 @@ export type ExecutionStatus =
 
 export type TaskSource = 'asana' | 'jira';
 
+export type AutomationStatus =
+  | 'not_applicable'
+  | 'pending'
+  | 'publishing'
+  | 'no_changes'
+  | 'published'
+  | 'failed';
+
 export type ExecutionStreamEventType =
   | 'snapshot'
   | 'stdout'
   | 'stderr'
   | 'status'
+  | 'publication'
   | 'completed'
   | 'error';

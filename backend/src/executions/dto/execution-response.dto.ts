@@ -1,4 +1,5 @@
 import type {
+  AutomationStatus,
   ExecutionAction,
   ExecutionStatus,
   TaskSource,
@@ -13,6 +14,15 @@ export class ExecutionSummaryResponseDto {
   taskSource!: TaskSource;
   action!: ExecutionAction;
   status!: ExecutionStatus;
+  automationStatus!: AutomationStatus;
+  automationAttempts!: number;
+  branchName!: string | null;
+  commitSha!: string | null;
+  pullRequestNumber!: number | null;
+  pullRequestUrl!: string | null;
+  pullRequestTitle!: string | null;
+  automationErrorMessage!: string | null;
+  automationCompletedAt!: Date | null;
   outputTruncated!: boolean;
   createdAt!: Date;
   startedAt!: Date | null;

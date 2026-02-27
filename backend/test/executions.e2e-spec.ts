@@ -1,11 +1,15 @@
 import { faker } from '@faker-js/faker';
 import { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { execFile } from 'child_process';
-import { mkdir, rm } from 'fs/promises';
+import { mkdir, rm, writeFile } from 'fs/promises';
 import { dirname } from 'path';
 import { promisify } from 'util';
 import { DataSource } from 'typeorm';
-import { CLAUDE_CLI_RUNNER } from '../src/executions/constants/executions.tokens';
+import {
+  CLAUDE_CLI_RUNNER,
+  GITHUB_PULL_REQUESTS_GATEWAY,
+  GIT_PUBLICATION_CLIENT,
+} from '../src/executions/constants/executions.tokens';
 import { Execution } from '../src/executions/entities/execution.entity';
 import type {
   ClaudeCliProcess,
@@ -13,6 +17,16 @@ import type {
   ClaudeCliStartOptions,
 } from '../src/executions/interfaces/claude-cli-runner.interface';
 import type { ExecutionAction } from '../src/executions/interfaces/execution.types';
+import type {
+  GitCheckCommandResult,
+  GitPublicationClient,
+  GitPushOptions,
+} from '../src/executions/interfaces/git-publication-client.interface';
+import type {
+  CreatePullRequestInput,
+  CreatedPullRequest,
+  GithubPullRequestsGateway,
+} from '../src/executions/interfaces/github-pull-requests-gateway.interface';
 import { ManagedRepository } from '../src/repositories/entities/repository.entity';
 import { EncryptionService } from '../src/common/encryption/encryption.service';
 import { ExecutionFactory } from './factories/execution.factory';
@@ -200,6 +214,150 @@ class FakeClaudeCliRunner implements ClaudeCliRunner {
   }
 }
 
+class FakeGitPublicationClient implements GitPublicationClient {
+  private remoteBranches = new Set<string>();
+  private hasChangesResult = true;
+  private pushFailuresRemaining = 0;
+  private checkCommandResult: GitCheckCommandResult = {
+    success: true,
+    stdout: '',
+    stderr: '',
+  };
+  private headSha = 'abc123def456';
+  public lastCommitMessage: string | null = null;
+  public lastPushedBranch: string | null = null;
+
+  reset(): void {
+    this.remoteBranches = new Set<string>();
+    this.hasChangesResult = true;
+    this.pushFailuresRemaining = 0;
+    this.checkCommandResult = {
+      success: true,
+      stdout: '',
+      stderr: '',
+    };
+    this.headSha = 'abc123def456';
+    this.lastCommitMessage = null;
+    this.lastPushedBranch = null;
+  }
+
+  seedRemoteBranch(branchName: string): void {
+    this.remoteBranches.add(branchName);
+  }
+
+  setHasChangesResult(hasChanges: boolean): void {
+    this.hasChangesResult = hasChanges;
+  }
+
+  setPushFailuresRemaining(value: number): void {
+    this.pushFailuresRemaining = value;
+  }
+
+  setCheckCommandResult(result: GitCheckCommandResult): void {
+    this.checkCommandResult = result;
+  }
+
+  setHeadSha(sha: string): void {
+    this.headSha = sha;
+  }
+
+  async branchExistsRemote(
+    _localPath: string,
+    branchName: string,
+    _cloneUrl: string,
+    _accessToken: string,
+  ): Promise<boolean> {
+    return this.remoteBranches.has(branchName);
+  }
+
+  async checkoutNewBranch(
+    _localPath: string,
+    _branchName: string,
+  ): Promise<void> {}
+
+  async hasChanges(_localPath: string): Promise<boolean> {
+    return this.hasChangesResult;
+  }
+
+  async addAll(_localPath: string): Promise<void> {}
+
+  async commit(
+    _localPath: string,
+    message: string,
+    _authorName: string,
+    _authorEmail: string,
+  ): Promise<void> {
+    this.lastCommitMessage = message;
+  }
+
+  async getHeadSha(_localPath: string): Promise<string> {
+    return this.headSha;
+  }
+
+  async push(options: GitPushOptions): Promise<void> {
+    if (this.pushFailuresRemaining > 0) {
+      this.pushFailuresRemaining -= 1;
+      throw new Error('Simulated push failure');
+    }
+
+    this.remoteBranches.add(options.branchName);
+    this.lastPushedBranch = options.branchName;
+  }
+
+  async runCheckCommand(
+    _localPath: string,
+    _command: string,
+  ): Promise<GitCheckCommandResult> {
+    return this.checkCommandResult;
+  }
+
+  async checkoutDefaultAndClean(
+    _localPath: string,
+    _defaultBranch: string,
+    _cloneUrl: string,
+    _accessToken: string,
+  ): Promise<void> {}
+
+  async deleteLocalBranch(
+    _localPath: string,
+    _branchName: string,
+  ): Promise<void> {}
+}
+
+class FakeGithubPullRequestsGateway implements GithubPullRequestsGateway {
+  private failuresRemaining = 0;
+  public lastInput: CreatePullRequestInput | null = null;
+  public createdPullRequests: CreatedPullRequest[] = [];
+
+  reset(): void {
+    this.failuresRemaining = 0;
+    this.lastInput = null;
+    this.createdPullRequests = [];
+  }
+
+  setFailuresRemaining(value: number): void {
+    this.failuresRemaining = value;
+  }
+
+  async createPullRequest(
+    input: CreatePullRequestInput,
+  ): Promise<CreatedPullRequest> {
+    this.lastInput = input;
+    if (this.failuresRemaining > 0) {
+      this.failuresRemaining -= 1;
+      throw new Error('Simulated PR creation failure');
+    }
+
+    const pullRequest: CreatedPullRequest = {
+      number: 101 + this.createdPullRequests.length,
+      url: `https://github.com/${input.fullName}/pull/${101 + this.createdPullRequests.length}`,
+      title: input.title,
+    };
+    this.createdPullRequests.push(pullRequest);
+    return pullRequest;
+  }
+}
+
 describe('Executions (e2e)', () => {
   let app: NestFastifyApplication;
   let dataSource: DataSource;
@@ -208,21 +366,39 @@ describe('Executions (e2e)', () => {
   let repositoryFactory: RepositoryFactory;
   let executionFactory: ExecutionFactory;
   let fakeRunner: FakeClaudeCliRunner;
+  let fakeGitPublicationClient: FakeGitPublicationClient;
+  let fakeGithubPullRequestsGateway: FakeGithubPullRequestsGateway;
 
   beforeAll(async () => {
     fakeRunner = new FakeClaudeCliRunner();
+    fakeGitPublicationClient = new FakeGitPublicationClient();
+    fakeGithubPullRequestsGateway = new FakeGithubPullRequestsGateway();
     const context = await createTestApp({
       env: {
         REPOSITORIES_BASE_PATH: TEST_REPOSITORIES_BASE_PATH,
         EXECUTION_DEFAULT_TIMEOUT_MS: '40',
         EXECUTION_MAX_CONCURRENT_PER_USER: '2',
-        EXECUTION_OUTPUT_MAX_BYTES: '40',
+        EXECUTION_OUTPUT_MAX_BYTES: '400',
         EXECUTION_GRACEFUL_STOP_MS: '20',
+        EXECUTION_AUTOPR_RETRY_COUNT: '3',
+        EXECUTION_AUTOPR_RETRY_BACKOFF_MS: '1',
+        EXECUTION_AUTOPR_BRANCH_PREFIX: 'feature/ai',
+        EXECUTION_GIT_AUTHOR_NAME: 'Automation Bot',
+        EXECUTION_GIT_AUTHOR_EMAIL: 'automation@local',
+        EXECUTION_PRE_PR_CHECK_COMMAND: '',
       },
       providerOverrides: [
         {
           token: CLAUDE_CLI_RUNNER,
           value: fakeRunner,
+        },
+        {
+          token: GIT_PUBLICATION_CLIENT,
+          value: fakeGitPublicationClient,
+        },
+        {
+          token: GITHUB_PULL_REQUESTS_GATEWAY,
+          value: fakeGithubPullRequestsGateway,
         },
       ],
     });
@@ -245,6 +421,9 @@ describe('Executions (e2e)', () => {
     await dataSource.synchronize(true);
     await repositoryFactory.resetWorkspace();
     fakeRunner.reset();
+    fakeGitPublicationClient.reset();
+    fakeGithubPullRequestsGateway.reset();
+    process.env.EXECUTION_PRE_PR_CHECK_COMMAND = '';
   });
 
   afterAll(async () => {
@@ -262,7 +441,7 @@ describe('Executions (e2e)', () => {
     expect(response.statusCode).toBe(401);
   });
 
-  it('POST /api/executions should create execution and transition from pending to running/completed', async () => {
+  it('POST /api/executions should create execution and publish branch/commit/PR metadata for fix action', async () => {
     const session = await createLoginSession();
     await userSettingsFactory.create(session.userId);
     const repository = await createRunnableRepository(session.userId);
@@ -286,9 +465,20 @@ describe('Executions (e2e)', () => {
 
     const execution = await waitForExecution(
       created.id,
-      (current) => current.status !== 'pending',
+      (current) =>
+        current.status === 'completed' &&
+        current.automationStatus === 'published',
     );
-    expect(['running', 'completed']).toContain(execution.status);
+    expect(execution.branchName).toBe('feature/ai/task-0001');
+    expect(execution.commitSha).toBe('abc123def456');
+    expect(execution.pullRequestUrl).toContain('/pull/');
+    expect(execution.automationAttempts).toBe(1);
+    expect(fakeGitPublicationClient.lastCommitMessage).not.toMatch(
+      /\b(ai|anthropic|claude|codex)\b/i,
+    );
+    expect(fakeGithubPullRequestsGateway.lastInput?.title).not.toMatch(
+      /\b(ai|anthropic|claude|codex)\b/i,
+    );
   });
 
   it('POST /api/executions should return 400 when claudeApiKey is missing', async () => {
@@ -303,6 +493,313 @@ describe('Executions (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(400);
+  });
+
+  it('POST /api/executions should mark automation failed when GitHub token is missing', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId, {
+      githubToken: null,
+    });
+    const repository = await createRunnableRepository(session.userId);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['done'],
+      delayMs: 10,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id),
+    });
+    expect(response.statusCode).toBe(201);
+
+    const executionId = response.json<{ id: string }>().id;
+    const execution = await waitForExecution(
+      executionId,
+      (current) =>
+        current.status === 'completed' && current.automationStatus === 'failed',
+    );
+
+    expect(execution.automationErrorMessage).toContain('GitHub token missing');
+  });
+
+  it('POST /api/executions should set automationStatus=not_applicable for plan action', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['plan output'],
+      delayMs: 10,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id, 'plan'),
+    });
+    expect(response.statusCode).toBe(201);
+
+    const executionId = response.json<{ id: string }>().id;
+    const execution = await waitForExecution(
+      executionId,
+      (current) =>
+        current.status === 'completed' &&
+        current.automationStatus === 'not_applicable',
+    );
+
+    expect(execution.branchName).toBeNull();
+    expect(execution.pullRequestUrl).toBeNull();
+  });
+
+  it('POST /api/executions should set automationStatus=no_changes when repository diff is empty', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['noop'],
+      delayMs: 10,
+    });
+    fakeGitPublicationClient.setHasChangesResult(false);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id),
+    });
+    expect(response.statusCode).toBe(201);
+
+    const executionId = response.json<{ id: string }>().id;
+    const execution = await waitForExecution(
+      executionId,
+      (current) =>
+        current.status === 'completed' &&
+        current.automationStatus === 'no_changes',
+    );
+
+    expect(execution.pullRequestUrl).toBeNull();
+  });
+
+  it('POST /api/executions should create suffixed branch when preferred branch already exists remotely', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['change'],
+      delayMs: 10,
+    });
+    fakeGitPublicationClient.seedRemoteBranch('feature/ai/task-0001');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id),
+    });
+    expect(response.statusCode).toBe(201);
+
+    const executionId = response.json<{ id: string }>().id;
+    const execution = await waitForExecution(
+      executionId,
+      (current) =>
+        current.status === 'completed' &&
+        current.automationStatus === 'published',
+    );
+
+    expect(execution.branchName).toBe('feature/ai/task-0001-2');
+  });
+
+  it('POST /api/executions should fail automation after 3 retries when push/PR keeps failing', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['change'],
+      delayMs: 10,
+    });
+    fakeGithubPullRequestsGateway.setFailuresRemaining(3);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id),
+    });
+    expect(response.statusCode).toBe(201);
+
+    const executionId = response.json<{ id: string }>().id;
+    const execution = await waitForExecution(
+      executionId,
+      (current) =>
+        current.status === 'completed' && current.automationStatus === 'failed',
+    );
+
+    expect(execution.automationAttempts).toBe(3);
+  });
+
+  it('POST /api/executions should use pull request template from target cloned repository', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    const templateDirectory = `${repository.localPath}/.github`;
+    await mkdir(templateDirectory, { recursive: true });
+    await writeFile(
+      `${templateDirectory}/pull_request_template.md`,
+      '## Checklist\n- [ ] tested\n',
+      'utf8',
+    );
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['changed'],
+      delayMs: 10,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id),
+    });
+    expect(response.statusCode).toBe(201);
+
+    const executionId = response.json<{ id: string }>().id;
+    await waitForExecution(
+      executionId,
+      (current) =>
+        current.status === 'completed' &&
+        current.automationStatus === 'published',
+    );
+
+    expect(fakeGithubPullRequestsGateway.lastInput?.body?.trim()).toBe(
+      '## Checklist\n- [ ] tested',
+    );
+  });
+
+  it('POST /api/executions should fallback to Claude contract when PR template is missing', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['PR_TITLE: Bot update\nPR_BODY: Body line\n'],
+      delayMs: 10,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id),
+    });
+    expect(response.statusCode).toBe(201);
+
+    const executionId = response.json<{ id: string }>().id;
+    await waitForExecution(
+      executionId,
+      (current) =>
+        current.status === 'completed' &&
+        current.automationStatus === 'published',
+    );
+
+    expect(fakeGithubPullRequestsGateway.lastInput?.title).toContain(
+      'Bot update',
+    );
+    expect(fakeGithubPullRequestsGateway.lastInput?.body).toContain(
+      'Body line',
+    );
+  });
+
+  it('POST /api/executions should fail automation when pre-PR command fails', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    process.env.EXECUTION_PRE_PR_CHECK_COMMAND = 'npm run format:check';
+    fakeGitPublicationClient.setCheckCommandResult({
+      success: false,
+      stdout: '',
+      stderr: 'format failed',
+    });
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['changed'],
+      delayMs: 10,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id),
+    });
+    expect(response.statusCode).toBe(201);
+
+    const executionId = response.json<{ id: string }>().id;
+    const execution = await waitForExecution(
+      executionId,
+      (current) =>
+        current.status === 'completed' && current.automationStatus === 'failed',
+    );
+
+    expect(execution.automationErrorMessage).toContain('Pre-PR checks failed');
+  });
+
+  it('POST /api/executions should sanitize forbidden terms from commit and PR content', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: [
+        'PR_TITLE: Claude AI Codex update\\nPR_BODY: anthropic notes\\n',
+      ],
+      delayMs: 10,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id, 'fix', {
+        taskTitle: 'Claude AI Codex update',
+      }),
+    });
+    expect(response.statusCode).toBe(201);
+
+    const executionId = response.json<{ id: string }>().id;
+    await waitForExecution(
+      executionId,
+      (current) =>
+        current.status === 'completed' &&
+        current.automationStatus === 'published',
+    );
+
+    const forbiddenPattern = /\\b(ai|anthropic|claude|codex)\\b/i;
+    expect(fakeGitPublicationClient.lastCommitMessage).not.toMatch(
+      forbiddenPattern,
+    );
+    expect(fakeGithubPullRequestsGateway.lastInput?.title).not.toMatch(
+      forbiddenPattern,
+    );
+    expect(fakeGithubPullRequestsGateway.lastInput?.body).not.toMatch(
+      forbiddenPattern,
+    );
   });
 
   it('POST /api/executions should return 404 for foreign repository', async () => {
@@ -500,6 +997,7 @@ describe('Executions (e2e)', () => {
     );
     expect(streamResponse.body).toContain('event: snapshot');
     expect(streamResponse.body).toContain('event: stdout');
+    expect(streamResponse.body).toContain('event: publication');
     expect(streamResponse.body).toMatch(/event: (completed|error)/);
   });
 
@@ -536,7 +1034,7 @@ describe('Executions (e2e)', () => {
 
     fakeRunner.enqueueBehavior({
       kind: 'success',
-      stdout: ['x'.repeat(200)],
+      stdout: ['x'.repeat(900)],
       delayMs: 10,
     });
 
@@ -557,7 +1055,7 @@ describe('Executions (e2e)', () => {
     expect(completedExecution.outputTruncated).toBe(true);
     expect(
       Buffer.byteLength(completedExecution.output, 'utf8'),
-    ).toBeLessThanOrEqual(40);
+    ).toBeLessThanOrEqual(400);
   });
 
   const createLoginSession = async (): Promise<LoginSession> => {
@@ -628,12 +1126,18 @@ describe('Executions (e2e)', () => {
 const buildCreateExecutionPayload = (
   repositoryId: string,
   action: ExecutionAction = 'fix',
+  overrides: Partial<{
+    taskId: string;
+    taskExternalId: string;
+    taskTitle: string;
+    taskDescription: string;
+  }> = {},
 ) => ({
   repositoryId,
   action,
-  taskId: `task-${faker.string.alphanumeric(8).toLowerCase()}`,
-  taskExternalId: `TASK-${faker.string.numeric(4)}`,
-  taskTitle: faker.lorem.sentence(),
-  taskDescription: faker.lorem.paragraph(),
+  taskId: overrides.taskId ?? 'task-0001',
+  taskExternalId: overrides.taskExternalId ?? 'TASK-0001',
+  taskTitle: overrides.taskTitle ?? 'Fix backend issue',
+  taskDescription: overrides.taskDescription ?? 'Implement task updates',
   taskSource: 'jira',
 });

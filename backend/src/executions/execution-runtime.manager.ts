@@ -6,6 +6,7 @@ import { parsePositiveInteger } from '../common/utils/parse.utils';
 import { CLAUDE_CLI_RUNNER } from './constants/executions.tokens';
 import { ExecutionStreamEventDto } from './dto/execution-stream-event.dto';
 import { Execution } from './entities/execution.entity';
+import { ExecutionPublicationService } from './execution-publication.service';
 import type {
   ClaudeCliProcess,
   ClaudeCliRunner,
@@ -46,6 +47,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     @Inject(CLAUDE_CLI_RUNNER)
     private readonly claudeCliRunner: ClaudeCliRunner,
     private readonly streamHub: ExecutionStreamHub,
+    private readonly publicationService: ExecutionPublicationService,
     private readonly configService: ConfigService,
   ) {
     this.outputMaxBytes = parsePositiveInteger(
@@ -386,6 +388,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     const finishedAt = new Date();
     let status: ExecutionStatus;
     let errorMessage: string | null = null;
+    let automationPatch: Partial<Execution> = {};
 
     if (activeExecution.timedOut) {
       status = 'failed';
@@ -393,11 +396,21 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     } else if (activeExecution.cancelRequested) {
       status = 'cancelled';
       errorMessage = 'Execution cancelled';
+      automationPatch = {
+        automationStatus: 'not_applicable',
+        automationCompletedAt: finishedAt,
+        automationErrorMessage: errorMessage,
+      };
     } else if (exitCode === 0) {
       status = 'completed';
     } else {
       status = 'failed';
       errorMessage = 'Execution process failed';
+      automationPatch = {
+        automationStatus: 'failed',
+        automationCompletedAt: finishedAt,
+        automationErrorMessage: errorMessage,
+      };
     }
 
     await this.executionRepository.update(
@@ -407,10 +420,19 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
         finishedAt,
         exitCode,
         errorMessage,
+        ...automationPatch,
       },
     );
 
     if (status === 'completed') {
+      try {
+        await this.publicationService.handleCompletedExecution(executionId);
+      } catch (error) {
+        this.logger.error(
+          `Execution publication hook failed for ${executionId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      }
       this.publish(
         {
           type: 'completed',
