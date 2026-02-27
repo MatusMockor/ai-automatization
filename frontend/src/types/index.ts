@@ -67,7 +67,7 @@ export interface TaskManagerConnection {
   id: string;
   provider: TaskManagerProvider;
   name: string | null;
-  status: string;
+  status: 'connected' | 'invalid' | 'pending';
   baseUrl: string | null;
   workspaceId: string | null;
   projectId: string | null;

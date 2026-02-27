@@ -12,6 +12,7 @@ import {
   Tag,
   Link2,
   Clock,
+  Loader2,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { timeAgo } from '@/lib/time';
@@ -205,6 +206,8 @@ export function ConnectionsPage() {
                       <span className="text-sm font-medium">{conn.name ?? info.name}</span>
                       {conn.status === 'connected' ? (
                         <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
+                      ) : conn.status === 'pending' ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
                       ) : (
                         <XCircle className="h-3.5 w-3.5 text-red-400" />
                       )}
