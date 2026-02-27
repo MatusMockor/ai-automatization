@@ -40,14 +40,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         : Array.isArray(requestIdHeader)
           ? requestIdHeader[0]
           : request?.id;
+    const sanitizedRequestPath = this.resolveRequestPathForLogs(
+      request?.originalUrl ?? request?.url,
+    );
+    const sanitizedRequestId = requestId
+      ? this.sanitizeLogMessage(requestId)
+      : undefined;
 
     const messageForLogs = Array.isArray(payload.message)
       ? payload.message.join('; ')
       : payload.message;
 
     this.logger.error(
-      `${request?.method ?? 'UNKNOWN'} ${request?.originalUrl ?? request?.url ?? ''} -> ${status} (${this.sanitizeLogMessage(messageForLogs)})`,
-      requestId ? `requestId=${requestId}` : undefined,
+      `${request?.method ?? 'UNKNOWN'} ${sanitizedRequestPath} -> ${status} (${this.sanitizeLogMessage(messageForLogs)})`,
+      sanitizedRequestId ? `requestId=${sanitizedRequestId}` : undefined,
     );
 
     response.status(status).send(payload);
@@ -102,5 +108,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
   private sanitizeLogMessage(message: string): string {
     return message.replace(/\s+/g, ' ').trim().slice(0, 500);
+  }
+
+  private resolveRequestPathForLogs(rawPath: string | undefined): string {
+    const pathWithoutQuery = (rawPath ?? '').split('?')[0];
+    return this.sanitizeLogMessage(pathWithoutQuery || '/');
   }
 }

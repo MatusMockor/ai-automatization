@@ -1,30 +1,42 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { GlobalExceptionFilter } from '../filters/global-exception.filter';
+import {
+  isEnvFlagEnabled,
+  normalizeSwaggerPath,
+} from '../utils/swagger-config.utils';
 
-const ENABLED_VALUES = new Set(['1', 'true', 'yes', 'on']);
-const DEFAULT_SWAGGER_PATH = 'api/docs';
+const resolveAllowedOrigins = (
+  value: string | undefined,
+  nodeEnv: string | undefined,
+): boolean | string[] => {
+  const isProduction = nodeEnv === 'production';
+  const parsedOrigins = (value ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
-const isEnabled = (value: string | undefined, fallback = false): boolean => {
-  if (value === undefined) {
-    return fallback;
+  if (parsedOrigins.length === 0) {
+    return isProduction ? [] : true;
   }
 
-  return ENABLED_VALUES.has(value.toLowerCase());
-};
+  const hasWildcard = parsedOrigins.includes('*');
+  if (hasWildcard) {
+    return isProduction ? [] : true;
+  }
 
-const resolveSwaggerPath = (pathValue: string | undefined): string => {
-  const normalized = (pathValue ?? DEFAULT_SWAGGER_PATH)
-    .trim()
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '');
-
-  return normalized || DEFAULT_SWAGGER_PATH;
+  return parsedOrigins;
 };
 
 export const configureApplication = (app: INestApplication): void => {
   app.setGlobalPrefix('api');
-  app.enableCors();
+  const allowedOrigins = resolveAllowedOrigins(
+    process.env.ALLOWED_ORIGINS,
+    process.env.NODE_ENV,
+  );
+  app.enableCors({
+    origin: allowedOrigins,
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -33,11 +45,11 @@ export const configureApplication = (app: INestApplication): void => {
   );
   app.useGlobalFilters(new GlobalExceptionFilter());
 
-  if (!isEnabled(process.env.ENABLE_SWAGGER, false)) {
+  if (!isEnvFlagEnabled(process.env.ENABLE_SWAGGER, false)) {
     return;
   }
 
-  const swaggerPath = resolveSwaggerPath(process.env.SWAGGER_PATH);
+  const swaggerPath = normalizeSwaggerPath(process.env.SWAGGER_PATH);
   const swaggerConfig = new DocumentBuilder()
     .setTitle('AI Automation API')
     .setDescription('API documentation for AI Automation backend services')

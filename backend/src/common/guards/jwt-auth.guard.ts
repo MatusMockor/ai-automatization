@@ -6,11 +6,13 @@ import {
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import {
+  isEnvFlagEnabled,
+  resolveSwaggerRoutePath,
+} from '../utils/swagger-config.utils';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
-  private static readonly ENABLED_VALUES = new Set(['1', 'true', 'yes', 'on']);
-
   constructor(private readonly reflector: Reflector) {
     super();
   }
@@ -48,7 +50,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   }
 
   private isSwaggerPublicRoute(context: ExecutionContext): boolean {
-    if (!this.isSwaggerEnabled()) {
+    if (!isEnvFlagEnabled(process.env.ENABLE_SWAGGER, false)) {
       return false;
     }
 
@@ -59,30 +61,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     const requestPath = (request?.originalUrl ?? request?.url ?? '').split(
       '?',
     )[0];
-    const swaggerPath = this.resolveSwaggerPath();
+    const swaggerPath = resolveSwaggerRoutePath(process.env.SWAGGER_PATH);
 
     return (
       requestPath === swaggerPath ||
       requestPath.startsWith(`${swaggerPath}/`) ||
       requestPath === `${swaggerPath}-json`
     );
-  }
-
-  private isSwaggerEnabled(): boolean {
-    const rawValue = process.env.ENABLE_SWAGGER;
-    if (rawValue === undefined) {
-      return false;
-    }
-
-    return JwtAuthGuard.ENABLED_VALUES.has(rawValue.toLowerCase());
-  }
-
-  private resolveSwaggerPath(): string {
-    const normalizedPath = (process.env.SWAGGER_PATH ?? 'api/docs')
-      .trim()
-      .replace(/^\/+/, '')
-      .replace(/\/+$/, '');
-
-    return `/${normalizedPath || 'api/docs'}`;
   }
 }

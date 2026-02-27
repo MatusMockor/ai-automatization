@@ -36,22 +36,27 @@ describe('Production Readiness (e2e)', () => {
     const context = await createTestApp({
       env: {
         ENABLE_SWAGGER: 'true',
-        SWAGGER_PATH: 'api/docs',
+        SWAGGER_PATH: 'api/internal-docs',
       },
     });
     app = context.app;
 
     const docsResponse = await app.inject({
       method: 'GET',
-      url: '/api/docs',
+      url: '/api/internal-docs',
     });
     const docsJsonResponse = await app.inject({
       method: 'GET',
-      url: '/api/docs-json',
+      url: '/api/internal-docs-json',
+    });
+    const defaultDocsResponse = await app.inject({
+      method: 'GET',
+      url: '/api/docs',
     });
 
     expect([200, 301, 302, 307, 308]).toContain(docsResponse.statusCode);
     expect(docsJsonResponse.statusCode).toBe(200);
+    expect(defaultDocsResponse.statusCode).toBe(404);
     expect(docsJsonResponse.json<{ openapi: string }>().openapi).toContain(
       '3.',
     );

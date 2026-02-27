@@ -32,6 +32,7 @@ const DEFAULT_TEST_ENV: Record<string, string> = {
   DB_MIGRATIONS_RUN: 'false',
   JWT_SECRET: 'test-secret',
   JWT_EXPIRATION: '1h',
+  ALLOWED_ORIGINS: '*',
   BCRYPT_SALT_ROUNDS: '4',
   ENCRYPTION_KEY:
     '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff',
