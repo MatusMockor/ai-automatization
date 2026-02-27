@@ -16,6 +16,7 @@ export interface ClaudeCliProcess {
   readonly pid: number | null;
   onStdout(listener: (chunk: string) => void): void;
   onStderr(listener: (chunk: string) => void): void;
+  onError(listener: (error: Error) => void): void;
   onExit(listener: (info: ClaudeCliExitInfo) => void): void;
   kill(signal: NodeJS.Signals): void;
 }

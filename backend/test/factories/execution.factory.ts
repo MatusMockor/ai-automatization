@@ -32,6 +32,19 @@ export class ExecutionFactory {
 
   async create(input: CreateExecutionInput): Promise<Execution> {
     const executionRepository = this.dataSource.getRepository(Execution);
+    const status = input.status ?? 'completed';
+    const isTerminal =
+      status === 'completed' || status === 'failed' || status === 'cancelled';
+    const defaultStartedAt = status === 'pending' ? null : new Date();
+    const defaultFinishedAt = isTerminal ? new Date() : null;
+    const defaultExitCode = status === 'completed' ? 0 : null;
+    const defaultErrorMessage =
+      status === 'failed'
+        ? 'Execution failed'
+        : status === 'cancelled'
+          ? 'Execution cancelled'
+          : null;
+
     const execution = executionRepository.create({
       userId: input.userId,
       repositoryId: input.repositoryId,
@@ -45,14 +58,14 @@ export class ExecutionFactory {
       taskSource: input.taskSource ?? 'jira',
       action: input.action ?? 'fix',
       prompt: input.prompt ?? faker.lorem.paragraph(),
-      status: input.status ?? 'completed',
+      status,
       output: input.output ?? faker.lorem.paragraph(),
       outputTruncated: input.outputTruncated ?? false,
       pid: input.pid ?? null,
-      startedAt: input.startedAt ?? new Date(),
-      finishedAt: input.finishedAt ?? new Date(),
-      exitCode: input.exitCode ?? 0,
-      errorMessage: input.errorMessage ?? null,
+      startedAt: input.startedAt ?? defaultStartedAt,
+      finishedAt: input.finishedAt ?? defaultFinishedAt,
+      exitCode: input.exitCode ?? defaultExitCode,
+      errorMessage: input.errorMessage ?? defaultErrorMessage,
     });
 
     return executionRepository.save(execution);
