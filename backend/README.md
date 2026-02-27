@@ -23,6 +23,17 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## API hardening configuration
+
+The backend supports production hardening controls through environment variables:
+
+- `ENABLE_SWAGGER` (default: `false`) enables Swagger UI and OpenAPI JSON endpoints.
+- `SWAGGER_PATH` (default: `api/docs`) sets the public Swagger endpoint path.
+- `THROTTLE_TTL_MS` (default: `60000`) configures throttling window in milliseconds.
+- `THROTTLE_LIMIT` (default: `60`) configures max requests per window.
+
+With default values, Swagger stays disabled and rate limiting applies globally, while `GET /api/health` is excluded.
+
 ## Project setup
 
 ```bash

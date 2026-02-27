@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { configureApplication } from './common/bootstrap/app-bootstrap';
 
 const INSECURE_JWT_SECRETS = new Set([
   'change-this-in-production',
@@ -43,15 +43,7 @@ async function bootstrap() {
   validateProductionSecurityConfig();
 
   const app = await NestFactory.create(AppModule);
-
-  app.setGlobalPrefix('api');
-  app.enableCors();
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-    }),
-  );
+  configureApplication(app);
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port, '0.0.0.0');

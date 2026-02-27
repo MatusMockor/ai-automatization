@@ -22,6 +22,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@fastify/static": "^9.0.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.0.1",
@@ -29,6 +30,8 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.1.14",
     "@nestjs/platform-fastify": "^11.1.14",
+    "@nestjs/swagger": "^11.2.6",
+    "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.0",
     "asana": "^3.0.2",
     "bcrypt": "^6.0.0",
@@ -41,6 +44,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "sql.js": "^1.14.0",
+    "swagger-ui-express": "^5.0.1",
     "typeorm": "^0.3.28"
   },
   "devDependencies": {
