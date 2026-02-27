@@ -35,7 +35,7 @@ export class RepositoryPathService {
     }
 
     const localPath = resolve(
-      join(this.basePath, userId, `${safeOwner}__${safeRepository}`),
+      join(this.basePath, userId, safeRepository),
     );
 
     this.assertWithinBasePath(localPath);
