@@ -13,9 +13,10 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
   onEventRef.current = onEvent;
 
   useEffect(() => {
+    setOutput('');
+    setStatus(null);
+
     if (!executionId) {
-      setOutput('');
-      setStatus(null);
       return;
     }
 
@@ -33,7 +34,8 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
         });
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
-        throw err;
+        console.warn('Execution stream connection failed', err);
+        return;
       }
 
       if (!response.ok || !response.body) {
@@ -102,7 +104,7 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
       }
     };
 
-    connect();
+    void connect();
 
     return () => {
       abortController.abort();
