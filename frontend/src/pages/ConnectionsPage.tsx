@@ -70,7 +70,7 @@ export function ConnectionsPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addingProvider) return;
+    if (!addingProvider || saving) return;
     setSaving(true);
 
     try {
