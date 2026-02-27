@@ -10,7 +10,7 @@ import {
   Link2,
   GitBranch,
   Settings,
-  Layers,
+
   LogOut,
   Sun,
   Moon,
@@ -89,15 +89,6 @@ export function AppShell() {
           );
         })}
 
-        <div className="mx-1 my-2 h-px bg-border" />
-
-        <Link
-          to="/variants"
-          className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-foreground/[0.03] hover:text-foreground"
-        >
-          <Layers className="h-4 w-4" />
-          Layout Variants
-        </Link>
       </nav>
 
       {/* Theme toggle */}
