@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   GithubAuthorizationError,
   GithubGatewayError,
@@ -18,6 +19,13 @@ type GithubRepositoryResponse = {
 @Injectable()
 export class GithubApiRepositoriesGateway implements GithubRepositoriesGateway {
   private static readonly REQUEST_TIMEOUT_MS = 10000;
+  private readonly githubApiBaseUrl: string;
+
+  constructor(private readonly configService: ConfigService) {
+    this.githubApiBaseUrl = this.normalizeGithubApiBaseUrl(
+      this.configService.get<string>('GITHUB_API_BASE_URL'),
+    );
+  }
 
   async getRepository(
     fullName: string,
@@ -36,7 +44,7 @@ export class GithubApiRepositoriesGateway implements GithubRepositoriesGateway {
     );
     try {
       response = await fetch(
-        `https://api.github.com/repos/${encodedFullName}`,
+        `${this.githubApiBaseUrl}/repos/${encodedFullName}`,
         {
           headers: {
             Accept: 'application/vnd.github+json',
@@ -95,5 +103,14 @@ export class GithubApiRepositoriesGateway implements GithubRepositoriesGateway {
       cloneUrl: body.clone_url,
       defaultBranch: body.default_branch,
     };
+  }
+
+  private normalizeGithubApiBaseUrl(value: string | undefined): string {
+    const trimmedValue = value?.trim();
+    if (!trimmedValue) {
+      return 'https://api.github.com';
+    }
+
+    return trimmedValue.replace(/\/+$/, '');
   }
 }
