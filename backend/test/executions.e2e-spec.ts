@@ -790,7 +790,7 @@ describe('Executions (e2e)', () => {
         current.automationStatus === 'published',
     );
 
-    const forbiddenPattern = /\\b(ai|anthropic|claude|codex)\\b/i;
+    const forbiddenPattern = /\b(ai|anthropic|claude|codex)\b/i;
     expect(fakeGitPublicationClient.lastCommitMessage).not.toMatch(
       forbiddenPattern,
     );

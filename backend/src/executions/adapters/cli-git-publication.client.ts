@@ -122,11 +122,7 @@ export class CliGitPublicationClient implements GitPublicationClient {
       };
     }
 
-    const result = await this.runProcess(
-      '/bin/sh',
-      ['-lc', command],
-      localPath,
-    );
+    const result = await this.runProcess('/bin/sh', ['-c', command], localPath);
     return {
       success: result.code === 0,
       stdout: result.stdout,
@@ -169,7 +165,10 @@ export class CliGitPublicationClient implements GitPublicationClient {
         `http.https://${url.host}/.extraheader=AUTHORIZATION: Bearer ${accessToken}`,
       ];
     } catch {
-      return [];
+      throw new ExecutionPublicationError(
+        'Invalid clone URL format for authenticated git operation',
+        cloneUrl.slice(0, 200),
+      );
     }
   }
 
