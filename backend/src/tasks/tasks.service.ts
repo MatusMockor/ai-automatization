@@ -56,6 +56,7 @@ export class TasksService {
 
     const connections =
       await this.taskManagersService.listConnectionsForUser(userId);
+    const limit = this.resolveLimit(query.limit);
     if (connections.length === 0) {
       return {
         repositoryId: query.repoId ?? null,
@@ -66,9 +67,12 @@ export class TasksService {
       };
     }
 
+    const perConnectionLimit =
+      (query.prefixes?.length ?? 0) > 0 ? this.maxLimit : limit;
     const settledConnectionTasks = await this.fetchSettledConnectionTasks(
       userId,
       connections,
+      perConnectionLimit,
     );
     const mappedResult = this.mapSettledTasks(settledConnectionTasks);
 
@@ -81,7 +85,6 @@ export class TasksService {
     }
 
     const sortedItems = filteredItems.sort((a, b) => this.compareItems(a, b));
-    const limit = this.resolveLimit(query.limit);
     const items = sortedItems.slice(0, limit);
 
     return {
@@ -96,9 +99,8 @@ export class TasksService {
   private async fetchSettledConnectionTasks(
     userId: string,
     connections: TaskManagerConnectionResponseDto[],
+    perConnectionLimit: number,
   ): Promise<SettledConnectionTasks[]> {
-    const perConnectionLimit = this.maxLimit;
-
     const taskPromises = connections.map(async (connection) => ({
       connection,
       result: await this.getConnectionTasks(
