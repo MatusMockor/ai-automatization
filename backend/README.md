@@ -27,12 +27,14 @@
 
 The backend supports production hardening controls through environment variables:
 
+- `ALLOWED_ORIGINS` (default: `http://localhost:3000,http://localhost:5173`) comma-separated CORS allowlist.
 - `ENABLE_SWAGGER` (default: `false`) enables Swagger UI and OpenAPI JSON endpoints.
 - `SWAGGER_PATH` (default: `api/docs`) sets the public Swagger endpoint path.
 - `THROTTLE_TTL_MS` (default: `60000`) configures throttling window in milliseconds.
 - `THROTTLE_LIMIT` (default: `60`) configures max requests per window.
 
 With default values, Swagger stays disabled and rate limiting applies globally, while `GET /api/health` is excluded.
+In production, avoid wildcard origins and explicitly set `ALLOWED_ORIGINS`.
 
 ## Project setup
 

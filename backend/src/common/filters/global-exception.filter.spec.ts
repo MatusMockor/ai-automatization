@@ -25,6 +25,9 @@ describe('GlobalExceptionFilter', () => {
   it('returns HttpException response shape without mutation', () => {
     const filter = new GlobalExceptionFilter();
     const exception = new BadRequestException('Invalid payload');
+    const originalResponse = JSON.parse(
+      JSON.stringify(exception.getResponse()),
+    );
     const { host, response } = createHost({
       method: 'POST',
       originalUrl: '/api/auth/login',
@@ -40,7 +43,8 @@ describe('GlobalExceptionFilter', () => {
     filter.catch(exception, host);
 
     expect(response.status).toHaveBeenCalledWith(400);
-    expect(response.send).toHaveBeenCalledWith(exception.getResponse());
+    expect(response.send).toHaveBeenCalledWith(originalResponse);
+    expect(exception.getResponse()).toEqual(originalResponse);
     expect(loggerSpy).toHaveBeenCalled();
   });
 
@@ -48,9 +52,9 @@ describe('GlobalExceptionFilter', () => {
     const filter = new GlobalExceptionFilter();
     const { host, response } = createHost({
       method: 'GET',
-      originalUrl: '/api/tasks',
+      originalUrl: '/api/tasks?token=secret-value',
       headers: {
-        'x-request-id': 'req-456',
+        'x-request-id': 'req-456\r\ninjected',
       },
     });
 
@@ -68,9 +72,11 @@ describe('GlobalExceptionFilter', () => {
 
     expect(loggerSpy).toHaveBeenCalledWith(
       expect.stringContaining('500 (Internal server error)'),
-      expect.stringContaining('requestId=req-456'),
+      expect.stringContaining('requestId=req-456 injected'),
     );
     const firstLogArgument = loggerSpy.mock.calls[0]?.[0] as string;
+    expect(firstLogArgument).toContain('GET /api/tasks -> 500');
     expect(firstLogArgument).not.toContain('Leaked internal details');
+    expect(firstLogArgument).not.toContain('secret-value');
   });
 });
