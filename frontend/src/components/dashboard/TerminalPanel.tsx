@@ -8,6 +8,7 @@ interface TerminalPanelProps {
   execution: Execution;
   isOpen: boolean;
   onToggle: () => void;
+  onCancel?: () => void;
 }
 
 const MIN_HEIGHT = 100;
@@ -18,6 +19,7 @@ export function TerminalPanel({
   execution,
   isOpen,
   onToggle,
+  onCancel,
 }: TerminalPanelProps) {
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [isDragging, setIsDragging] = useState(false);
@@ -110,6 +112,7 @@ export function TerminalPanel({
           {execution.status === "running" && (
             <button
               type="button"
+              onClick={onCancel}
               className="flex items-center gap-1 rounded px-2 py-0.5 text-red-400 transition-colors hover:bg-red-500/10"
             >
               <Square className="h-3 w-3" />
