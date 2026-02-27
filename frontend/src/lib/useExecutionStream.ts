@@ -23,6 +23,8 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
 
     const connect = async () => {
       const token = localStorage.getItem('token');
+      if (!token) return;
+
       let response: Response;
       try {
         response = await fetch(`/api/executions/${executionId}/stream`, {
@@ -34,7 +36,10 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
         throw err;
       }
 
-      if (!response.ok || !response.body) return;
+      if (!response.ok || !response.body) {
+        console.warn(`Execution stream failed: ${response.status}`);
+        return;
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
