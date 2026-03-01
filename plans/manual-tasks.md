@@ -2,18 +2,18 @@
 
 ## Context
 
-Currently all tasks come from external connections (Jira/Asana). User chce vytvárať tasky manuálne priamo v dashboarde — uložené v DB, zobrazené vedľa externých taskov, použiteľné na spúšťanie executions.
+Today all tasks come from external providers (Jira/Asana). Users should be able to create manual tasks directly in the dashboard, store them in the database, show them next to external tasks, and run executions from them.
 
-## 1. DB migration — `manual_tasks` tabuľka
+## 1. DB migration - `manual_tasks` table
 
 **New file:** `backend/src/database/migrations/1741348800000-create-manual-tasks-table.ts`
 
-Follow pattern from `1741176000000-create-executions-table.ts`:
+Follow the pattern used in `1741176000000-create-executions-table.ts`.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid PK | auto-generated |
-| `user_id` | uuid FK → users(id) ON DELETE CASCADE | |
+| `user_id` | uuid FK -> users(id) ON DELETE CASCADE | |
 | `title` | varchar(4000) NOT NULL | |
 | `description` | text, nullable | |
 | `status` | varchar(16) DEFAULT 'open' | CHECK: open, in_progress, done, closed |
@@ -22,17 +22,21 @@ Follow pattern from `1741176000000-create-executions-table.ts`:
 
 Indexes: `(user_id)`, `(user_id, created_at)`
 
-## 2. DB migration — rozšíriť `CHK_executions_task_source`
+## 2. DB migration - extend `executions.task_source` CHECK constraint safely
 
 **New file:** `backend/src/database/migrations/1741348800001-add-manual-task-source.ts`
 
-- Drop `CHK_executions_task_source`
-- Recreate: `task_source IN ('asana', 'jira', 'manual')`
+Migration requirements:
+- Discover existing CHECK constraint(s) for `executions.task_source` dynamically (do not hardcode `CHK_executions_task_source`).
+- Drop the discovered constraint(s).
+- Recreate a deterministic constraint name, for example `chk_executions_task_source_v2`.
+- New rule: `task_source IN ('asana', 'jira', 'manual')`.
+- `down()` must revert to `task_source IN ('asana', 'jira')` using deterministic naming.
 
-## 3. Backend — entity, service, DTOs
+## 3. Backend - entity, service, DTOs
 
 **New file:** `backend/src/tasks/entities/manual-task.entity.ts`
-- Standard TypeORM entity matching the table above
+- Standard TypeORM entity matching the table above.
 
 **New file:** `backend/src/tasks/dto/create-manual-task.dto.ts`
 - `title`: `@IsString() @MinLength(1) @MaxLength(4000)`
@@ -42,11 +46,11 @@ Indexes: `(user_id)`, `(user_id, created_at)`
 - `id, title, description, status, createdAt, updatedAt`
 
 **New file:** `backend/src/tasks/manual-tasks.service.ts`
-- `createForUser(userId, dto)` — create + save
-- `listForUser(userId)` — find where userId, order createdAt DESC
-- `deleteForUser(userId, taskId)` — findOneBy + delete, throw NotFoundException if not found
+- `createForUser(userId, dto)` -> create and save
+- `listForUser(userId)` -> find by userId, ordered by createdAt DESC
+- `deleteForUser(userId, taskId)` -> findOneBy and delete, throw `NotFoundException` if missing
 
-## 4. Backend — update existing files
+## 4. Backend - update existing files
 
 **`backend/src/executions/interfaces/execution.types.ts`**
 - `TaskSource = 'asana' | 'jira' | 'manual'`
@@ -55,33 +59,33 @@ Indexes: `(user_id)`, `(user_id, created_at)`
 - `TASK_SOURCES = ['asana', 'jira', 'manual'] as const`
 
 **`backend/src/tasks/dto/task-feed-response.dto.ts`**
-- `TaskFeedItemDto.source` typ zmeniť z `TaskManagerProviderType` na `string` (alebo nový union `'asana' | 'jira' | 'manual'`)
+- Change `TaskFeedItemDto.source` from `TaskManagerProviderType` to strict union `'asana' | 'jira' | 'manual'` (not `string`).
 
 **`backend/src/tasks/tasks.controller.ts`**
-- Inject `ManualTasksService`
-- Pridať 3 endpointy (pred existujúci `@Get()`):
-  - `POST /tasks/manual` → `createManualTask`
-  - `GET /tasks/manual` → `listManualTasks`
-  - `DELETE /tasks/manual/:id` → `deleteManualTask`
+- Inject `ManualTasksService`.
+- Add three endpoints (before existing `@Get()`):
+  - `POST /tasks/manual` -> `createManualTask`
+  - `GET /tasks/manual` -> `listManualTasks`
+  - `DELETE /tasks/manual/:id` -> `deleteManualTask`
 
 **`backend/src/tasks/tasks.service.ts`**
-- Inject `ManualTasksService` (alebo priamo repository)
-- V `getTasksForUser()`: po fetchnutí externých taskov fetchnúť aj manuálne
-- Namapovať `ManualTask` → `TaskFeedItemDto`:
+- Inject `ManualTasksService` (or repository directly).
+- In `getTasksForUser()`, fetch manual tasks after external tasks.
+- Map `ManualTask` -> `TaskFeedItemDto`:
   - `id: "manual:${task.id}"`, `connectionId: ""`, `externalId: task.id`
   - `source: "manual"`, `url: ""`, `assignee: null`, `matchedPrefix: null`
-- **Dôležité:** odstrániť early return keď `connections.length === 0` — manuálne tasky sa musia zobraziť aj bez connections
-- Mergnúť do `items` pred sort + limit
+- Important: remove early return when `connections.length === 0` so manual tasks are still returned.
+- Merge manual items into `items` before sort and limit.
 
 **`backend/src/tasks/tasks.module.ts`**
-- Pridať `TypeOrmModule.forFeature([ManualTask])` do imports
-- Pridať `ManualTasksService` do providers
+- Add `TypeOrmModule.forFeature([ManualTask])` to imports.
+- Add `ManualTasksService` to providers.
 
-## 5. Frontend — typy
+## 5. Frontend - types
 
 **`frontend/src/types/index.ts`**
 - `TaskSource = 'jira' | 'asana' | 'manual'`
-- Pridať:
+- Add:
   ```ts
   export interface ManualTask {
     id: string;
@@ -93,66 +97,66 @@ Indexes: `(user_id)`, `(user_id, created_at)`
   }
   ```
 
-## 6. Frontend — SourceBadge
+## 6. Frontend - SourceBadge
 
 **`frontend/src/components/shared/SourceBadge.tsx`**
-- Pridať `manual: { label: 'Manual', bg: 'bg-amber-500/8 text-amber-400', dot: 'bg-amber-400' }`
+- Add `manual: { label: 'Manual', bg: 'bg-amber-500/8 text-amber-400', dot: 'bg-amber-400' }`.
 
-## 7. Frontend — CreateManualTaskDialog
+## 7. Frontend - CreateManualTaskDialog
 
 **New file:** `frontend/src/components/dashboard/CreateManualTaskDialog.tsx`
 
-Použiť existujúci Dialog z `@/components/ui/dialog.tsx`:
-- Title input (required)
-- Description textarea (optional)
-- Submit → `POST /api/tasks/manual`
-- On success: close + callback na refresh task listu
+Use existing dialog from `@/components/ui/dialog.tsx`:
+- Required title input
+- Optional description textarea
+- Submit -> `POST /api/tasks/manual`
+- On success: close dialog and trigger task list refresh callback
 
-## 8. Frontend — Dashboard
+## 8. Frontend - Dashboard
 
 **`frontend/src/components/dashboard/Dashboard.tsx`**
-- Pridať "New Task" button do top baru (vedľa search inputu)
-- State: `createDialogOpen`
-- Renderovať `<CreateManualTaskDialog>`
-- `onCreated` callback: re-fetchne task list
-- Pridať `handleDeleteManualTask`: `DELETE /api/tasks/manual/${selectedTask.externalId}` → remove z tasks, clear selectedTask
-- Passnúť `onDelete` do `TaskDetail` pre manuálne tasky
+- Add `New Task` button in top bar (next to search input).
+- State: `createDialogOpen`.
+- Render `<CreateManualTaskDialog>`.
+- `onCreated` callback should re-fetch task list.
+- Add `handleDeleteManualTask`: `DELETE /api/tasks/manual/${selectedTask.externalId}` then remove from list and clear `selectedTask`.
+- Pass `onDelete` to `TaskDetail` for manual tasks.
 
-## 9. Frontend — TaskDetail
+## 9. Frontend - TaskDetail
 
 **`frontend/src/components/dashboard/TaskDetail.tsx`**
-- Pridať `onDelete?: () => void` do props
-- Skryť "Open externally" button keď `task.source === 'manual'`
-- Zobraziť "Delete" button keď `onDelete` je defined (červený, s Trash2 ikonou)
+- Add optional prop `onDelete?: () => void`.
+- Hide `Open externally` button when `task.source === 'manual'`.
+- Show `Delete` button when `onDelete` is defined (red button with Trash2 icon).
 
 ## Files changed (summary)
 
 | File | Change |
 |------|--------|
-| `backend/src/database/migrations/1741348800000-*` | New — create manual_tasks table |
-| `backend/src/database/migrations/1741348800001-*` | New — update executions CHECK constraint |
-| `backend/src/tasks/entities/manual-task.entity.ts` | New — ManualTask entity |
-| `backend/src/tasks/dto/create-manual-task.dto.ts` | New — validation DTO |
-| `backend/src/tasks/dto/manual-task-response.dto.ts` | New — response DTO |
-| `backend/src/tasks/manual-tasks.service.ts` | New — CRUD service |
-| `backend/src/tasks/tasks.controller.ts` | Add 3 manual task endpoints |
+| `backend/src/database/migrations/1741348800000-*` | New - create `manual_tasks` table |
+| `backend/src/database/migrations/1741348800001-*` | New - update `executions.task_source` CHECK constraint |
+| `backend/src/tasks/entities/manual-task.entity.ts` | New - `ManualTask` entity |
+| `backend/src/tasks/dto/create-manual-task.dto.ts` | New - validation DTO |
+| `backend/src/tasks/dto/manual-task-response.dto.ts` | New - response DTO |
+| `backend/src/tasks/manual-tasks.service.ts` | New - CRUD service |
+| `backend/src/tasks/tasks.controller.ts` | Add three manual task endpoints |
 | `backend/src/tasks/tasks.service.ts` | Merge manual tasks into feed |
-| `backend/src/tasks/tasks.module.ts` | Register entity + service |
-| `backend/src/tasks/dto/task-feed-response.dto.ts` | Broaden source type |
-| `backend/src/executions/interfaces/execution.types.ts` | Add 'manual' to TaskSource |
-| `backend/src/executions/dto/create-execution.dto.ts` | Add 'manual' to TASK_SOURCES |
-| `frontend/src/types/index.ts` | Add 'manual' to TaskSource, add ManualTask type |
-| `frontend/src/components/shared/SourceBadge.tsx` | Add manual config |
-| `frontend/src/components/dashboard/CreateManualTaskDialog.tsx` | New — create dialog |
-| `frontend/src/components/dashboard/Dashboard.tsx` | Add create button, delete handler |
-| `frontend/src/components/dashboard/TaskDetail.tsx` | Conditional external link, delete button |
+| `backend/src/tasks/tasks.module.ts` | Register entity and service |
+| `backend/src/tasks/dto/task-feed-response.dto.ts` | Strict union for task source |
+| `backend/src/executions/interfaces/execution.types.ts` | Add `manual` to `TaskSource` |
+| `backend/src/executions/dto/create-execution.dto.ts` | Add `manual` to `TASK_SOURCES` |
+| `frontend/src/types/index.ts` | Add `manual` to `TaskSource`, add `ManualTask` type |
+| `frontend/src/components/shared/SourceBadge.tsx` | Add manual source config |
+| `frontend/src/components/dashboard/CreateManualTaskDialog.tsx` | New - create dialog |
+| `frontend/src/components/dashboard/Dashboard.tsx` | Add create button and delete handler |
+| `frontend/src/components/dashboard/TaskDetail.tsx` | Conditional external link and delete button |
 
 ## Verification
 
-1. `POST /api/tasks/manual` s title + description → vráti ManualTask
-2. `GET /api/tasks` → manuálne tasky sa zobrazia vedľa Jira/Asana taskov (aj keď nie sú žiadne connections)
-3. Dashboard → "New Task" button → dialog → vyplniť → submit → task sa objaví v liste s "Manual" badge
-4. Kliknúť na manuálny task → TaskDetail bez "Open externally" tlačidla, s "Delete" tlačidlom
-5. Spustiť execution (Fix/Feature/Plan) z manuálneho tasku → funguje rovnako ako z externého
-6. Delete manuálny task → zmizne z listu
-7. TypeScript build bez chýb (FE aj BE)
+1. `POST /api/tasks/manual` with title and description returns `ManualTask`.
+2. `GET /api/tasks` returns manual tasks together with Jira/Asana tasks, even with zero connections.
+3. Dashboard flow: click `New Task` -> fill dialog -> submit -> new task appears with `Manual` badge.
+4. Open a manual task in `TaskDetail` -> no `Open externally` button and visible `Delete` button.
+5. Start execution (`Fix`/`Feature`/`Plan`) from manual task -> works like external tasks.
+6. Delete manual task -> item disappears from list.
+7. TypeScript build passes for both FE and BE.

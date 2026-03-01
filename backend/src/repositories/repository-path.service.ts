@@ -34,7 +34,9 @@ export class RepositoryPathService {
       throw new Error('Invalid repository fullName');
     }
 
-    const localPath = resolve(join(this.basePath, userId, safeRepository));
+    const localPath = resolve(
+      join(this.basePath, userId, `${safeOwner}__${safeRepository}`),
+    );
 
     this.assertWithinBasePath(localPath);
     return localPath;
