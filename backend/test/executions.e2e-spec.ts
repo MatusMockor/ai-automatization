@@ -599,9 +599,8 @@ describe('Executions (e2e)', () => {
     expect(execution.branchName).toBe('feature/ai/task-0001');
     expect(execution.pullRequestUrl).toContain('/pull/');
     expect(execution.automationErrorMessage).toBeNull();
-    const reportContents = await readFile(
+    const reportContents = await waitForFileContents(
       `${repository.localPath}/.ai/executions/${execution.id}.md`,
-      'utf8',
     );
     expect(reportContents).toContain('# Execution Report');
     expect(reportContents).toContain('Action: plan');
@@ -695,9 +694,8 @@ describe('Executions (e2e)', () => {
     );
 
     expect(execution.pullRequestUrl).toContain('/pull/');
-    const reportContents = await readFile(
+    const reportContents = await waitForFileContents(
       `${repository.localPath}/.ai/executions/${execution.id}.md`,
-      'utf8',
     );
     expect(reportContents).toContain('# Execution Report');
   });
@@ -1304,6 +1302,25 @@ describe('Executions (e2e)', () => {
 
     throw new Error('Execution did not reach expected state within timeout');
   };
+
+  const waitForFileContents = async (filePath: string): Promise<string> => {
+    const timeoutMs = 1500;
+    const start = Date.now();
+
+    while (Date.now() - start < timeoutMs) {
+      try {
+        return await readFile(filePath, 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw error;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+
+    throw new Error(`Report file was not created in time: ${filePath}`);
+  };
 });
 
 const buildCreateExecutionPayload = (
@@ -1325,5 +1342,7 @@ const buildCreateExecutionPayload = (
   taskTitle: overrides.taskTitle ?? 'Fix backend issue',
   taskDescription: overrides.taskDescription ?? 'Implement task updates',
   taskSource: overrides.taskSource ?? 'jira',
-  publishPullRequest: overrides.publishPullRequest,
+  ...(overrides.publishPullRequest === undefined
+    ? {}
+    : { publishPullRequest: overrides.publishPullRequest }),
 });

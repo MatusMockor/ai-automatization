@@ -25,6 +25,7 @@ export class ExecutionReportArtifactService {
     const output = this.normalizeOutput(
       this.redactSensitiveOutput(execution.output),
     );
+    const codeFence = this.pickCodeFence(output);
 
     return [
       '# Execution Report',
@@ -50,9 +51,9 @@ export class ExecutionReportArtifactService {
       '',
       '## Output snapshot',
       '',
-      '```text',
+      `${codeFence}text`,
       output,
-      '```',
+      codeFence,
       '',
     ].join('\n');
   }
@@ -85,5 +86,9 @@ export class ExecutionReportArtifactService {
       )
       .replace(/\b[a-f0-9]{32,}\b/gi, '[REDACTED_HEX]')
       .replace(/\b[A-Za-z0-9+/_-]{40,}={0,2}\b/g, '[REDACTED_TOKEN]');
+  }
+
+  private pickCodeFence(content: string): string {
+    return content.includes('```') ? '~~~' : '```';
   }
 }
