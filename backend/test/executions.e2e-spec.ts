@@ -722,11 +722,13 @@ describe('Executions (e2e)', () => {
       }),
     });
     expect(response.statusCode).toBe(201);
-    expect(
-      response.json<{ publishPullRequest: boolean }>().publishPullRequest,
-    ).toBe(false);
+    const created = response.json<{
+      id: string;
+      publishPullRequest: boolean;
+    }>();
+    expect(created.publishPullRequest).toBe(false);
 
-    const executionId = response.json<{ id: string }>().id;
+    const executionId = created.id;
     const execution = await waitForExecution(
       executionId,
       (current) =>
@@ -738,6 +740,8 @@ describe('Executions (e2e)', () => {
     expect(execution.branchName).toBeNull();
     expect(execution.pullRequestUrl).toBeNull();
     expect(execution.automationErrorMessage).toContain('disabled');
+    expect(fakeGitPublicationClient.lastPushedBranch).toBeNull();
+    expect(fakeGithubPullRequestsGateway.lastInput).toBeNull();
   });
 
   it('POST /api/executions should create suffixed branch when preferred branch already exists remotely', async () => {

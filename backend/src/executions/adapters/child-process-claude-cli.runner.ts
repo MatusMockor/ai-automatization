@@ -51,34 +51,39 @@ class ChildProcessClaudeCliProcess implements ClaudeCliProcess {
 @Injectable()
 export class ChildProcessClaudeCliRunner implements ClaudeCliRunner {
   private readonly logger = new Logger(ChildProcessClaudeCliRunner.name);
+  private static readonly SAFE_ENV_KEYS = [
+    'CI',
+    'FORCE_COLOR',
+    'HOME',
+    'LANG',
+    'LC_ALL',
+    'LC_CTYPE',
+    'LOGNAME',
+    'NO_COLOR',
+    'PATH',
+    'SHELL',
+    'TERM',
+    'TMP',
+    'TMPDIR',
+    'TEMP',
+    'USER',
+    'XDG_CACHE_HOME',
+    'XDG_CONFIG_HOME',
+  ] as const;
 
   async ensureAvailable(): Promise<void> {
     await execFileAsync('claude', ['--version'], {
       timeout: 5000,
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: '0',
-      },
+      env: this.buildClaudeEnv(undefined),
     });
   }
 
   async start(options: ClaudeCliStartOptions): Promise<ClaudeCliProcess> {
     const args = this.buildArgs(options.action, options.prompt);
     return new Promise<ClaudeCliProcess>((resolve, reject) => {
-      const {
-        ANTHROPIC_API_KEY: _ignoredAnthropicApiKey,
-        ANTHROPIC_AUTH_TOKEN: _ignoredAnthropicAuthToken,
-        CLAUDE_CODE_OAUTH_TOKEN: _ignoredClaudeOauthToken,
-        ...baseEnv
-      } = process.env;
-
       const childProcess = spawn('claude', args, {
         cwd: options.cwd,
-        env: {
-          ...baseEnv,
-          CLAUDE_CODE_OAUTH_TOKEN: options.anthropicAuthToken,
-          GIT_TERMINAL_PROMPT: '0',
-        },
+        env: this.buildClaudeEnv(options.anthropicAuthToken),
         stdio: 'pipe',
       });
 
@@ -161,5 +166,23 @@ export class ChildProcessClaudeCliRunner implements ClaudeCliRunner {
     }
 
     return args;
+  }
+
+  private buildClaudeEnv(oauthToken: string | undefined): NodeJS.ProcessEnv {
+    const safeEnv: NodeJS.ProcessEnv = {};
+
+    for (const key of ChildProcessClaudeCliRunner.SAFE_ENV_KEYS) {
+      const value = process.env[key];
+      if (value !== undefined) {
+        safeEnv[key] = value;
+      }
+    }
+
+    if (oauthToken !== undefined) {
+      safeEnv.CLAUDE_CODE_OAUTH_TOKEN = oauthToken;
+    }
+    safeEnv.GIT_TERMINAL_PROMPT = '0';
+
+    return safeEnv;
   }
 }
