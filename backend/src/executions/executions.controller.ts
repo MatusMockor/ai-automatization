@@ -73,6 +73,11 @@ export class ExecutionsController {
       reply.raw.flushHeaders();
     }
 
+    const socket = reply.raw.socket;
+    if (socket && typeof socket.setNoDelay === 'function') {
+      socket.setNoDelay(true);
+    }
+
     const subscription = stream.subscribe({
       next: (event) => {
         if (reply.raw.writableEnded || reply.raw.destroyed) {
