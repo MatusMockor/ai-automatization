@@ -19,7 +19,7 @@ type StartExecutionInput = {
   action: 'fix' | 'feature' | 'plan';
   prompt: string;
   cwd: string;
-  anthropicApiKey: string;
+  anthropicAuthToken: string;
   timeoutMs: number;
 };
 
@@ -27,6 +27,7 @@ type ActiveExecution = {
   process: ClaudeCliProcess;
   cancelRequested: boolean;
   timedOut: boolean;
+  fatalErrorMessage: string | null;
   killTimeoutId: NodeJS.Timeout | null;
   timeoutId: NodeJS.Timeout | null;
   output: string;
@@ -79,13 +80,14 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       prompt: input.prompt,
       action: input.action,
       cwd: input.cwd,
-      anthropicApiKey: input.anthropicApiKey,
+      anthropicAuthToken: input.anthropicAuthToken,
     });
 
     const activeExecution: ActiveExecution = {
       process,
       cancelRequested: false,
       timedOut: false,
+      fatalErrorMessage: null,
       killTimeoutId: null,
       timeoutId: null,
       output: execution.output ?? '',
@@ -102,6 +104,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
         pid: process.pid,
         startedAt,
       },
+    );
+    this.logger.log(
+      `Execution started: id=${input.executionId}, action=${input.action}, pid=${process.pid ?? 'n/a'}`,
     );
     this.publish({
       type: 'status',
@@ -127,6 +132,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
           chunk,
         },
       });
+      this.detectFatalError(input.executionId, chunk);
     });
 
     process.onStderr((chunk) => {
@@ -144,6 +150,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
           chunk,
         },
       });
+      this.detectFatalError(input.executionId, chunk);
     });
 
     process.onExit((exitInfo) => {
@@ -318,12 +325,45 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     return 1;
   }
 
+  private static readonly FATAL_ERROR_PATTERNS = [
+    'authentication_error',
+    'invalid_api_key',
+    'invalid x-api-key',
+    'invalid bearer token',
+  ];
+
+  private detectFatalError(executionId: string, chunk: string): void {
+    const activeExecution = this.activeExecutions.get(executionId);
+    if (
+      !activeExecution ||
+      activeExecution.cancelRequested ||
+      activeExecution.fatalErrorMessage
+    ) {
+      return;
+    }
+
+    const lower = chunk.toLowerCase();
+    const matched = ExecutionRuntimeManager.FATAL_ERROR_PATTERNS.some(
+      (pattern) => lower.includes(pattern),
+    );
+
+    if (matched) {
+      this.logger.warn(
+        `Fatal error detected in execution ${executionId}, terminating process`,
+      );
+      activeExecution.fatalErrorMessage =
+        'Authentication failed: invalid OAuth token';
+      this.terminateProcess(executionId, activeExecution);
+    }
+  }
+
   private async handleTimeout(executionId: string): Promise<void> {
     const activeExecution = this.activeExecutions.get(executionId);
     if (!activeExecution) {
       return;
     }
 
+    this.logger.warn(`Execution timeout reached: id=${executionId}`);
     activeExecution.timedOut = true;
     activeExecution.cancelRequested = true;
     this.publish({
@@ -393,6 +433,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     if (activeExecution.timedOut) {
       status = 'failed';
       errorMessage = 'Execution timed out';
+    } else if (activeExecution.fatalErrorMessage) {
+      status = 'failed';
+      errorMessage = activeExecution.fatalErrorMessage;
     } else if (activeExecution.cancelRequested) {
       status = 'cancelled';
       errorMessage = 'Execution cancelled';
@@ -422,6 +465,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
         errorMessage,
         ...automationPatch,
       },
+    );
+    this.logger.log(
+      `Execution finished: id=${executionId}, status=${status}, exitCode=${exitCode ?? 'null'}, timedOut=${activeExecution.timedOut}, cancelRequested=${activeExecution.cancelRequested}`,
     );
 
     if (status === 'completed') {

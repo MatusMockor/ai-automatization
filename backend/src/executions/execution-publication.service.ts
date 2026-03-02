@@ -18,6 +18,7 @@ import { ExecutionStreamHub } from './execution-stream.hub';
 import type { GitPublicationClient } from './interfaces/git-publication-client.interface';
 import type { GithubPullRequestsGateway } from './interfaces/github-pull-requests-gateway.interface';
 import { BranchNameBuilder } from './publication/branch-name.builder';
+import { ExecutionReportArtifactService } from './publication/execution-report-artifact.service';
 import { PublicationContentResolver } from './publication/publication-content.resolver';
 import { PullRequestTemplateResolver } from './publication/pull-request-template.resolver';
 
@@ -41,6 +42,7 @@ export class ExecutionPublicationService {
     private readonly githubPullRequestsGateway: GithubPullRequestsGateway,
     private readonly streamHub: ExecutionStreamHub,
     private readonly branchNameBuilder: BranchNameBuilder,
+    private readonly executionReportArtifactService: ExecutionReportArtifactService,
     private readonly pullRequestTemplateResolver: PullRequestTemplateResolver,
     private readonly publicationContentResolver: PublicationContentResolver,
     private readonly configService: ConfigService,
@@ -91,15 +93,16 @@ export class ExecutionPublicationService {
       return;
     }
 
-    if (execution.action === 'plan') {
+    if (!execution.publishPullRequest) {
       await this.updateAutomationState(execution.id, {
         automationStatus: 'not_applicable',
         automationCompletedAt: new Date(),
-        automationErrorMessage: null,
+        automationErrorMessage:
+          'Pull request publication disabled for this execution',
       });
       this.publishAutomationEvent(execution.id, {
         automationStatus: 'not_applicable',
-        message: 'Publication automation is not applicable for plan action',
+        message: 'Pull request publication disabled for this execution',
       });
       return;
     }
@@ -131,6 +134,8 @@ export class ExecutionPublicationService {
     });
 
     let branchName: string | null = null;
+    let reportArtifactPath: string | null = null;
+    let reportOnlyPublication = false;
 
     try {
       branchName = await this.resolveAvailableBranchName(
@@ -142,25 +147,36 @@ export class ExecutionPublicationService {
         branchName,
       );
 
+      if (execution.action === 'plan') {
+        reportArtifactPath =
+          await this.executionReportArtifactService.writeReport(execution);
+        reportOnlyPublication = true;
+        this.publishAutomationEvent(execution.id, {
+          automationStatus: 'publishing',
+          branchName,
+          message: `Plan report artifact prepared at ${reportArtifactPath}`,
+        });
+      }
+
       const hasChanges = await this.gitPublicationClient.hasChanges(
         execution.repository.localPath,
       );
       if (!hasChanges) {
-        await this.updateAutomationState(execution.id, {
-          automationStatus: 'no_changes',
-          branchName,
-          automationCompletedAt: new Date(),
-          automationErrorMessage: 'No changes were produced by execution',
-        });
+        if (!reportArtifactPath) {
+          reportArtifactPath =
+            await this.executionReportArtifactService.writeReport(execution);
+        }
+        reportOnlyPublication = true;
         this.publishAutomationEvent(execution.id, {
-          automationStatus: 'no_changes',
+          automationStatus: 'publishing',
           branchName,
-          message: 'Execution produced no changes to publish',
+          message: `No code diff detected, report artifact prepared at ${reportArtifactPath}`,
         });
-        return;
       }
 
-      await this.assertPrePrChecks(execution.repository.localPath);
+      if (!reportOnlyPublication) {
+        await this.assertPrePrChecks(execution.repository.localPath);
+      }
 
       const templateBody = await this.pullRequestTemplateResolver.resolve(
         execution.repository.localPath,

@@ -5,14 +5,14 @@ import { UserSettings } from '../../src/settings/entities/user-settings.entity';
 
 type CreateUserSettingsInput = {
   githubToken?: string | null;
-  claudeApiKey?: string | null;
+  claudeOauthToken?: string | null;
   executionTimeoutMs?: number | null;
 };
 
 type CreatedUserSettings = {
   settings: UserSettings;
   githubToken: string | null;
-  claudeApiKey: string | null;
+  claudeOauthToken: string | null;
   executionTimeoutMs: number | null;
 };
 
@@ -30,10 +30,10 @@ export class UserSettingsFactory {
         input.githubToken === undefined
           ? `ghp_${faker.string.alphanumeric(36)}`
           : input.githubToken,
-      claudeApiKey:
-        input.claudeApiKey === undefined
-          ? `sk-ant-${faker.string.alphanumeric(40)}`
-          : input.claudeApiKey,
+      claudeOauthToken:
+        input.claudeOauthToken === undefined
+          ? `oauth_${faker.string.alphanumeric(48)}`
+          : input.claudeOauthToken,
       executionTimeoutMs:
         input.executionTimeoutMs === undefined
           ? 1800000
@@ -54,17 +54,17 @@ export class UserSettingsFactory {
         generatedInput.githubToken === null
           ? null
           : this.encryptionService.encrypt(generatedInput.githubToken),
-      claudeApiKeyEncrypted:
-        generatedInput.claudeApiKey === null
+      claudeOauthTokenEncrypted:
+        generatedInput.claudeOauthToken === null
           ? null
-          : this.encryptionService.encrypt(generatedInput.claudeApiKey),
+          : this.encryptionService.encrypt(generatedInput.claudeOauthToken),
       executionTimeoutMs: generatedInput.executionTimeoutMs,
     });
 
     return {
       settings: await repository.save(settings),
       githubToken: generatedInput.githubToken,
-      claudeApiKey: generatedInput.claudeApiKey,
+      claudeOauthToken: generatedInput.claudeOauthToken,
       executionTimeoutMs: generatedInput.executionTimeoutMs,
     };
   }

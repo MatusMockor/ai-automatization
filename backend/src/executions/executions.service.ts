@@ -64,11 +64,11 @@ export class ExecutionsService {
     const repository = await this.getOwnedRepository(userId, dto.repositoryId);
     await this.assertRepositoryRunnable(repository);
 
-    const claudeApiKey =
-      await this.settingsService.getClaudeApiKeyForUserOrNull(userId);
-    if (!claudeApiKey) {
+    const claudeOauthToken =
+      await this.settingsService.getClaudeOauthTokenForUserOrNull(userId);
+    if (!claudeOauthToken) {
       throw new BadRequestException(
-        'Claude API key is not configured in user settings',
+        'Claude OAuth token is not configured in user settings',
       );
     }
 
@@ -88,6 +88,7 @@ export class ExecutionsService {
         const execution = executionRepository.create({
           userId,
           repositoryId: repository.id,
+          publishPullRequest: dto.publishPullRequest ?? true,
           taskId: dto.taskId,
           taskExternalId: dto.taskExternalId,
           taskTitle: dto.taskTitle,
@@ -124,7 +125,7 @@ export class ExecutionsService {
         action: savedExecution.action,
         prompt: savedExecution.prompt,
         cwd: repository.localPath,
-        anthropicApiKey: claudeApiKey,
+        anthropicAuthToken: claudeOauthToken,
         timeoutMs,
       });
     } catch (error) {
@@ -387,6 +388,7 @@ export class ExecutionsService {
     return {
       id: execution.id,
       repositoryId: execution.repositoryId,
+      publishPullRequest: execution.publishPullRequest,
       taskId: execution.taskId,
       taskExternalId: execution.taskExternalId,
       taskTitle: execution.taskTitle,

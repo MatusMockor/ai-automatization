@@ -17,6 +17,7 @@ import { ExecutionStreamHub } from './execution-stream.hub';
 import { ExecutionRuntimeManager } from './execution-runtime.manager';
 import { ExecutionsService } from './executions.service';
 import { BranchNameBuilder } from './publication/branch-name.builder';
+import { ExecutionReportArtifactService } from './publication/execution-report-artifact.service';
 import { PublicationContentResolver } from './publication/publication-content.resolver';
 import { PullRequestTemplateResolver } from './publication/pull-request-template.resolver';
 
@@ -33,6 +34,7 @@ import { PullRequestTemplateResolver } from './publication/pull-request-template
     ExecutionPublicationService,
     ExecutionRuntimeManager,
     BranchNameBuilder,
+    ExecutionReportArtifactService,
     PullRequestTemplateResolver,
     PublicationContentResolver,
     {

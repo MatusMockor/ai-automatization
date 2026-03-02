@@ -1,4 +1,6 @@
+import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsIn,
   IsOptional,
   IsString,
@@ -13,6 +15,28 @@ import type {
 
 const ACTIONS = ['fix', 'feature', 'plan'] as const;
 const TASK_SOURCES = ['asana', 'jira', 'manual'] as const;
+
+function toOptionalBoolean(value: unknown): boolean | undefined | unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') {
+      return true;
+    }
+    if (normalized === 'false') {
+      return false;
+    }
+  }
+
+  return value;
+}
 
 export class CreateExecutionDto {
   @IsUUID()
@@ -43,4 +67,9 @@ export class CreateExecutionDto {
 
   @IsIn(TASK_SOURCES)
   taskSource!: TaskSource;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => toOptionalBoolean(value))
+  @IsBoolean()
+  publishPullRequest?: boolean;
 }

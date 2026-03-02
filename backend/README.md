@@ -38,7 +38,7 @@ In production, avoid wildcard origins and explicitly set `ALLOWED_ORIGINS`.
 
 ## Execution publication automation
 
-Execution publication settings control automatic `branch -> commit -> push -> PR` flow for completed `fix` and `feature` executions:
+Execution publication settings control automatic `branch -> commit -> push -> PR` flow for completed executions:
 
 - `GITHUB_API_BASE_URL` default: `https://api.github.com`
 - `EXECUTION_GIT_AUTHOR_NAME` default: `Automation Bot`
@@ -47,6 +47,24 @@ Execution publication settings control automatic `branch -> commit -> push -> PR
 - `EXECUTION_AUTOPR_RETRY_BACKOFF_MS` default: `2000`
 - `EXECUTION_PRE_PR_CHECK_COMMAND` default: empty (disabled)
 - `EXECUTION_AUTOPR_BRANCH_PREFIX` default: `feature/ai`
+
+Execution request payload (`POST /api/executions`) supports `publishPullRequest?: boolean`.
+
+- default: `true`
+- when `false`, publication is skipped and execution ends with `automationStatus=not_applicable`
+- when `true`, `plan` executions and no-diff `fix/feature` runs publish a report artifact from `.ai/executions/<executionId>.md`
+
+## Claude OAuth token for executions
+
+Executions authenticate Claude CLI using a per-user OAuth token stored in settings.
+
+1. Generate a long-lived token locally:
+   - `claude setup-token`
+2. Save the token via backend settings API:
+   - `PATCH /api/settings` with `claudeOauthToken`
+3. Start executions normally (`POST /api/executions`).
+
+The backend does not use `ANTHROPIC_API_KEY` env for execution auth.
 
 ## Project setup
 

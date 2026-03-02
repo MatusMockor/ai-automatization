@@ -36,7 +36,7 @@ export class UpdateSettingsDto {
   @Transform(({ value }: { value: unknown }) => normalizeNullableString(value))
   @IsString()
   @MaxLength(4096)
-  claudeApiKey?: string | null;
+  claudeOauthToken?: string | null;
 
   @IsOptional()
   @Transform(({ value }: { value: unknown }) => toOptionalIntegerOrNull(value))

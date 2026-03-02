@@ -1,7 +1,7 @@
 import { faker } from '@faker-js/faker';
 import { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { execFile } from 'child_process';
-import { mkdir, rm, writeFile } from 'fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'fs/promises';
 import { dirname } from 'path';
 import { promisify } from 'util';
 import { DataSource } from 'typeorm';
@@ -463,8 +463,13 @@ describe('Executions (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(201);
-    const created = response.json<{ id: string; status: string }>();
+    const created = response.json<{
+      id: string;
+      status: string;
+      publishPullRequest: boolean;
+    }>();
     expect(['running', 'pending', 'completed']).toContain(created.status);
+    expect(created.publishPullRequest).toBe(true);
 
     const execution = await waitForExecution(
       created.id,
@@ -472,6 +477,7 @@ describe('Executions (e2e)', () => {
         current.status === 'completed' &&
         current.automationStatus === 'published',
     );
+    expect(execution.publishPullRequest).toBe(true);
     expect(execution.branchName).toBe('feature/ai/task-0001');
     expect(execution.commitSha).toBe('abc123def456');
     expect(execution.pullRequestUrl).toContain('/pull/');
@@ -518,7 +524,7 @@ describe('Executions (e2e)', () => {
     expect(execution.taskSource).toBe('manual');
   });
 
-  it('POST /api/executions should return 400 when claudeApiKey is missing', async () => {
+  it('POST /api/executions should return 400 when claudeOauthToken is missing', async () => {
     const session = await createLoginSession();
     const repository = await createRunnableRepository(session.userId);
 
@@ -563,7 +569,7 @@ describe('Executions (e2e)', () => {
     expect(execution.automationErrorMessage).toContain('GitHub token missing');
   });
 
-  it('POST /api/executions should set automationStatus=not_applicable for plan action', async () => {
+  it('POST /api/executions should publish plan action using execution report artifact', async () => {
     const session = await createLoginSession();
     await userSettingsFactory.create(session.userId);
     const repository = await createRunnableRepository(session.userId);
@@ -587,14 +593,79 @@ describe('Executions (e2e)', () => {
       executionId,
       (current) =>
         current.status === 'completed' &&
-        current.automationStatus === 'not_applicable',
+        current.automationStatus === 'published',
     );
 
-    expect(execution.branchName).toBeNull();
-    expect(execution.pullRequestUrl).toBeNull();
+    expect(execution.branchName).toBe('feature/ai/task-0001');
+    expect(execution.pullRequestUrl).toContain('/pull/');
+    const reportContents = await readFile(
+      `${repository.localPath}/.ai/executions/${execution.id}.md`,
+      'utf8',
+    );
+    expect(reportContents).toContain('# Execution Report');
+    expect(reportContents).toContain('Action: plan');
   });
 
-  it('POST /api/executions should set automationStatus=no_changes when repository diff is empty', async () => {
+  it('POST /api/executions should complete silent plan execution without hanging', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      delayMs: 10,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id, 'plan'),
+    });
+    expect(response.statusCode).toBe(201);
+
+    const executionId = response.json<{ id: string }>().id;
+    const execution = await waitForExecution(
+      executionId,
+      (current) =>
+        current.status === 'completed' &&
+        current.automationStatus === 'published',
+    );
+
+    expect(execution.output).toBe('');
+    expect(execution.finishedAt).not.toBeNull();
+  });
+
+  it('POST /api/executions should fail plan execution and reach terminal state without hanging', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'failure',
+      delayMs: 10,
+      exitCode: 1,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id, 'plan'),
+    });
+    expect(response.statusCode).toBe(201);
+
+    const executionId = response.json<{ id: string }>().id;
+    const execution = await waitForExecution(
+      executionId,
+      (current) => current.status === 'failed',
+    );
+
+    expect(execution.errorMessage).toContain('Execution process failed');
+    expect(execution.finishedAt).not.toBeNull();
+  });
+
+  it('POST /api/executions should publish report fallback when repository diff is empty', async () => {
     const session = await createLoginSession();
     await userSettingsFactory.create(session.userId);
     const repository = await createRunnableRepository(session.userId);
@@ -619,10 +690,53 @@ describe('Executions (e2e)', () => {
       executionId,
       (current) =>
         current.status === 'completed' &&
-        current.automationStatus === 'no_changes',
+        current.automationStatus === 'published',
     );
 
+    expect(execution.pullRequestUrl).toContain('/pull/');
+    const reportContents = await readFile(
+      `${repository.localPath}/.ai/executions/${execution.id}.md`,
+      'utf8',
+    );
+    expect(reportContents).toContain('# Execution Report');
+  });
+
+  it('POST /api/executions should disable publication when publishPullRequest is false', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['done'],
+      delayMs: 10,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id, 'fix', {
+        publishPullRequest: false,
+      }),
+    });
+    expect(response.statusCode).toBe(201);
+    expect(
+      response.json<{ publishPullRequest: boolean }>().publishPullRequest,
+    ).toBe(false);
+
+    const executionId = response.json<{ id: string }>().id;
+    const execution = await waitForExecution(
+      executionId,
+      (current) =>
+        current.status === 'completed' &&
+        current.automationStatus === 'not_applicable',
+    );
+
+    expect(execution.publishPullRequest).toBe(false);
+    expect(execution.branchName).toBeNull();
     expect(execution.pullRequestUrl).toBeNull();
+    expect(execution.automationErrorMessage).toContain('disabled');
   });
 
   it('POST /api/executions should create suffixed branch when preferred branch already exists remotely', async () => {
@@ -943,9 +1057,36 @@ describe('Executions (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const body = response.json<Array<{ repositoryId: string }>>();
+    const body =
+      response.json<
+        Array<{ repositoryId: string; publishPullRequest: boolean }>
+      >();
     expect(body).toHaveLength(2);
     expect(body.every((item) => item.repositoryId === ownerRepo.id)).toBe(true);
+    expect(body.every((item) => item.publishPullRequest)).toBe(true);
+  });
+
+  it('GET /api/executions/:id should include publishPullRequest field', async () => {
+    const session = await createLoginSession();
+    const repository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+    const execution = await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      publishPullRequest: false,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/executions/${execution.id}`,
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      response.json<{ publishPullRequest: boolean }>().publishPullRequest,
+    ).toBe(false);
   });
 
   it('GET /api/executions/:id should return 404 for foreign ownership', async () => {
@@ -1169,6 +1310,7 @@ const buildCreateExecutionPayload = (
     taskTitle: string;
     taskDescription: string;
     taskSource: TaskSource;
+    publishPullRequest: boolean;
   }> = {},
 ) => ({
   repositoryId,
@@ -1178,4 +1320,5 @@ const buildCreateExecutionPayload = (
   taskTitle: overrides.taskTitle ?? 'Fix backend issue',
   taskDescription: overrides.taskDescription ?? 'Implement task updates',
   taskSource: overrides.taskSource ?? 'jira',
+  publishPullRequest: overrides.publishPullRequest,
 });

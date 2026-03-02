@@ -1,5 +1,5 @@
 export class SettingsResponseDto {
   githubToken!: string | null;
-  claudeApiKey!: string | null;
+  claudeOauthToken!: string | null;
   executionTimeoutMs!: number | null;
 }

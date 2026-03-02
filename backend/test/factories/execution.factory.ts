@@ -11,6 +11,7 @@ import type {
 type CreateExecutionInput = {
   userId: string;
   repositoryId: string;
+  publishPullRequest?: boolean;
   taskId?: string;
   taskExternalId?: string;
   taskTitle?: string;
@@ -58,6 +59,7 @@ export class ExecutionFactory {
     const execution = executionRepository.create({
       userId: input.userId,
       repositoryId: input.repositoryId,
+      publishPullRequest: input.publishPullRequest ?? true,
       taskId: input.taskId ?? faker.string.alphanumeric(12).toLowerCase(),
       taskExternalId: input.taskExternalId ?? `TASK-${faker.string.numeric(4)}`,
       taskTitle: input.taskTitle ?? faker.lorem.sentence(),

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EncryptionService } from '../common/encryption/encryption.service';
@@ -20,7 +20,7 @@ export class SettingsService {
     if (!settings) {
       return {
         githubToken: null,
-        claudeApiKey: null,
+        claudeOauthToken: null,
         executionTimeoutMs: null,
       };
     }
@@ -37,13 +37,15 @@ export class SettingsService {
     return this.encryptionService.decrypt(settings.githubTokenEncrypted);
   }
 
-  async getClaudeApiKeyForUserOrNull(userId: string): Promise<string | null> {
+  async getClaudeOauthTokenForUserOrNull(
+    userId: string,
+  ): Promise<string | null> {
     const settings = await this.settingsRepository.findOneBy({ userId });
-    if (!settings?.claudeApiKeyEncrypted) {
+    if (!settings?.claudeOauthTokenEncrypted) {
       return null;
     }
 
-    return this.encryptionService.decrypt(settings.claudeApiKeyEncrypted);
+    return this.encryptionService.decrypt(settings.claudeOauthTokenEncrypted);
   }
 
   async getExecutionTimeoutMsForUserOrNull(
@@ -62,7 +64,7 @@ export class SettingsService {
       this.settingsRepository.create({
         userId,
         githubTokenEncrypted: null,
-        claudeApiKeyEncrypted: null,
+        claudeOauthTokenEncrypted: null,
         executionTimeoutMs: null,
       });
 
@@ -72,9 +74,13 @@ export class SettingsService {
       );
     }
 
-    if (dto.claudeApiKey !== undefined) {
-      settings.claudeApiKeyEncrypted = this.encryptNullableSecret(
-        dto.claudeApiKey,
+    if (dto.claudeOauthToken !== undefined) {
+      this.validateNoInternalWhitespace(
+        dto.claudeOauthToken,
+        'Claude OAuth token',
+      );
+      settings.claudeOauthTokenEncrypted = this.encryptNullableSecret(
+        dto.claudeOauthToken,
       );
     }
 
@@ -97,7 +103,9 @@ export class SettingsService {
   private toSettingsResponse(settings: UserSettings): SettingsResponseDto {
     return {
       githubToken: this.maskEncryptedSecret(settings.githubTokenEncrypted),
-      claudeApiKey: this.maskEncryptedSecret(settings.claudeApiKeyEncrypted),
+      claudeOauthToken: this.maskEncryptedSecret(
+        settings.claudeOauthTokenEncrypted,
+      ),
       executionTimeoutMs: settings.executionTimeoutMs,
     };
   }
@@ -117,5 +125,16 @@ export class SettingsService {
     }
 
     return `****${secret.slice(-4)}`;
+  }
+
+  private validateNoInternalWhitespace(
+    value: string | null | undefined,
+    label: string,
+  ): void {
+    if (value != null && /\s/.test(value)) {
+      throw new BadRequestException(
+        `${label} must not contain whitespace characters`,
+      );
+    }
   }
 }
