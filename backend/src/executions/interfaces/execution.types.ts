@@ -7,6 +7,13 @@ export type ExecutionStatus =
   | 'failed'
   | 'cancelled';
 
+export type ExecutionOrchestrationState =
+  | 'queued'
+  | 'running'
+  | 'finalizing'
+  | 'done'
+  | 'failed';
+
 export type TaskSource = 'asana' | 'jira' | 'manual';
 
 export type AutomationStatus =

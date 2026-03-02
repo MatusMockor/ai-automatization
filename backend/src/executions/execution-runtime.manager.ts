@@ -2,7 +2,9 @@ import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { RedactionService } from '../common/security/redaction.service';
 import { parsePositiveInteger } from '../common/utils/parse.utils';
+import { MetricsService } from '../observability/metrics.service';
 import { CLAUDE_CLI_RUNNER } from './constants/executions.tokens';
 import { ExecutionStreamEventDto } from './dto/execution-stream-event.dto';
 import { Execution } from './entities/execution.entity';
@@ -30,9 +32,11 @@ type ActiveExecution = {
   fatalErrorMessage: string | null;
   killTimeoutId: NodeJS.Timeout | null;
   timeoutId: NodeJS.Timeout | null;
+  cancelSyncIntervalId: NodeJS.Timeout | null;
   output: string;
   outputTruncated: boolean;
   writeQueue: Promise<void>;
+  startedAtMs: number;
 };
 
 @Injectable()
@@ -49,6 +53,8 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     private readonly claudeCliRunner: ClaudeCliRunner,
     private readonly streamHub: ExecutionStreamHub,
     private readonly publicationService: ExecutionPublicationService,
+    private readonly redactionService: RedactionService,
+    private readonly metricsService: MetricsService,
     private readonly configService: ConfigService,
   ) {
     this.outputMaxBytes = parsePositiveInteger(
@@ -90,9 +96,11 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       fatalErrorMessage: null,
       killTimeoutId: null,
       timeoutId: null,
+      cancelSyncIntervalId: null,
       output: execution.output ?? '',
       outputTruncated: execution.outputTruncated ?? false,
       writeQueue: Promise.resolve(),
+      startedAtMs: Date.now(),
     };
     this.activeExecutions.set(input.executionId, activeExecution);
 
@@ -101,6 +109,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       { id: input.executionId },
       {
         status: 'running',
+        orchestrationState: 'running',
         pid: process.pid,
         startedAt,
       },
@@ -108,6 +117,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     this.logger.log(
       `Execution started: id=${input.executionId}, action=${input.action}, pid=${process.pid ?? 'n/a'}`,
     );
+    this.metricsService.incrementExecutionsStarted();
     this.publish({
       type: 'status',
       payload: {
@@ -116,40 +126,56 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
         status: 'running',
       },
     });
+    activeExecution.cancelSyncIntervalId = setInterval(() => {
+      this.syncCancellationRequest(input.executionId).catch(
+        (error: unknown) => {
+          this.logger.error(
+            `Failed to sync cancellation for execution ${input.executionId}`,
+            error instanceof Error ? error.stack : String(error),
+          );
+        },
+      );
+    }, 1000);
 
     process.onStdout((chunk) => {
-      this.appendOutput(input.executionId, chunk).catch((error: unknown) => {
-        this.logger.error(
-          `Failed to append stdout for execution ${input.executionId}`,
-          error instanceof Error ? error.stack : String(error),
-        );
-      });
+      const redactedChunk = this.redactionService.redactText(chunk);
+      this.appendOutput(input.executionId, redactedChunk).catch(
+        (error: unknown) => {
+          this.logger.error(
+            `Failed to append stdout for execution ${input.executionId}`,
+            error instanceof Error ? error.stack : String(error),
+          );
+        },
+      );
       this.publish({
         type: 'stdout',
         payload: {
           type: 'stdout',
           executionId: input.executionId,
-          chunk,
+          chunk: redactedChunk,
         },
       });
     });
 
     process.onStderr((chunk) => {
-      this.appendOutput(input.executionId, chunk).catch((error: unknown) => {
-        this.logger.error(
-          `Failed to append stderr for execution ${input.executionId}`,
-          error instanceof Error ? error.stack : String(error),
-        );
-      });
+      const redactedChunk = this.redactionService.redactText(chunk);
+      this.appendOutput(input.executionId, redactedChunk).catch(
+        (error: unknown) => {
+          this.logger.error(
+            `Failed to append stderr for execution ${input.executionId}`,
+            error instanceof Error ? error.stack : String(error),
+          );
+        },
+      );
       this.publish({
         type: 'stderr',
         payload: {
           type: 'stderr',
           executionId: input.executionId,
-          chunk,
+          chunk: redactedChunk,
         },
       });
-      this.detectFatalError(input.executionId, chunk);
+      this.detectFatalError(input.executionId, redactedChunk);
     });
 
     process.onExit((exitInfo) => {
@@ -164,10 +190,13 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     });
 
     process.onError((error) => {
-      this.logger.error(
-        `Execution process error for ${input.executionId}: ${error.message}`,
+      const redactedErrorMessage = this.redactionService.redactText(
+        error.message,
       );
-      this.detectFatalError(input.executionId, error.message);
+      this.logger.error(
+        `Execution process error for ${input.executionId}: ${redactedErrorMessage}`,
+      );
+      this.detectFatalError(input.executionId, redactedErrorMessage);
     });
 
     const timeoutMs = Math.max(1, input.timeoutMs);
@@ -364,6 +393,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     }
 
     this.logger.warn(`Execution timeout reached: id=${executionId}`);
+    this.metricsService.incrementExecutionsTimeout();
     activeExecution.timedOut = true;
     activeExecution.cancelRequested = true;
     this.publish({
@@ -423,19 +453,36 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       clearTimeout(activeExecution.killTimeoutId);
     }
 
+    if (activeExecution.cancelSyncIntervalId) {
+      clearInterval(activeExecution.cancelSyncIntervalId);
+    }
+
     await activeExecution.writeQueue;
+
+    const latestExecution = await this.executionRepository.findOneBy({
+      id: executionId,
+    });
+    if (latestExecution?.status === 'cancelled') {
+      activeExecution.cancelRequested = true;
+    }
+    this.metricsService.observeExecutionDuration(
+      (Date.now() - activeExecution.startedAtMs) / 1000,
+    );
 
     const finishedAt = new Date();
     let status: ExecutionStatus;
+    let orchestrationState: Execution['orchestrationState'] = 'failed';
     let errorMessage: string | null = null;
     let automationPatch: Partial<Execution> = {};
 
     if (activeExecution.timedOut) {
       status = 'failed';
       errorMessage = 'Execution timed out';
+      orchestrationState = 'failed';
     } else if (activeExecution.fatalErrorMessage) {
       status = 'failed';
       errorMessage = activeExecution.fatalErrorMessage;
+      orchestrationState = 'failed';
       automationPatch = {
         automationStatus: 'failed',
         automationCompletedAt: finishedAt,
@@ -444,6 +491,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     } else if (activeExecution.cancelRequested) {
       status = 'cancelled';
       errorMessage = 'Execution cancelled';
+      orchestrationState = 'done';
       automationPatch = {
         automationStatus: 'not_applicable',
         automationCompletedAt: finishedAt,
@@ -451,9 +499,11 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       };
     } else if (exitCode === 0) {
       status = 'completed';
+      orchestrationState = 'finalizing';
     } else {
       status = 'failed';
       errorMessage = 'Execution process failed';
+      orchestrationState = 'failed';
       automationPatch = {
         automationStatus: 'failed',
         automationCompletedAt: finishedAt,
@@ -465,6 +515,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       { id: executionId },
       {
         status,
+        orchestrationState,
         finishedAt,
         exitCode,
         errorMessage,
@@ -476,13 +527,36 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     );
 
     if (status === 'completed') {
+      let publicationFailed = false;
       try {
         await this.publicationService.handleCompletedExecution(executionId);
       } catch (error) {
+        publicationFailed = true;
         this.logger.error(
           `Execution publication hook failed for ${executionId}`,
           error instanceof Error ? error.stack : String(error),
         );
+        await this.executionRepository.update(
+          { id: executionId },
+          {
+            orchestrationState: 'failed',
+            automationStatus: 'failed',
+            automationCompletedAt: finishedAt,
+            automationErrorMessage: 'Execution publication hook failed',
+          },
+        );
+      }
+
+      if (!publicationFailed) {
+        await this.executionRepository.update(
+          { id: executionId },
+          {
+            orchestrationState: 'done',
+          },
+        );
+        this.metricsService.incrementExecutionsCompleted();
+      } else {
+        this.metricsService.incrementExecutionsFailed();
       }
       this.publish(
         {
@@ -497,6 +571,20 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
         true,
       );
     } else {
+      if (status === 'failed') {
+        this.metricsService.incrementExecutionsFailed();
+      }
+      if (status === 'cancelled') {
+        this.metricsService.incrementExecutionsCompleted();
+      }
+      if (status === 'cancelled') {
+        await this.executionRepository.update(
+          { id: executionId },
+          {
+            orchestrationState: 'done',
+          },
+        );
+      }
       this.publish(
         {
           type: 'error',
@@ -517,5 +605,28 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
 
   private publish(event: ExecutionStreamEventDto, terminal = false): void {
     this.streamHub.publish(event.payload.executionId, event, terminal);
+  }
+
+  private async syncCancellationRequest(executionId: string): Promise<void> {
+    const activeExecution = this.activeExecutions.get(executionId);
+    if (!activeExecution || activeExecution.cancelRequested) {
+      return;
+    }
+
+    const execution = await this.executionRepository.findOne({
+      select: {
+        id: true,
+        status: true,
+      },
+      where: {
+        id: executionId,
+      },
+    });
+    if (!execution || execution.status !== 'cancelled') {
+      return;
+    }
+
+    activeExecution.cancelRequested = true;
+    this.terminateProcess(executionId, activeExecution);
   }
 }

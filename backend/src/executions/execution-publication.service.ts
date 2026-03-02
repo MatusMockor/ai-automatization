@@ -2,7 +2,9 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { RedactionService } from '../common/security/redaction.service';
 import { parsePositiveInteger } from '../common/utils/parse.utils';
+import { MetricsService } from '../observability/metrics.service';
 import { SettingsService } from '../settings/settings.service';
 import {
   GITHUB_PULL_REQUESTS_GATEWAY,
@@ -45,6 +47,8 @@ export class ExecutionPublicationService {
     private readonly executionReportArtifactService: ExecutionReportArtifactService,
     private readonly pullRequestTemplateResolver: PullRequestTemplateResolver,
     private readonly publicationContentResolver: PublicationContentResolver,
+    private readonly redactionService: RedactionService,
+    private readonly metricsService: MetricsService,
     private readonly configService: ConfigService,
   ) {
     this.retryCount = Math.min(
@@ -357,6 +361,7 @@ export class ExecutionPublicationService {
     message: string,
     branchName: string | null = null,
   ): Promise<void> {
+    this.metricsService.incrementExecutionPublicationFailed();
     await this.updateAutomationState(executionId, {
       automationStatus: 'failed',
       branchName,
@@ -441,17 +446,18 @@ export class ExecutionPublicationService {
 
   private resolveErrorMessage(error: unknown): string {
     if (error instanceof ExecutionPublicationError) {
-      return error.causeDetails
+      const message = error.causeDetails
         ? `${error.message}: ${error.causeDetails}`.slice(0, 2000)
         : error.message;
+      return this.redactionService.redactText(message);
     }
 
     if (error instanceof GithubPullRequestError) {
-      return error.message;
+      return this.redactionService.redactText(error.message);
     }
 
     if (error instanceof Error) {
-      return error.message;
+      return this.redactionService.redactText(error.message);
     }
 
     return 'Unknown automation publication error';

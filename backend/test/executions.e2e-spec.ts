@@ -541,6 +541,91 @@ describe('Executions (e2e)', () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it('POST /api/executions should deduplicate same Idempotency-Key and payload within 24h', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+    const payload = buildCreateExecutionPayload(repository.id);
+    const idempotencyKey = faker.string.uuid();
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['idempotent run'],
+      delayMs: 10,
+    });
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+        'idempotency-key': idempotencyKey,
+      },
+      payload,
+    });
+    expect(first.statusCode).toBe(201);
+    const firstExecution = first.json<{
+      id: string;
+      idempotencyKey: string | null;
+      orchestrationState: string;
+    }>();
+    expect(firstExecution.idempotencyKey).toMatch(/^sha256:/);
+    expect(['queued', 'running', 'done']).toContain(
+      firstExecution.orchestrationState,
+    );
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+        'idempotency-key': idempotencyKey,
+      },
+      payload,
+    });
+    expect(second.statusCode).toBe(200);
+    const secondExecution = second.json<{ id: string }>();
+    expect(secondExecution.id).toBe(firstExecution.id);
+  });
+
+  it('POST /api/executions should return 409 when Idempotency-Key is reused with different payload', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+    const idempotencyKey = faker.string.uuid();
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['idempotent conflict run'],
+      delayMs: 10,
+    });
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+        'idempotency-key': idempotencyKey,
+      },
+      payload: buildCreateExecutionPayload(repository.id),
+    });
+    expect(first.statusCode).toBe(201);
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+        'idempotency-key': idempotencyKey,
+      },
+      payload: buildCreateExecutionPayload(repository.id, 'feature'),
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json<{ message: string }>().message).toContain(
+      'Idempotency key reuse with different payload',
+    );
+  });
+
   it('POST /api/executions should mark automation failed when GitHub token is missing', async () => {
     const session = await createLoginSession();
     await userSettingsFactory.create(session.userId, {
@@ -1072,7 +1157,7 @@ describe('Executions (e2e)', () => {
     expect(body.every((item) => item.publishPullRequest)).toBe(true);
   });
 
-  it('GET /api/executions/:id should include publishPullRequest field', async () => {
+  it('GET /api/executions/:id should include publishPullRequest and orchestration fields', async () => {
     const session = await createLoginSession();
     const repository = await repositoryFactory.create({
       userId: session.userId,
@@ -1081,6 +1166,8 @@ describe('Executions (e2e)', () => {
       userId: session.userId,
       repositoryId: repository.id,
       publishPullRequest: false,
+      idempotencyKey: 'detail-idempotency-key',
+      orchestrationState: 'done',
     });
 
     const response = await app.inject({
@@ -1090,9 +1177,14 @@ describe('Executions (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(
-      response.json<{ publishPullRequest: boolean }>().publishPullRequest,
-    ).toBe(false);
+    const body = response.json<{
+      publishPullRequest: boolean;
+      orchestrationState: string;
+      idempotencyKey: string | null;
+    }>();
+    expect(body.publishPullRequest).toBe(false);
+    expect(body.orchestrationState).toBe('done');
+    expect(body.idempotencyKey).toMatch(/^sha256:/);
   });
 
   it('GET /api/executions/:id should return 404 for foreign ownership', async () => {
@@ -1182,6 +1274,8 @@ describe('Executions (e2e)', () => {
     expect(streamResponse.body).toContain('event: snapshot');
     expect(streamResponse.body).toContain('event: stdout');
     expect(streamResponse.body).toContain('event: publication');
+    expect(streamResponse.body).toContain('"sequence":');
+    expect(streamResponse.body).toContain('"sentAt":');
     expect(streamResponse.body).toMatch(/event: (completed|error)/);
   });
 

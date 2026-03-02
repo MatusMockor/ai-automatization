@@ -1,4 +1,8 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  INestApplication,
+  RequestMethod,
+  ValidationPipe,
+} from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { GlobalExceptionFilter } from '../filters/global-exception.filter';
 import {
@@ -29,7 +33,9 @@ const resolveAllowedOrigins = (
 };
 
 export const configureApplication = (app: INestApplication): void => {
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', {
+    exclude: [{ path: 'metrics', method: RequestMethod.GET }],
+  });
   const allowedOrigins = resolveAllowedOrigins(
     process.env.ALLOWED_ORIGINS,
     process.env.NODE_ENV,
