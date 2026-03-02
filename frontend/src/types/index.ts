@@ -129,7 +129,7 @@ export interface TaskFeedItem {
 
 export interface TaskFeedConnectionError {
   connectionId: string;
-  provider: TaskSource;
+  provider: TaskManagerProvider;
   statusCode: number;
   code: TaskFeedErrorCode;
   message: string;

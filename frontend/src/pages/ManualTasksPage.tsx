@@ -322,6 +322,8 @@ export function ManualTasksPage() {
                       <button
                         type="button"
                         onClick={() => setRunOpenId(runOpenId === task.id ? null : task.id)}
+                        aria-haspopup="menu"
+                        aria-expanded={runOpenId === task.id}
                         className="flex items-center gap-1 rounded-lg p-2 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
                         title="Run action"
                       >
