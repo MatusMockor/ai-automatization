@@ -598,6 +598,7 @@ describe('Executions (e2e)', () => {
 
     expect(execution.branchName).toBe('feature/ai/task-0001');
     expect(execution.pullRequestUrl).toContain('/pull/');
+    expect(execution.automationErrorMessage).toBeNull();
     const reportContents = await readFile(
       `${repository.localPath}/.ai/executions/${execution.id}.md`,
       'utf8',

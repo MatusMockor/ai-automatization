@@ -53,6 +53,7 @@ Execution request payload (`POST /api/executions`) supports `publishPullRequest?
 - default: `true`
 - when `false`, publication is skipped and execution ends with `automationStatus=not_applicable`
 - when `true`, `plan` executions and no-diff `fix/feature` runs publish a report artifact from `.ai/executions/<executionId>.md`
+- git publication commands authenticate to GitHub over HTTPS using `Authorization: Basic <base64(x-access-token:<token>)>` built from user settings `githubToken`
 
 ## Claude OAuth token for executions
 
