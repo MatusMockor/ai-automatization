@@ -4,6 +4,7 @@ import { Execution } from '../../src/executions/entities/execution.entity';
 import type {
   AutomationStatus,
   ExecutionAction,
+  ExecutionOrchestrationState,
   ExecutionStatus,
   TaskSource,
 } from '../../src/executions/interfaces/execution.types';
@@ -12,6 +13,9 @@ type CreateExecutionInput = {
   userId: string;
   repositoryId: string;
   publishPullRequest?: boolean;
+  idempotencyKey?: string | null;
+  requestHash?: string | null;
+  orchestrationState?: ExecutionOrchestrationState;
   taskId?: string;
   taskExternalId?: string;
   taskTitle?: string;
@@ -60,6 +64,9 @@ export class ExecutionFactory {
       userId: input.userId,
       repositoryId: input.repositoryId,
       publishPullRequest: input.publishPullRequest ?? true,
+      idempotencyKey: input.idempotencyKey ?? null,
+      requestHash: input.requestHash ?? null,
+      orchestrationState: input.orchestrationState ?? 'done',
       taskId: input.taskId ?? faker.string.alphanumeric(12).toLowerCase(),
       taskExternalId: input.taskExternalId ?? `TASK-${faker.string.numeric(4)}`,
       taskTitle: input.taskTitle ?? faker.lorem.sentence(),

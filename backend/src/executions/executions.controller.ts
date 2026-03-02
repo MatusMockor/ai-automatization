@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   Logger,
   Param,
@@ -31,8 +32,15 @@ export class ExecutionsController {
   createExecution(
     @CurrentUser() user: RequestUser,
     @Body() dto: CreateExecutionDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<ExecutionSummaryResponseDto> {
-    return this.executionsService.createForUser(user.id, dto);
+    return this.executionsService
+      .createForUser(user.id, dto, idempotencyKey)
+      .then((result) => {
+        reply.statusCode = result.reused ? 200 : 201;
+        return result.execution;
+      });
   }
 
   @Get()
@@ -55,11 +63,17 @@ export class ExecutionsController {
   async streamExecution(
     @CurrentUser() user: RequestUser,
     @Param('id', new ParseUUIDPipe()) executionId: string,
+    @Query('afterSequence') afterSequenceRaw: string | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
+    const parsedAfterSequence = Number.parseInt(afterSequenceRaw ?? '0', 10);
+    const afterSequence = Number.isNaN(parsedAfterSequence)
+      ? 0
+      : Math.max(0, parsedAfterSequence);
     const stream = await this.executionsService.streamForUser(
       user.id,
       executionId,
+      afterSequence,
     );
 
     reply.raw.writeHead(200, {

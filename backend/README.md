@@ -47,6 +47,14 @@ Execution publication settings control automatic `branch -> commit -> push -> PR
 - `EXECUTION_AUTOPR_RETRY_BACKOFF_MS` default: `2000`
 - `EXECUTION_PRE_PR_CHECK_COMMAND` default: empty (disabled)
 - `EXECUTION_AUTOPR_BRANCH_PREFIX` default: `feature/ai`
+- `EXECUTION_QUEUE_DRIVER` default: `redis` (`inline` is available for tests/local fallback)
+- `EXECUTION_QUEUE_NAME` default: `executions`
+- `REDIS_URL` default: `redis://redis:6379`
+- `EXECUTION_WORKER_ENABLED` default: `false` for API process (worker process sets `true`)
+- `EXECUTION_WORKER_RECOVERY_TIMEOUT_MS` default: `900000`
+- `EXECUTION_OUTPUT_RETENTION_DAYS` default: `30`
+- `EXECUTION_EVENTS_RETENTION_DAYS` default: `14`
+- `EXECUTION_REPORT_RETENTION_DAYS` default: `30`
 
 Execution request payload (`POST /api/executions`) supports `publishPullRequest?: boolean`.
 
@@ -54,6 +62,19 @@ Execution request payload (`POST /api/executions`) supports `publishPullRequest?
 - when `false`, publication is skipped and execution ends with `automationStatus=not_applicable`
 - when `true`, `plan` executions and no-diff `fix/feature` runs publish a report artifact from `.ai/executions/<executionId>.md`
 - git publication commands authenticate to GitHub over HTTPS using `Authorization: Basic <base64(x-access-token:<token>)>` built from user settings `githubToken`
+
+Execution create endpoint also supports `Idempotency-Key` header:
+
+- same key + same payload hash (within 24 hours): returns existing execution (`200`)
+- same key + different payload hash: `409` (`Idempotency key reuse with different payload`)
+
+Execution SSE stream (`GET /api/executions/:id/stream`) publishes ordered events with additive metadata:
+
+- `sequence` (monotonic per execution)
+- `sentAt` (ISO timestamp)
+- reconnect can request replay via query `afterSequence`
+
+Prometheus metrics are exposed at `GET /metrics`.
 
 ## Claude OAuth token for executions
 

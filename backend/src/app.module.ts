@@ -14,6 +14,7 @@ import { TaskManagersModule } from './task-managers/task-managers.module';
 import { TasksModule } from './tasks/tasks.module';
 import { ExecutionsModule } from './executions/executions.module';
 import { ManualTasksModule } from './manual-tasks/manual-tasks.module';
+import { ObservabilityModule } from './observability/observability.module';
 
 const toBoolean = (
   value: string | undefined,
@@ -80,6 +81,7 @@ const toBoolean = (
     SettingsModule,
     RepositoriesModule,
     ExecutionsModule,
+    ObservabilityModule,
     TaskManagersModule,
     TasksModule,
     ManualTasksModule,

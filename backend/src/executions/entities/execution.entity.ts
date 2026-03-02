@@ -14,6 +14,7 @@ import { getTimestampColumnType } from '../../common/utils/database-column.utils
 import type {
   AutomationStatus,
   ExecutionAction,
+  ExecutionOrchestrationState,
   ExecutionStatus,
   TaskSource,
 } from '../interfaces/execution.types';
@@ -43,6 +44,25 @@ export class Execution {
 
   @Column({ name: 'publish_pull_request', type: 'boolean', default: true })
   publishPullRequest!: boolean;
+
+  @Column({
+    name: 'idempotency_key',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  idempotencyKey!: string | null;
+
+  @Column({ name: 'request_hash', type: 'varchar', length: 64, nullable: true })
+  requestHash!: string | null;
+
+  @Column({
+    name: 'orchestration_state',
+    type: 'varchar',
+    length: 16,
+    default: 'queued',
+  })
+  orchestrationState!: ExecutionOrchestrationState;
 
   @Column({ name: 'task_id', type: 'varchar', length: 255 })
   taskId!: string;

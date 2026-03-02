@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import { createHash } from 'crypto';
 import { access } from 'fs/promises';
 import { join } from 'path';
 import { MessageEvent } from '@nestjs/common';
@@ -25,15 +26,15 @@ import {
 import { ExecutionStreamEventDto } from './dto/execution-stream-event.dto';
 import { GetExecutionsQueryDto } from './dto/get-executions-query.dto';
 import { Execution } from './entities/execution.entity';
+import { ExecutionDispatchService } from './execution-dispatch.service';
+import { ExecutionEventStoreService } from './execution-event-store.service';
 import { ExecutionStreamHub } from './execution-stream.hub';
 import { ExecutionRuntimeManager } from './execution-runtime.manager';
 import type { ExecutionAction } from './interfaces/execution.types';
 
 @Injectable()
 export class ExecutionsService {
-  private readonly defaultTimeoutMs: number;
-  private readonly minTimeoutMs = 60000;
-  private readonly maxTimeoutMs = 7200000;
+  private static readonly IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
   private readonly maxConcurrentPerUser: number;
   private readonly defaultListLimit = 50;
   private readonly maxListLimit = 200;
@@ -43,14 +44,12 @@ export class ExecutionsService {
     private readonly executionsRepository: Repository<Execution>,
     private readonly repositoriesService: RepositoriesService,
     private readonly settingsService: SettingsService,
+    private readonly executionDispatchService: ExecutionDispatchService,
+    private readonly executionEventStoreService: ExecutionEventStoreService,
     private readonly runtimeManager: ExecutionRuntimeManager,
     private readonly streamHub: ExecutionStreamHub,
     configService: ConfigService,
   ) {
-    this.defaultTimeoutMs = parsePositiveInteger(
-      configService.get<string>('EXECUTION_DEFAULT_TIMEOUT_MS', '1800000'),
-      1800000,
-    );
     this.maxConcurrentPerUser = parsePositiveInteger(
       configService.get<string>('EXECUTION_MAX_CONCURRENT_PER_USER', '2'),
       2,
@@ -60,9 +59,15 @@ export class ExecutionsService {
   async createForUser(
     userId: string,
     dto: CreateExecutionDto,
-  ): Promise<ExecutionSummaryResponseDto> {
+    idempotencyKeyHeader?: string,
+  ): Promise<{ execution: ExecutionSummaryResponseDto; reused: boolean }> {
     const repository = await this.getOwnedRepository(userId, dto.repositoryId);
     await this.assertRepositoryRunnable(repository);
+    const idempotencyKey = this.normalizeIdempotencyKey(idempotencyKeyHeader);
+    const requestHash = idempotencyKey ? this.computeRequestHash(dto) : null;
+    const idempotencyCutoff = new Date(
+      Date.now() - ExecutionsService.IDEMPOTENCY_TTL_MS,
+    );
 
     const claudeOauthToken =
       await this.settingsService.getClaudeOauthTokenForUserOrNull(userId);
@@ -72,82 +77,127 @@ export class ExecutionsService {
       );
     }
 
-    await this.ensureRunnerAvailable();
-
-    const timeoutMs = await this.resolveExecutionTimeoutMs(userId);
     const prompt = this.buildPrompt(dto.action, dto);
 
-    const savedExecution = await this.executionsRepository.manager.transaction(
-      async (manager) => {
-        await this.assertConcurrentExecutionLimitWithinTransaction(
-          manager,
-          userId,
-        );
+    const transactionResult =
+      await this.executionsRepository.manager.transaction(
+        async (manager): Promise<{ execution: Execution; reused: boolean }> => {
+          const executionRepository = manager.getRepository(Execution);
+          if (idempotencyKey && requestHash) {
+            await executionRepository
+              .createQueryBuilder()
+              .update(Execution)
+              .set({
+                idempotencyKey: null,
+                requestHash: null,
+              })
+              .where('user_id = :userId', { userId })
+              .andWhere('idempotency_key = :idempotencyKey', { idempotencyKey })
+              .andWhere('created_at < :cutoff', { cutoff: idempotencyCutoff })
+              .execute();
 
-        const executionRepository = manager.getRepository(Execution);
-        const execution = executionRepository.create({
-          userId,
-          repositoryId: repository.id,
-          publishPullRequest: dto.publishPullRequest ?? true,
-          taskId: dto.taskId,
-          taskExternalId: dto.taskExternalId,
-          taskTitle: dto.taskTitle,
-          taskDescription: dto.taskDescription ?? null,
-          taskSource: dto.taskSource,
-          action: dto.action,
-          prompt,
-          status: 'pending',
-          automationStatus: 'pending',
-          automationAttempts: 0,
-          branchName: null,
-          commitSha: null,
-          pullRequestNumber: null,
-          pullRequestUrl: null,
-          pullRequestTitle: null,
-          automationErrorMessage: null,
-          automationCompletedAt: null,
-          output: '',
-          outputTruncated: false,
-          pid: null,
-          startedAt: null,
-          finishedAt: null,
-          exitCode: null,
-          errorMessage: null,
-        });
+            const existingExecution = await executionRepository.findOne({
+              where: {
+                userId,
+                idempotencyKey,
+              },
+              order: {
+                createdAt: 'DESC',
+              },
+            });
 
-        return executionRepository.save(execution);
-      },
-    );
+            if (existingExecution) {
+              if (existingExecution.requestHash === requestHash) {
+                return { execution: existingExecution, reused: true };
+              }
 
+              throw new ConflictException(
+                'Idempotency key reuse with different payload',
+              );
+            }
+          }
+
+          await this.assertConcurrentExecutionLimitWithinTransaction(
+            manager,
+            userId,
+          );
+
+          const execution = executionRepository.create({
+            userId,
+            repositoryId: repository.id,
+            idempotencyKey,
+            requestHash,
+            orchestrationState: 'queued',
+            publishPullRequest: dto.publishPullRequest ?? true,
+            taskId: dto.taskId,
+            taskExternalId: dto.taskExternalId,
+            taskTitle: dto.taskTitle,
+            taskDescription: dto.taskDescription ?? null,
+            taskSource: dto.taskSource,
+            action: dto.action,
+            prompt,
+            status: 'pending',
+            automationStatus: 'pending',
+            automationAttempts: 0,
+            branchName: null,
+            commitSha: null,
+            pullRequestNumber: null,
+            pullRequestUrl: null,
+            pullRequestTitle: null,
+            automationErrorMessage: null,
+            automationCompletedAt: null,
+            output: '',
+            outputTruncated: false,
+            pid: null,
+            startedAt: null,
+            finishedAt: null,
+            exitCode: null,
+            errorMessage: null,
+          });
+
+          const savedExecution = await executionRepository.save(execution);
+          return { execution: savedExecution, reused: false };
+        },
+      );
+
+    if (transactionResult.reused) {
+      const reusedExecution = await this.getOwnedExecution(
+        transactionResult.execution.id,
+        userId,
+      );
+      return {
+        execution: this.toSummaryResponse(reusedExecution),
+        reused: true,
+      };
+    }
+
+    const savedExecution = transactionResult.execution;
     try {
-      await this.runtimeManager.startExecution({
-        executionId: savedExecution.id,
-        action: savedExecution.action,
-        prompt: savedExecution.prompt,
-        cwd: repository.localPath,
-        anthropicAuthToken: claudeOauthToken,
-        timeoutMs,
-      });
+      await this.executionDispatchService.dispatch(savedExecution.id);
     } catch (error) {
       await this.executionsRepository.update(
         { id: savedExecution.id },
         {
           status: 'failed',
+          orchestrationState: 'failed',
           automationStatus: 'failed',
           automationErrorMessage: 'Execution runtime startup failed',
           automationCompletedAt: new Date(),
           finishedAt: new Date(),
-          errorMessage: 'Failed to start execution process',
+          errorMessage: 'Failed to enqueue execution',
         },
       );
-      throw new InternalServerErrorException('Failed to start execution');
+      throw new InternalServerErrorException('Failed to enqueue execution');
     }
 
     const createdExecution = await this.getOwnedExecution(
       savedExecution.id,
       userId,
     );
-    return this.toSummaryResponse(createdExecution);
+    return {
+      execution: this.toSummaryResponse(createdExecution),
+      reused: false,
+    };
   }
 
   async listForUser(
@@ -175,6 +225,7 @@ export class ExecutionsService {
   async streamForUser(
     userId: string,
     executionId: string,
+    afterSequence = 0,
   ): Promise<Observable<MessageEvent>> {
     const execution = await this.getOwnedExecution(executionId, userId);
     const isTerminalStatus =
@@ -184,6 +235,17 @@ export class ExecutionsService {
     const completeImmediately =
       isTerminalStatus && !this.runtimeManager.isExecutionActive(execution.id);
 
+    const normalizedAfterSequence = Math.max(0, afterSequence);
+    const replayEvents =
+      normalizedAfterSequence > 0
+        ? await this.executionEventStoreService.listAfterSequence(
+            execution.id,
+            normalizedAfterSequence,
+          )
+        : [];
+    const lastSequence = await this.executionEventStoreService.getLastSequence(
+      execution.id,
+    );
     const snapshotEvent: ExecutionStreamEventDto = {
       type: 'snapshot',
       payload: {
@@ -193,6 +255,9 @@ export class ExecutionsService {
         automationStatus: execution.automationStatus,
         output: execution.output,
         outputTruncated: execution.outputTruncated,
+        sequence: 0,
+        sentAt: new Date().toISOString(),
+        lastSequence,
       },
     };
 
@@ -200,6 +265,7 @@ export class ExecutionsService {
       execution.id,
       snapshotEvent,
       completeImmediately,
+      replayEvents,
     );
   }
 
@@ -213,19 +279,18 @@ export class ExecutionsService {
     }
 
     const cancelled = await this.runtimeManager.cancelExecution(execution.id);
-    if (!cancelled && execution.status !== 'pending') {
-      throw new ConflictException('Execution is not active');
-    }
-
-    if (!cancelled && execution.status === 'pending') {
+    if (!cancelled) {
       await this.executionsRepository.update(
         { id: execution.id },
         {
           status: 'cancelled',
+          orchestrationState:
+            execution.status === 'pending'
+              ? 'done'
+              : execution.orchestrationState,
           automationStatus: 'not_applicable',
           automationCompletedAt: new Date(),
           automationErrorMessage: 'Execution cancelled',
-          finishedAt: new Date(),
           errorMessage: 'Execution cancelled',
         },
       );
@@ -273,16 +338,6 @@ export class ExecutionsService {
     }
   }
 
-  private async ensureRunnerAvailable(): Promise<void> {
-    try {
-      await this.runtimeManager.ensureRunnerAvailable();
-    } catch {
-      throw new BadRequestException(
-        'Claude CLI is not available on the backend runtime',
-      );
-    }
-  }
-
   private async assertConcurrentExecutionLimitWithinTransaction(
     manager: EntityManager,
     userId: string,
@@ -314,23 +369,6 @@ export class ExecutionsService {
         `Maximum ${this.maxConcurrentPerUser} concurrent executions reached`,
       );
     }
-  }
-
-  private async resolveExecutionTimeoutMs(userId: string): Promise<number> {
-    const userDefinedTimeoutMs =
-      await this.settingsService.getExecutionTimeoutMsForUserOrNull(userId);
-    if (userDefinedTimeoutMs === null) {
-      return this.defaultTimeoutMs;
-    }
-
-    if (!Number.isFinite(userDefinedTimeoutMs)) {
-      return this.defaultTimeoutMs;
-    }
-
-    return Math.min(
-      this.maxTimeoutMs,
-      Math.max(this.minTimeoutMs, userDefinedTimeoutMs),
-    );
   }
 
   private resolveListLimit(limit: number | undefined): number {
@@ -389,6 +427,8 @@ export class ExecutionsService {
       id: execution.id,
       repositoryId: execution.repositoryId,
       publishPullRequest: execution.publishPullRequest,
+      orchestrationState: execution.orchestrationState,
+      idempotencyKey: this.maskIdempotencyKey(execution.idempotencyKey),
       taskId: execution.taskId,
       taskExternalId: execution.taskExternalId,
       taskTitle: execution.taskTitle,
@@ -418,5 +458,42 @@ export class ExecutionsService {
       exitCode: execution.exitCode,
       errorMessage: execution.errorMessage,
     };
+  }
+
+  private normalizeIdempotencyKey(value?: string): string | null {
+    if (!value) {
+      return null;
+    }
+
+    const normalized = value.trim();
+    if (normalized.length === 0) {
+      return null;
+    }
+
+    return normalized.slice(0, 255);
+  }
+
+  private computeRequestHash(dto: CreateExecutionDto): string {
+    const canonicalPayload = JSON.stringify({
+      repositoryId: dto.repositoryId,
+      action: dto.action,
+      taskId: dto.taskId,
+      taskExternalId: dto.taskExternalId,
+      taskTitle: dto.taskTitle,
+      taskDescription: dto.taskDescription ?? null,
+      taskSource: dto.taskSource,
+      publishPullRequest: dto.publishPullRequest ?? true,
+    });
+
+    return createHash('sha256').update(canonicalPayload, 'utf8').digest('hex');
+  }
+
+  private maskIdempotencyKey(value: string | null): string | null {
+    if (!value) {
+      return null;
+    }
+
+    const digest = createHash('sha256').update(value, 'utf8').digest('hex');
+    return `sha256:${digest.slice(0, 16)}`;
   }
 }

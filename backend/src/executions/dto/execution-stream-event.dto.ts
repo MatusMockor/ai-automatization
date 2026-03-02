@@ -4,6 +4,11 @@ import type {
   ExecutionStreamEventType,
 } from '../interfaces/execution.types';
 
+type EventMetadata = {
+  sequence?: number;
+  sentAt?: string;
+};
+
 export type ExecutionStreamEventPayload =
   | {
       type: 'snapshot';
@@ -12,6 +17,7 @@ export type ExecutionStreamEventPayload =
       automationStatus: AutomationStatus;
       output: string;
       outputTruncated: boolean;
+      lastSequence?: number;
     }
   | {
       type: 'stdout';
@@ -55,6 +61,7 @@ export type ExecutionStreamEventPayload =
 export type ExecutionStreamEventDto = {
   [Type in ExecutionStreamEventType]: {
     type: Type;
-    payload: Extract<ExecutionStreamEventPayload, { type: Type }>;
+    payload: Extract<ExecutionStreamEventPayload, { type: Type }> &
+      EventMetadata;
   };
 }[ExecutionStreamEventType];

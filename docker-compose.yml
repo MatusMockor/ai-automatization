@@ -18,6 +18,19 @@ services:
       timeout: 3s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: ai_automation_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - ai-automation-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -58,6 +71,11 @@ services:
       EXECUTION_AUTOPR_RETRY_BACKOFF_MS: ${EXECUTION_AUTOPR_RETRY_BACKOFF_MS:-2000}
       EXECUTION_PRE_PR_CHECK_COMMAND: ${EXECUTION_PRE_PR_CHECK_COMMAND:-}
       EXECUTION_AUTOPR_BRANCH_PREFIX: ${EXECUTION_AUTOPR_BRANCH_PREFIX:-feature/ai}
+      EXECUTION_QUEUE_DRIVER: ${EXECUTION_QUEUE_DRIVER:-redis}
+      EXECUTION_QUEUE_NAME: ${EXECUTION_QUEUE_NAME:-executions}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      EXECUTION_WORKER_ENABLED: ${EXECUTION_WORKER_ENABLED:-false}
+      EXECUTION_WORKER_RECOVERY_TIMEOUT_MS: ${EXECUTION_WORKER_RECOVERY_TIMEOUT_MS:-900000}
     ports:
       - "3001:3001"
     volumes:
@@ -65,6 +83,66 @@ services:
       - repos_data:/app/repos
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ai-automation-net
+    restart: unless-stopped
+
+  backend-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai_automation_backend_worker
+    command: npm run start:worker:dev
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USERNAME: ${DB_USERNAME:-ai_automation}
+      DB_PASSWORD: ${DB_PASSWORD:-ai_automation_secret}
+      DB_DATABASE: ${DB_DATABASE:-ai_automation_db}
+      PORT: ${PORT:-3001}
+      NODE_ENV: ${NODE_ENV:-development}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      JWT_SECRET: ${JWT_SECRET:-CHANGE_ME_JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-24h}
+      BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS:-12}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff}
+      REPOSITORIES_BASE_PATH: ${REPOSITORIES_BASE_PATH:-/app/repos}
+      GIT_COMMAND_TIMEOUT_MS: ${GIT_COMMAND_TIMEOUT_MS:-120000}
+      GITHUB_API_BASE_URL: ${GITHUB_API_BASE_URL:-https://api.github.com}
+      TASK_MANAGER_HTTP_TIMEOUT_MS: ${TASK_MANAGER_HTTP_TIMEOUT_MS:-15000}
+      TASK_MANAGER_DEFAULT_TASK_LIMIT: ${TASK_MANAGER_DEFAULT_TASK_LIMIT:-100}
+      TASK_MANAGER_MAX_TASK_LIMIT: ${TASK_MANAGER_MAX_TASK_LIMIT:-100}
+      TASKS_DEFAULT_LIMIT: ${TASKS_DEFAULT_LIMIT:-100}
+      TASKS_MAX_LIMIT: ${TASKS_MAX_LIMIT:-200}
+      ENABLE_SWAGGER: ${ENABLE_SWAGGER:-false}
+      SWAGGER_PATH: ${SWAGGER_PATH:-api/docs}
+      THROTTLE_TTL_MS: ${THROTTLE_TTL_MS:-60000}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-60}
+      EXECUTION_DEFAULT_TIMEOUT_MS: ${EXECUTION_DEFAULT_TIMEOUT_MS:-1800000}
+      EXECUTION_MAX_CONCURRENT_PER_USER: ${EXECUTION_MAX_CONCURRENT_PER_USER:-2}
+      EXECUTION_OUTPUT_MAX_BYTES: ${EXECUTION_OUTPUT_MAX_BYTES:-204800}
+      EXECUTION_GRACEFUL_STOP_MS: ${EXECUTION_GRACEFUL_STOP_MS:-5000}
+      EXECUTION_GIT_AUTHOR_NAME: ${EXECUTION_GIT_AUTHOR_NAME:-Automation Bot}
+      EXECUTION_GIT_AUTHOR_EMAIL: ${EXECUTION_GIT_AUTHOR_EMAIL:-automation@local}
+      EXECUTION_AUTOPR_RETRY_COUNT: ${EXECUTION_AUTOPR_RETRY_COUNT:-3}
+      EXECUTION_AUTOPR_RETRY_BACKOFF_MS: ${EXECUTION_AUTOPR_RETRY_BACKOFF_MS:-2000}
+      EXECUTION_PRE_PR_CHECK_COMMAND: ${EXECUTION_PRE_PR_CHECK_COMMAND:-}
+      EXECUTION_AUTOPR_BRANCH_PREFIX: ${EXECUTION_AUTOPR_BRANCH_PREFIX:-feature/ai}
+      EXECUTION_QUEUE_DRIVER: ${EXECUTION_QUEUE_DRIVER:-redis}
+      EXECUTION_QUEUE_NAME: ${EXECUTION_QUEUE_NAME:-executions}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      EXECUTION_WORKER_ENABLED: ${EXECUTION_WORKER_ENABLED:-true}
+      EXECUTION_WORKER_RECOVERY_TIMEOUT_MS: ${EXECUTION_WORKER_RECOVERY_TIMEOUT_MS:-900000}
+    volumes:
+      - ./backend/src:/app/src
+      - repos_data:/app/repos
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - ai-automation-net

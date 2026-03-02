@@ -1,6 +1,7 @@
 import type {
   AutomationStatus,
   ExecutionAction,
+  ExecutionOrchestrationState,
   ExecutionStatus,
   TaskSource,
 } from '../interfaces/execution.types';
@@ -8,6 +9,8 @@ import type {
 export class ExecutionSummaryResponseDto {
   id!: string;
   repositoryId!: string;
+  orchestrationState!: ExecutionOrchestrationState;
+  idempotencyKey!: string | null;
   publishPullRequest!: boolean;
   taskId!: string;
   taskExternalId!: string;
