@@ -80,12 +80,12 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
             break;
           case 'status':
             setStatus(event.status);
-            setErrorMessage(event.errorMessage ?? null);
+            setErrorMessage((prev) => event.errorMessage ?? prev);
             break;
           case 'completed':
           case 'error':
             setStatus(event.status);
-            setErrorMessage(event.errorMessage ?? null);
+            setErrorMessage((prev) => event.errorMessage ?? prev);
             break;
         }
       };
