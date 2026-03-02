@@ -9,6 +9,7 @@ import {
   History,
   Link2,
   GitBranch,
+  ClipboardList,
   Settings,
 
   LogOut,
@@ -24,6 +25,7 @@ const navItems = [
   { to: '/executions', icon: History, label: 'Executions' },
   { to: '/connections', icon: Link2, label: 'Connections' },
   { to: '/repositories', icon: GitBranch, label: 'Repositories' },
+  { to: '/manual-tasks', icon: ClipboardList, label: 'Manual Tasks' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 

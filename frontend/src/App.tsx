@@ -13,6 +13,7 @@ import { SettingsPage } from '@/pages/SettingsPage';
 import { ConnectionsPage } from '@/pages/ConnectionsPage';
 import { RepositoriesPage } from '@/pages/RepositoriesPage';
 import { ExecutionsPage } from '@/pages/ExecutionsPage';
+import { ManualTasksPage } from '@/pages/ManualTasksPage';
 
 function ThemedToaster() {
   const { resolved } = useTheme();
@@ -56,6 +57,7 @@ function App() {
                 <Route path="executions" element={<ExecutionsPage />} />
                 <Route path="connections" element={<ConnectionsPage />} />
                 <Route path="repositories" element={<RepositoriesPage />} />
+                <Route path="manual-tasks" element={<ManualTasksPage />} />
                 <Route path="settings" element={<SettingsPage />} />
               </Route>
 

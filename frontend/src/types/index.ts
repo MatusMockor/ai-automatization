@@ -1,4 +1,4 @@
-export type TaskSource = 'jira' | 'asana';
+export type TaskSource = 'jira' | 'asana' | 'manual';
 export type TaskPrefix = 'fix' | 'feature' | 'chore' | 'plan' | 'refactor';
 export type TaskStatus = 'open' | 'in_progress' | 'done' | 'closed';
 export type ExecutionAction = 'fix' | 'feature' | 'plan';
@@ -67,6 +67,14 @@ export interface ActivityItem {
   message: string;
   detail: string;
   timestamp: string;
+}
+
+export interface ManualTask {
+  id: string;
+  title: string;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export const ALL_PREFIXES = ['fix', 'feature', 'chore', 'plan', 'refactor'] as const;
