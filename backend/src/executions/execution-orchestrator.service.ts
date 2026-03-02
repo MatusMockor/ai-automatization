@@ -14,8 +14,8 @@ import { ExecutionRuntimeManager } from './execution-runtime.manager';
 export class ExecutionOrchestratorService {
   private readonly logger = new Logger(ExecutionOrchestratorService.name);
   private readonly defaultTimeoutMs: number;
-  private readonly minTimeoutMs = 60000;
-  private readonly maxTimeoutMs = 7200000;
+  private readonly minTimeoutMs: number;
+  private readonly maxTimeoutMs: number;
 
   constructor(
     @InjectRepository(Execution)
@@ -25,13 +25,41 @@ export class ExecutionOrchestratorService {
     private readonly metricsService: MetricsService,
     private readonly configService: ConfigService,
   ) {
-    this.defaultTimeoutMs = parsePositiveInteger(
-      this.configService.get<string>('EXECUTION_DEFAULT_TIMEOUT_MS', '1800000'),
-      1800000,
+    this.minTimeoutMs = parsePositiveInteger(
+      this.configService.get<string>('EXECUTION_MIN_TIMEOUT_MS', '60000'),
+      60000,
+    );
+    const configuredMaxTimeout = parsePositiveInteger(
+      this.configService.get<string>('EXECUTION_MAX_TIMEOUT_MS', '7200000'),
+      7200000,
+    );
+    this.maxTimeoutMs = Math.max(this.minTimeoutMs, configuredMaxTimeout);
+    this.defaultTimeoutMs = this.clampTimeoutMs(
+      parsePositiveInteger(
+        this.configService.get<string>(
+          'EXECUTION_DEFAULT_TIMEOUT_MS',
+          '1800000',
+        ),
+        1800000,
+      ),
     );
   }
 
   async processExecution(executionId: string): Promise<void> {
+    const claimed = await this.executionRepository.update(
+      {
+        id: executionId,
+        status: 'pending',
+        orchestrationState: 'queued',
+      },
+      {
+        orchestrationState: 'running',
+      },
+    );
+    if ((claimed.affected ?? 0) !== 1) {
+      return;
+    }
+
     const execution = await this.executionRepository.findOne({
       where: { id: executionId },
       relations: {
@@ -39,7 +67,12 @@ export class ExecutionOrchestratorService {
       },
     });
 
-    if (!execution || execution.status !== 'pending' || !execution.repository) {
+    if (!execution) {
+      return;
+    }
+
+    if (!execution.repository) {
+      await this.fail(execution.id, 'Repository is not in a runnable state');
       return;
     }
 
@@ -147,9 +180,10 @@ export class ExecutionOrchestratorService {
       return this.defaultTimeoutMs;
     }
 
-    return Math.min(
-      this.maxTimeoutMs,
-      Math.max(this.minTimeoutMs, userDefinedTimeoutMs),
-    );
+    return this.clampTimeoutMs(userDefinedTimeoutMs);
+  }
+
+  private clampTimeoutMs(timeoutMs: number): number {
+    return Math.min(this.maxTimeoutMs, Math.max(this.minTimeoutMs, timeoutMs));
   }
 }

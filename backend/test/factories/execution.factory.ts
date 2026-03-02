@@ -59,6 +59,14 @@ export class ExecutionFactory {
         : status === 'cancelled'
           ? 'Execution cancelled'
           : null;
+    const defaultOrchestrationState: ExecutionOrchestrationState =
+      status === 'pending'
+        ? 'queued'
+        : status === 'running'
+          ? 'running'
+          : status === 'failed'
+            ? 'failed'
+            : 'done';
 
     const execution = executionRepository.create({
       userId: input.userId,
@@ -66,7 +74,7 @@ export class ExecutionFactory {
       publishPullRequest: input.publishPullRequest ?? true,
       idempotencyKey: input.idempotencyKey ?? null,
       requestHash: input.requestHash ?? null,
-      orchestrationState: input.orchestrationState ?? 'done',
+      orchestrationState: input.orchestrationState ?? defaultOrchestrationState,
       taskId: input.taskId ?? faker.string.alphanumeric(12).toLowerCase(),
       taskExternalId: input.taskExternalId ?? `TASK-${faker.string.numeric(4)}`,
       taskTitle: input.taskTitle ?? faker.lorem.sentence(),

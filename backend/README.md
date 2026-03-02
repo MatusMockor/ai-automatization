@@ -49,9 +49,15 @@ Execution publication settings control automatic `branch -> commit -> push -> PR
 - `EXECUTION_AUTOPR_BRANCH_PREFIX` default: `feature/ai`
 - `EXECUTION_QUEUE_DRIVER` default: `redis` (`inline` is available for tests/local fallback)
 - `EXECUTION_QUEUE_NAME` default: `executions`
+- `EXECUTION_QUEUE_MAX_ATTEMPTS` default: `3`
 - `REDIS_URL` default: `redis://redis:6379`
 - `EXECUTION_WORKER_ENABLED` default: `false` for API process (worker process sets `true`)
 - `EXECUTION_WORKER_RECOVERY_TIMEOUT_MS` default: `900000`
+- `EXECUTION_MIN_TIMEOUT_MS` default: `60000`
+- `EXECUTION_MAX_TIMEOUT_MS` default: `7200000`
+- `EXECUTION_RETENTION_ENABLED` default: `true` (set `false` on worker replicas to avoid duplicate schedulers)
+- `EXECUTION_RETENTION_TIMEZONE` default: `UTC`
+- `ENABLE_METRICS` default: `false`
 - `EXECUTION_OUTPUT_RETENTION_DAYS` default: `30`
 - `EXECUTION_EVENTS_RETENTION_DAYS` default: `14`
 - `EXECUTION_REPORT_RETENTION_DAYS` default: `30`
@@ -74,7 +80,7 @@ Execution SSE stream (`GET /api/executions/:id/stream`) publishes ordered events
 - `sentAt` (ISO timestamp)
 - reconnect can request replay via query `afterSequence`
 
-Prometheus metrics are exposed at `GET /metrics`.
+Prometheus metrics are exposed at `GET /metrics` only when `ENABLE_METRICS=true`.
 
 ## Claude OAuth token for executions
 
@@ -105,6 +111,9 @@ npm run start:dev
 
 # production mode
 npm run start:prod
+
+# worker process (required for Redis queue execution processing)
+npm run start:worker:dev
 ```
 
 ## Run tests

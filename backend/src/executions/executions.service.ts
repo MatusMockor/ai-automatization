@@ -12,7 +12,7 @@ import { access } from 'fs/promises';
 import { join } from 'path';
 import { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import { EntityManager, In, Repository } from 'typeorm';
+import { EntityManager, In, QueryFailedError, Repository } from 'typeorm';
 import { parsePositiveInteger } from '../common/utils/parse.utils';
 import { ManagedRepository } from '../repositories/entities/repository.entity';
 import { RepositoriesService } from '../repositories/repositories.service';
@@ -61,13 +61,33 @@ export class ExecutionsService {
     dto: CreateExecutionDto,
     idempotencyKeyHeader?: string,
   ): Promise<{ execution: ExecutionSummaryResponseDto; reused: boolean }> {
-    const repository = await this.getOwnedRepository(userId, dto.repositoryId);
-    await this.assertRepositoryRunnable(repository);
     const idempotencyKey = this.normalizeIdempotencyKey(idempotencyKeyHeader);
     const requestHash = idempotencyKey ? this.computeRequestHash(dto) : null;
     const idempotencyCutoff = new Date(
       Date.now() - ExecutionsService.IDEMPOTENCY_TTL_MS,
     );
+    if (idempotencyKey && requestHash) {
+      const existingExecution = await this.tryReuseIdempotentExecution(
+        this.executionsRepository,
+        userId,
+        idempotencyKey,
+        requestHash,
+        idempotencyCutoff,
+      );
+      if (existingExecution) {
+        const reusedExecution = await this.getOwnedExecution(
+          existingExecution.id,
+          userId,
+        );
+        return {
+          execution: this.toSummaryResponse(reusedExecution),
+          reused: true,
+        };
+      }
+    }
+
+    const repository = await this.getOwnedRepository(userId, dto.repositoryId);
+    await this.assertRepositoryRunnable(repository);
 
     const claudeOauthToken =
       await this.settingsService.getClaudeOauthTokenForUserOrNull(userId);
@@ -79,41 +99,21 @@ export class ExecutionsService {
 
     const prompt = this.buildPrompt(dto.action, dto);
 
-    const transactionResult =
-      await this.executionsRepository.manager.transaction(
+    let transactionResult: { execution: Execution; reused: boolean };
+    try {
+      transactionResult = await this.executionsRepository.manager.transaction(
         async (manager): Promise<{ execution: Execution; reused: boolean }> => {
           const executionRepository = manager.getRepository(Execution);
           if (idempotencyKey && requestHash) {
-            await executionRepository
-              .createQueryBuilder()
-              .update(Execution)
-              .set({
-                idempotencyKey: null,
-                requestHash: null,
-              })
-              .where('user_id = :userId', { userId })
-              .andWhere('idempotency_key = :idempotencyKey', { idempotencyKey })
-              .andWhere('created_at < :cutoff', { cutoff: idempotencyCutoff })
-              .execute();
-
-            const existingExecution = await executionRepository.findOne({
-              where: {
-                userId,
-                idempotencyKey,
-              },
-              order: {
-                createdAt: 'DESC',
-              },
-            });
-
+            const existingExecution = await this.tryReuseIdempotentExecution(
+              executionRepository,
+              userId,
+              idempotencyKey,
+              requestHash,
+              idempotencyCutoff,
+            );
             if (existingExecution) {
-              if (existingExecution.requestHash === requestHash) {
-                return { execution: existingExecution, reused: true };
-              }
-
-              throw new ConflictException(
-                'Idempotency key reuse with different payload',
-              );
+              return { execution: existingExecution, reused: true };
             }
           }
 
@@ -159,6 +159,32 @@ export class ExecutionsService {
           return { execution: savedExecution, reused: false };
         },
       );
+    } catch (error) {
+      if (
+        idempotencyKey &&
+        requestHash &&
+        this.isIdempotencyUniqueViolation(error)
+      ) {
+        const existingExecution = await this.tryReuseIdempotentExecution(
+          this.executionsRepository,
+          userId,
+          idempotencyKey,
+          requestHash,
+          idempotencyCutoff,
+        );
+        if (existingExecution) {
+          const reusedExecution = await this.getOwnedExecution(
+            existingExecution.id,
+            userId,
+          );
+          return {
+            execution: this.toSummaryResponse(reusedExecution),
+            reused: true,
+          };
+        }
+      }
+      throw error;
+    }
 
     if (transactionResult.reused) {
       const reusedExecution = await this.getOwnedExecution(
@@ -284,10 +310,7 @@ export class ExecutionsService {
         { id: execution.id },
         {
           status: 'cancelled',
-          orchestrationState:
-            execution.status === 'pending'
-              ? 'done'
-              : execution.orchestrationState,
+          orchestrationState: 'done',
           automationStatus: 'not_applicable',
           automationCompletedAt: new Date(),
           automationErrorMessage: 'Execution cancelled',
@@ -470,7 +493,13 @@ export class ExecutionsService {
       return null;
     }
 
-    return normalized.slice(0, 255);
+    if (normalized.length > 255) {
+      throw new BadRequestException(
+        'Idempotency-Key must be at most 255 characters long',
+      );
+    }
+
+    return normalized;
   }
 
   private computeRequestHash(dto: CreateExecutionDto): string {
@@ -495,5 +524,70 @@ export class ExecutionsService {
 
     const digest = createHash('sha256').update(value, 'utf8').digest('hex');
     return `sha256:${digest.slice(0, 16)}`;
+  }
+
+  private async tryReuseIdempotentExecution(
+    executionRepository: Repository<Execution>,
+    userId: string,
+    idempotencyKey: string,
+    requestHash: string,
+    idempotencyCutoff: Date,
+  ): Promise<Execution | null> {
+    await executionRepository
+      .createQueryBuilder()
+      .update(Execution)
+      .set({
+        idempotencyKey: null,
+        requestHash: null,
+      })
+      .where('user_id = :userId', { userId })
+      .andWhere('idempotency_key = :idempotencyKey', { idempotencyKey })
+      .andWhere('created_at < :cutoff', { cutoff: idempotencyCutoff })
+      .execute();
+
+    const existingExecution = await executionRepository
+      .createQueryBuilder('execution')
+      .where('execution.user_id = :userId', { userId })
+      .andWhere('execution.idempotency_key = :idempotencyKey', {
+        idempotencyKey,
+      })
+      .andWhere('execution.created_at >= :cutoff', {
+        cutoff: idempotencyCutoff,
+      })
+      .orderBy('execution.created_at', 'DESC')
+      .getOne();
+
+    if (!existingExecution) {
+      return null;
+    }
+
+    if (existingExecution.requestHash !== requestHash) {
+      throw new ConflictException(
+        'Idempotency key reuse with different payload',
+      );
+    }
+
+    return existingExecution;
+  }
+
+  private isIdempotencyUniqueViolation(error: unknown): boolean {
+    if (!(error instanceof QueryFailedError)) {
+      return false;
+    }
+
+    const queryError = error as QueryFailedError & {
+      code?: string;
+      message: string;
+    };
+    if (queryError.code === '23505') {
+      return true;
+    }
+
+    const message = queryError.message.toLowerCase();
+    return (
+      message.includes('uq_executions_user_idempotency_key') ||
+      (message.includes('executions.user_id') &&
+        message.includes('executions.idempotency_key'))
+    );
   }
 }

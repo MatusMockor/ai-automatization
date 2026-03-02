@@ -626,6 +626,64 @@ describe('Executions (e2e)', () => {
     );
   });
 
+  it('POST /api/executions should allow Idempotency-Key reuse after 24h window', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+    const idempotencyKey = faker.string.uuid();
+    const payload = buildCreateExecutionPayload(repository.id);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['initial idempotent execution'],
+      delayMs: 10,
+    });
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+        'idempotency-key': idempotencyKey,
+      },
+      payload,
+    });
+    expect(first.statusCode).toBe(201);
+    const firstExecutionId = first.json<{ id: string }>().id;
+    await waitForExecution(
+      firstExecutionId,
+      (current) =>
+        current.status === 'completed' || current.status === 'failed',
+    );
+
+    const staleTimestamp = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    await dataSource.getRepository(Execution).update(
+      { id: firstExecutionId },
+      {
+        createdAt: staleTimestamp,
+        updatedAt: staleTimestamp,
+      },
+    );
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['second idempotent execution'],
+      delayMs: 10,
+    });
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+        'idempotency-key': idempotencyKey,
+      },
+      payload,
+    });
+    expect(second.statusCode).toBe(201);
+    expect(second.json<{ id: string }>().id).not.toBe(firstExecutionId);
+  });
+
   it('POST /api/executions should mark automation failed when GitHub token is missing', async () => {
     const session = await createLoginSession();
     await userSettingsFactory.create(session.userId, {
@@ -1277,6 +1335,26 @@ describe('Executions (e2e)', () => {
     expect(streamResponse.body).toContain('"sequence":');
     expect(streamResponse.body).toContain('"sentAt":');
     expect(streamResponse.body).toMatch(/event: (completed|error)/);
+  });
+
+  it('GET /api/executions/:id/stream should return 400 for invalid afterSequence', async () => {
+    const session = await createLoginSession();
+    const repository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+    const execution = await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      status: 'completed',
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/executions/${execution.id}/stream?afterSequence=10abc`,
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+
+    expect(response.statusCode).toBe(400);
   });
 
   it('Execution should fail on timeout when process keeps running', async () => {
