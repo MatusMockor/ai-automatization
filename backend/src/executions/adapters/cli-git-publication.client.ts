@@ -161,9 +161,13 @@ export class CliGitPublicationClient implements GitPublicationClient {
   private buildAuthGitConfigs(cloneUrl: string, accessToken: string): string[] {
     try {
       const url = new URL(cloneUrl);
+      const basicAuthToken = Buffer.from(
+        `x-access-token:${accessToken}`,
+        'utf8',
+      ).toString('base64');
       return [
         '-c',
-        `http.https://${url.host}/.extraheader=AUTHORIZATION: Bearer ${accessToken}`,
+        `http.https://${url.host}/.extraheader=Authorization: Basic ${basicAuthToken}`,
       ];
     } catch {
       throw new ExecutionPublicationError(
