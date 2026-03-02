@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTick } from '@/lib/useTick';
 import { toast } from 'sonner';
 import {
   ClipboardList,
@@ -23,6 +24,7 @@ const RUN_ACTIONS: { action: ExecutionAction; label: string }[] = [
 ];
 
 export function ManualTasksPage() {
+  useTick();
   const { selectedRepo } = useRepo();
   const [tasks, setTasks] = useState<ManualTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +48,7 @@ export function ManualTasksPage() {
   // Run dropdown
   const [runOpenId, setRunOpenId] = useState<string | null>(null);
   const [runningActions, setRunningActions] = useState<Set<string>>(new Set());
+  const [publishPullRequest, setPublishPullRequest] = useState(true);
 
   const fetchTasks = async () => {
     try {
@@ -149,6 +152,7 @@ export function ManualTasksPage() {
         taskTitle: task.title,
         taskDescription: task.description,
         taskSource: 'manual',
+        publishPullRequest,
       });
       setRunOpenId(null);
       toast.success(`${action.charAt(0).toUpperCase() + action.slice(1)} execution started`);
@@ -325,7 +329,11 @@ export function ManualTasksPage() {
                     <div className="relative">
                       <button
                         type="button"
-                        onClick={() => setRunOpenId(runOpenId === task.id ? null : task.id)}
+                        onClick={() => {
+                          const opening = runOpenId !== task.id;
+                          setRunOpenId(opening ? task.id : null);
+                          if (opening) setPublishPullRequest(true);
+                        }}
                         aria-label={`Run action for ${task.title}`}
                         aria-haspopup="menu"
                         aria-expanded={runOpenId === task.id}
@@ -337,6 +345,16 @@ export function ManualTasksPage() {
                       </button>
                       {runOpenId === task.id && (
                         <div className="absolute right-0 top-full z-10 mt-1 min-w-[120px] rounded-lg border border-border bg-card p-1 shadow-lg">
+                          <label className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-muted-foreground cursor-pointer select-none hover:bg-foreground/5">
+                            <input
+                              type="checkbox"
+                              checked={publishPullRequest}
+                              onChange={(e) => setPublishPullRequest(e.target.checked)}
+                              className="h-3.5 w-3.5 rounded border-border accent-primary"
+                            />
+                            Publish PR
+                          </label>
+                          <div className="my-1 border-t border-border" />
                           {RUN_ACTIONS.map(({ action, label }) => {
                             const key = `${task.id}-${action}`;
                             return (

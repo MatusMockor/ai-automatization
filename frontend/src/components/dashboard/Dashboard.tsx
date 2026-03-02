@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useTick } from '@/lib/useTick';
 import { StatsBar } from './StatsBar';
 import { TaskList } from './TaskList';
 import { TaskDetail } from './TaskDetail';
@@ -13,6 +14,7 @@ import { ALL_PREFIXES } from '@/types';
 import { Search, AlertTriangle } from 'lucide-react';
 
 export function Dashboard() {
+  useTick();
   const { selectedRepo } = useRepo();
 
   const [selectedPrefix, setSelectedPrefix] = useState<TaskPrefix | null>(null);
@@ -27,6 +29,7 @@ export function Dashboard() {
 
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
+  const [publishPullRequest, setPublishPullRequest] = useState(true);
 
   // Fetch tasks
   useEffect(() => {
@@ -49,6 +52,10 @@ export function Dashboard() {
     fetchTasks();
   }, []);
 
+  useEffect(() => {
+    setPublishPullRequest(true);
+  }, [selectedTask?.id]);
+
   // Fetch executions
   useEffect(() => {
     const fetchExecutions = async () => {
@@ -66,12 +73,16 @@ export function Dashboard() {
   const handleStreamEvent = useCallback((event: import('@/types').ExecutionStreamEvent) => {
     if (event.type === 'status' || event.type === 'completed' || event.type === 'error') {
       setExecutions((prev) =>
-        prev.map((e) => (e.id === event.executionId ? { ...e, status: event.status } : e)),
+        prev.map((e) =>
+          e.id === event.executionId
+            ? { ...e, status: event.status, errorMessage: event.errorMessage ?? e.errorMessage }
+            : e,
+        ),
       );
     }
   }, []);
 
-  const { output: streamOutput, status: streamStatus } = useExecutionStream({
+  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage } = useExecutionStream({
     executionId: activeExecutionId,
     onEvent: handleStreamEvent,
   });
@@ -85,8 +96,9 @@ export function Dashboard() {
       ...base,
       output: streamOutput || base.output,
       status: streamStatus ?? base.status,
+      errorMessage: streamErrorMessage ?? base.errorMessage,
     };
-  }, [activeExecutionId, executions, streamOutput, streamStatus]);
+  }, [activeExecutionId, executions, streamOutput, streamStatus, streamErrorMessage]);
 
   const runningCount = executions.filter((e) => e.status === 'running').length;
   const completedCount = executions.filter((e) => e.status === 'completed').length;
@@ -138,6 +150,7 @@ export function Dashboard() {
         taskTitle: task.title,
         taskDescription: task.description,
         taskSource: task.source,
+        publishPullRequest,
       };
       const { data } = await api.post<Execution>('/executions', body);
       setExecutions((prev) => [data, ...prev]);
@@ -249,6 +262,8 @@ export function Dashboard() {
               executions={taskExecutions}
               onClose={() => setSelectedTask(null)}
               onAction={(action) => handleAction(action, selectedTask)}
+              publishPullRequest={publishPullRequest}
+              onPublishPullRequestChange={setPublishPullRequest}
             />
           ) : (
             <ActivityPanel />

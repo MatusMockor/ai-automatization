@@ -151,6 +151,11 @@ export function TerminalPanel({
       {/* Output */}
       {isOpen && (
         <div className="flex-1 overflow-y-auto px-4 pb-4 font-mono text-[13px] leading-relaxed">
+          {execution.errorMessage && (execution.status === 'failed' || execution.status === 'cancelled') && (
+            <div className="mb-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400 ring-1 ring-red-500/20">
+              {execution.errorMessage}
+            </div>
+          )}
           <pre className="whitespace-pre-wrap dark:text-emerald-300/80 text-emerald-700">
             {execution.output}
           </pre>

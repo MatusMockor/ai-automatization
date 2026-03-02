@@ -14,9 +14,11 @@ import {
 import { cn } from '@/lib/utils';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { timeAgo } from '@/lib/time';
+import { useTick } from '@/lib/useTick';
 import type { Repository } from '@/types';
 
 export function RepositoriesPage() {
+  useTick();
   const [repos, setRepos] = useState<Repository[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);

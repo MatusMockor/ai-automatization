@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useTick } from '@/lib/useTick';
 import { ExecutionStatusIcon } from '@/components/shared/StatusIcon';
 import { timeAgo } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { toast } from 'sonner';
-import type { Execution } from '@/types';
+import type { Execution, ExecutionStreamEvent } from '@/types';
 import { Square, Copy, X } from 'lucide-react';
+import { useExecutionStream } from '@/lib/useExecutionStream';
 
 const actionColors: Record<string, string> = {
   fix: 'bg-red-500/15 text-red-400',
@@ -14,6 +16,7 @@ const actionColors: Record<string, string> = {
 };
 
 export function ExecutionsPage() {
+  useTick();
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Execution | null>(null);
@@ -58,7 +61,37 @@ export function ExecutionsPage() {
     }
   };
 
-  const detail = selectedDetail ?? selected;
+  const handleStreamEvent = useCallback((event: ExecutionStreamEvent) => {
+    if (event.type === 'status' || event.type === 'completed' || event.type === 'error') {
+      setExecutions((prev) =>
+        prev.map((e) => (e.id === event.executionId ? { ...e, status: event.status } : e)),
+      );
+      setSelected((prev) =>
+        prev?.id === event.executionId ? { ...prev, status: event.status } : prev,
+      );
+      setSelectedDetail((prev) =>
+        prev?.id === event.executionId
+          ? { ...prev, status: event.status, errorMessage: event.errorMessage ?? prev.errorMessage }
+          : prev,
+      );
+    }
+  }, []);
+
+  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage } = useExecutionStream({
+    executionId: selected?.id ?? null,
+    onEvent: handleStreamEvent,
+  });
+
+  const detail = useMemo(() => {
+    const base = selectedDetail ?? selected;
+    if (!base) return null;
+    return {
+      ...base,
+      output: streamOutput || base.output,
+      status: streamStatus ?? base.status,
+      errorMessage: streamErrorMessage ?? base.errorMessage,
+    };
+  }, [selected, selectedDetail, streamOutput, streamStatus, streamErrorMessage]);
 
   return (
     <div className="flex h-full">
@@ -162,10 +195,15 @@ export function ExecutionsPage() {
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 font-mono text-[13px] leading-relaxed">
-            {selectedDetail ? (
+            {selectedDetail || streamOutput ? (
               <>
-                <pre className="whitespace-pre-wrap dark:text-emerald-300/80 text-emerald-700">{selectedDetail.output}</pre>
-                {selectedDetail.status === 'running' && (
+                {detail.errorMessage && (detail.status === 'failed' || detail.status === 'cancelled') && (
+                  <div className="mb-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400 ring-1 ring-red-500/20">
+                    {detail.errorMessage}
+                  </div>
+                )}
+                <pre className="whitespace-pre-wrap dark:text-emerald-300/80 text-emerald-700">{detail.output}</pre>
+                {detail.status === 'running' && (
                   <span className="inline-block h-4 w-1.5 animate-pulse dark:bg-emerald-400/60 bg-emerald-600/60" />
                 )}
               </>

@@ -33,6 +33,7 @@ export interface Execution {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  publishPullRequest: boolean;
 }
 
 export interface CreateExecutionRequest {
@@ -43,6 +44,7 @@ export interface CreateExecutionRequest {
   taskTitle: string;
   taskDescription?: string;
   taskSource: TaskSource;
+  publishPullRequest?: boolean;
 }
 
 export type ExecutionStreamEvent =
