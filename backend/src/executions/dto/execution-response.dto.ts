@@ -8,6 +8,7 @@ import type {
 export class ExecutionSummaryResponseDto {
   id!: string;
   repositoryId!: string;
+  publishPullRequest!: boolean;
   taskId!: string;
   taskExternalId!: string;
   taskTitle!: string;

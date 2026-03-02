@@ -41,6 +41,9 @@ export class Execution {
   @JoinColumn({ name: 'repository_id' })
   repository!: ManagedRepository;
 
+  @Column({ name: 'publish_pull_request', type: 'boolean', default: true })
+  publishPullRequest!: boolean;
+
   @Column({ name: 'task_id', type: 'varchar', length: 255 })
   taskId!: string;
 

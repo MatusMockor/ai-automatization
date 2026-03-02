@@ -4,7 +4,7 @@ export type ClaudeCliStartOptions = {
   prompt: string;
   action: ExecutionAction;
   cwd: string;
-  anthropicApiKey: string;
+  anthropicAuthToken: string;
 };
 
 export type ClaudeCliExitInfo = {

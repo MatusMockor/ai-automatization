@@ -474,7 +474,7 @@ describe('Repositories (e2e)', () => {
   ): Promise<void> => {
     await userSettingsFactory.create(userId, {
       githubToken,
-      claudeApiKey: null,
+      claudeOauthToken: null,
     });
   };
 });

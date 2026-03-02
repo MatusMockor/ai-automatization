@@ -63,12 +63,12 @@ describe('Settings (e2e)', () => {
     expect(
       response.json<{
         githubToken: string | null;
-        claudeApiKey: string | null;
+        claudeOauthToken: string | null;
         executionTimeoutMs: number | null;
       }>(),
     ).toEqual({
       githubToken: null,
-      claudeApiKey: null,
+      claudeOauthToken: null,
       executionTimeoutMs: null,
     });
   });
@@ -89,12 +89,14 @@ describe('Settings (e2e)', () => {
 
     const body = response.json<{
       githubToken: string | null;
-      claudeApiKey: string | null;
+      claudeOauthToken: string | null;
       executionTimeoutMs: number | null;
     }>();
 
     expect(body.githubToken).toBe(maskToken(savedSettings.githubToken));
-    expect(body.claudeApiKey).toBe(maskToken(savedSettings.claudeApiKey));
+    expect(body.claudeOauthToken).toBe(
+      maskToken(savedSettings.claudeOauthToken),
+    );
     expect(body.executionTimeoutMs).toBe(savedSettings.executionTimeoutMs);
   });
 
@@ -102,7 +104,7 @@ describe('Settings (e2e)', () => {
     const session = await createLoginSession();
     const payload = userSettingsFactory.buildCreateInput({
       githubToken: `ghp_${faker.string.alphanumeric(36)}`,
-      claudeApiKey: `sk-ant-${faker.string.alphanumeric(40)}`,
+      claudeOauthToken: `oauth_${faker.string.alphanumeric(48)}`,
       executionTimeoutMs: 1800000,
     });
 
@@ -119,12 +121,12 @@ describe('Settings (e2e)', () => {
     expect(
       patchResponse.json<{
         githubToken: string | null;
-        claudeApiKey: string | null;
+        claudeOauthToken: string | null;
         executionTimeoutMs: number | null;
       }>(),
     ).toEqual({
       githubToken: maskToken(payload.githubToken),
-      claudeApiKey: maskToken(payload.claudeApiKey),
+      claudeOauthToken: maskToken(payload.claudeOauthToken),
       executionTimeoutMs: payload.executionTimeoutMs,
     });
 
@@ -136,15 +138,17 @@ describe('Settings (e2e)', () => {
 
     expect(storedSettings).not.toBeNull();
     expect(storedSettings?.githubTokenEncrypted).not.toBe(payload.githubToken);
-    expect(storedSettings?.claudeApiKeyEncrypted).not.toBe(
-      payload.claudeApiKey,
+    expect(storedSettings?.claudeOauthTokenEncrypted).not.toBe(
+      payload.claudeOauthToken,
     );
     expect(
       encryptionService.decrypt(storedSettings?.githubTokenEncrypted ?? ''),
     ).toBe(payload.githubToken);
     expect(
-      encryptionService.decrypt(storedSettings?.claudeApiKeyEncrypted ?? ''),
-    ).toBe(payload.claudeApiKey);
+      encryptionService.decrypt(
+        storedSettings?.claudeOauthTokenEncrypted ?? '',
+      ),
+    ).toBe(payload.claudeOauthToken);
   });
 
   it('PATCH /api/settings should support partial update and token removal', async () => {
@@ -178,12 +182,12 @@ describe('Settings (e2e)', () => {
     expect(
       updateResponse.json<{
         githubToken: string | null;
-        claudeApiKey: string | null;
+        claudeOauthToken: string | null;
         executionTimeoutMs: number | null;
       }>(),
     ).toEqual({
       githubToken: null,
-      claudeApiKey: maskToken(initialPayload.claudeApiKey),
+      claudeOauthToken: maskToken(initialPayload.claudeOauthToken),
       executionTimeoutMs: 600000,
     });
 
@@ -194,7 +198,9 @@ describe('Settings (e2e)', () => {
       });
 
     expect(storedSettings?.githubTokenEncrypted).toBeNull();
-    expect(storedSettings?.claudeApiKeyEncrypted).toEqual(expect.any(String));
+    expect(storedSettings?.claudeOauthTokenEncrypted).toEqual(
+      expect.any(String),
+    );
     expect(storedSettings?.executionTimeoutMs).toBe(600000);
   });
 

@@ -21,8 +21,8 @@ export class UserSettings {
   @Column({ name: 'github_token', type: 'text', nullable: true })
   githubTokenEncrypted!: string | null;
 
-  @Column({ name: 'claude_api_key', type: 'text', nullable: true })
-  claudeApiKeyEncrypted!: string | null;
+  @Column({ name: 'claude_oauth_token', type: 'text', nullable: true })
+  claudeOauthTokenEncrypted!: string | null;
 
   @Column({ name: 'execution_timeout_ms', type: 'integer', nullable: true })
   executionTimeoutMs!: number | null;
