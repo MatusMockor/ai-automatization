@@ -24,8 +24,11 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly deadLetterQueueName: string;
   private readonly redisUrl: string;
   private readonly maxAttempts: number;
+  private readonly consumeErrorBackoffMs: number;
   private producerClient: RedisClient | null = null;
   private consumerClient: RedisClient | null = null;
+  private producerClientPromise: Promise<RedisClient> | null = null;
+  private consumerClientPromise: Promise<RedisClient> | null = null;
 
   constructor(private readonly configService: ConfigService) {
     const configuredDriver = (
@@ -47,6 +50,13 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
       this.configService.get<string>('EXECUTION_QUEUE_MAX_ATTEMPTS', '3'),
       3,
     );
+    this.consumeErrorBackoffMs = parsePositiveInteger(
+      this.configService.get<string>(
+        'EXECUTION_QUEUE_CONSUME_ERROR_BACKOFF_MS',
+        '250',
+      ),
+      250,
+    );
   }
 
   async onModuleInit(): Promise<void> {
@@ -62,11 +72,13 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
       await this.producerClient.quit().catch(() => undefined);
       this.producerClient = null;
     }
+    this.producerClientPromise = null;
 
     if (this.consumerClient) {
       await this.consumerClient.quit().catch(() => undefined);
       this.consumerClient = null;
     }
+    this.consumerClientPromise = null;
   }
 
   isInlineDriver(): boolean {
@@ -118,6 +130,7 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
           'Execution queue consume iteration failed',
           error instanceof Error ? error.stack : String(error),
         );
+        await this.delay(this.consumeErrorBackoffMs);
       }
     }
   }
@@ -186,41 +199,69 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
     if (this.producerClient) {
       return this.producerClient;
     }
+    if (this.producerClientPromise) {
+      return this.producerClientPromise;
+    }
 
-    const client = createClient({
-      url: this.redisUrl,
-    });
+    this.producerClientPromise = (async () => {
+      const client = createClient({
+        url: this.redisUrl,
+      });
 
-    client.on('error', (error: unknown) => {
-      this.logger.error(
-        'Redis producer client error',
-        error instanceof Error ? error.stack : String(error),
-      );
-    });
+      client.on('error', (error: unknown) => {
+        this.logger.error(
+          'Redis producer client error',
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
 
-    await client.connect();
-    this.producerClient = client;
-    return client;
+      await client.connect();
+      this.producerClient = client;
+      return client;
+    })();
+
+    try {
+      return await this.producerClientPromise;
+    } finally {
+      this.producerClientPromise = null;
+    }
   }
 
   private async ensureConsumerClient(): Promise<RedisClient> {
     if (this.consumerClient) {
       return this.consumerClient;
     }
+    if (this.consumerClientPromise) {
+      return this.consumerClientPromise;
+    }
 
-    const client = createClient({
-      url: this.redisUrl,
+    this.consumerClientPromise = (async () => {
+      const client = createClient({
+        url: this.redisUrl,
+      });
+
+      client.on('error', (error: unknown) => {
+        this.logger.error(
+          'Redis consumer client error',
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
+
+      await client.connect();
+      this.consumerClient = client;
+      return client;
+    })();
+
+    try {
+      return await this.consumerClientPromise;
+    } finally {
+      this.consumerClientPromise = null;
+    }
+  }
+
+  private async delay(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
     });
-
-    client.on('error', (error: unknown) => {
-      this.logger.error(
-        'Redis consumer client error',
-        error instanceof Error ? error.stack : String(error),
-      );
-    });
-
-    await client.connect();
-    this.consumerClient = client;
-    return client;
   }
 }

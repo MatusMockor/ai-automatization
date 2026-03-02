@@ -50,6 +50,7 @@ Execution publication settings control automatic `branch -> commit -> push -> PR
 - `EXECUTION_QUEUE_DRIVER` default: `redis` (`inline` is available for tests/local fallback)
 - `EXECUTION_QUEUE_NAME` default: `executions`
 - `EXECUTION_QUEUE_MAX_ATTEMPTS` default: `3`
+- `EXECUTION_QUEUE_CONSUME_ERROR_BACKOFF_MS` default: `250`
 - `REDIS_URL` default: `redis://redis:6379`
 - `EXECUTION_WORKER_ENABLED` default: `false` for API process (worker process sets `true`)
 - `EXECUTION_WORKER_RECOVERY_TIMEOUT_MS` default: `900000`
@@ -78,6 +79,7 @@ Execution SSE stream (`GET /api/executions/:id/stream`) publishes ordered events
 
 - `sequence` (monotonic per execution)
 - `sentAt` (ISO timestamp)
+- `lastSequence` (included in `snapshot` payload as latest persisted event sequence)
 - reconnect can request replay via query `afterSequence`
 
 Prometheus metrics are exposed at `GET /metrics` only when `ENABLE_METRICS=true`.
