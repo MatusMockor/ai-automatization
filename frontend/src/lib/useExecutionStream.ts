@@ -23,6 +23,36 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
     }
 
     const abortController = new AbortController();
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = (execId: string, token: string) => {
+      const poll = async () => {
+        try {
+          const res = await fetch(`/api/executions/${execId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: abortController.signal,
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          setOutput(data.output ?? '');
+          setStatus(data.status);
+          setErrorMessage(data.errorMessage ?? null);
+          onEventRef.current?.({
+            type: data.status === 'completed' ? 'completed' :
+                  data.status === 'failed' ? 'error' : 'status',
+            executionId: execId,
+            status: data.status,
+            exitCode: data.exitCode ?? null,
+            errorMessage: data.errorMessage,
+          } as ExecutionStreamEvent);
+          if (['completed', 'failed', 'cancelled'].includes(data.status)) {
+            if (pollInterval) clearInterval(pollInterval);
+          }
+        } catch { /* abort or network error */ }
+      };
+      void poll();
+      pollInterval = setInterval(poll, 3000);
+    };
 
     const connect = async () => {
       const token = localStorage.getItem('token');
@@ -36,12 +66,14 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
         });
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
-        console.warn('Execution stream connection failed', err);
+        console.warn('SSE failed, falling back to polling', err);
+        startPolling(executionId, token);
         return;
       }
 
       if (!response.ok || !response.body) {
-        console.warn(`Execution stream failed: ${response.status}`);
+        console.warn(`SSE failed (${response.status}), falling back to polling`);
+        startPolling(executionId, token);
         return;
       }
 
@@ -113,6 +145,7 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
 
     return () => {
       abortController.abort();
+      if (pollInterval) clearInterval(pollInterval);
     };
   }, [executionId]);
 
