@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -66,10 +67,18 @@ export class ExecutionsController {
     @Query('afterSequence') afterSequenceRaw: string | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
-    const parsedAfterSequence = Number.parseInt(afterSequenceRaw ?? '0', 10);
-    const afterSequence = Number.isNaN(parsedAfterSequence)
-      ? 0
-      : Math.max(0, parsedAfterSequence);
+    if (
+      afterSequenceRaw !== undefined &&
+      !/^(0|[1-9]\d*)$/.test(afterSequenceRaw.trim())
+    ) {
+      throw new BadRequestException(
+        'afterSequence must be a non-negative integer',
+      );
+    }
+    const afterSequence =
+      afterSequenceRaw === undefined
+        ? 0
+        : Number.parseInt(afterSequenceRaw, 10);
     const stream = await this.executionsService.streamForUser(
       user.id,
       executionId,

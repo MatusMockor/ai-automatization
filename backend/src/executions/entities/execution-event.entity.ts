@@ -14,6 +14,7 @@ import { Execution } from './execution.entity';
   'executionId',
   'createdAt',
 ])
+@Index('IDX_execution_events_created_at', ['createdAt'])
 @Index('UQ_execution_events_execution_sequence', ['executionId', 'sequence'], {
   unique: true,
 })

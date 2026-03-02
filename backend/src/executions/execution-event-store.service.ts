@@ -1,12 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { ExecutionStreamEventDto } from './dto/execution-stream-event.dto';
 import { ExecutionEvent } from './entities/execution-event.entity';
 import { ExecutionStreamEventType } from './interfaces/execution.types';
 
 @Injectable()
 export class ExecutionEventStoreService {
+  private static readonly MAX_SEQUENCE_RETRIES = 5;
+
   constructor(
     @InjectRepository(ExecutionEvent)
     private readonly executionEventRepository: Repository<ExecutionEvent>,
@@ -52,26 +54,64 @@ export class ExecutionEventStoreService {
     executionId: string,
     event: ExecutionStreamEventDto,
   ): Promise<ExecutionStreamEventDto> {
-    const currentSequence = await this.getLastSequence(executionId);
-    const nextSequence = currentSequence + 1;
-    const createdAt = new Date();
+    for (
+      let attempt = 0;
+      attempt < ExecutionEventStoreService.MAX_SEQUENCE_RETRIES;
+      attempt += 1
+    ) {
+      const currentSequence = await this.getLastSequence(executionId);
+      const nextSequence = currentSequence + 1;
+      const createdAt = new Date();
 
-    const entity = this.executionEventRepository.create({
-      executionId,
-      sequence: nextSequence,
-      eventType: event.type,
-      payloadJson: JSON.stringify(event.payload),
-      createdAt,
-    });
-    await this.executionEventRepository.save(entity);
-
-    return {
-      type: event.type,
-      payload: {
-        ...event.payload,
+      const entity = this.executionEventRepository.create({
+        executionId,
         sequence: nextSequence,
-        sentAt: createdAt.toISOString(),
-      },
-    } as ExecutionStreamEventDto;
+        eventType: event.type,
+        payloadJson: JSON.stringify(event.payload),
+        createdAt,
+      });
+
+      try {
+        await this.executionEventRepository.save(entity);
+      } catch (error) {
+        const isLastAttempt =
+          attempt === ExecutionEventStoreService.MAX_SEQUENCE_RETRIES - 1;
+        if (!this.isSequenceConflictError(error) || isLastAttempt) {
+          throw error;
+        }
+        continue;
+      }
+
+      return {
+        type: event.type,
+        payload: {
+          ...event.payload,
+          sequence: nextSequence,
+          sentAt: createdAt.toISOString(),
+        },
+      } as ExecutionStreamEventDto;
+    }
+
+    throw new Error(
+      `Unable to persist execution event sequence for ${executionId}`,
+    );
+  }
+
+  private isSequenceConflictError(error: unknown): boolean {
+    if (!(error instanceof QueryFailedError)) {
+      return false;
+    }
+
+    const pgCode = (error as QueryFailedError & { code?: string }).code;
+    if (pgCode === '23505') {
+      return true;
+    }
+
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('uq_execution_events_execution_sequence') ||
+      (message.includes('execution_events.execution_id') &&
+        message.includes('execution_events.sequence'))
+    );
   }
 }

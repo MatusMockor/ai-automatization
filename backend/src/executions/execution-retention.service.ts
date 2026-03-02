@@ -20,9 +20,11 @@ export class ExecutionRetentionService
   implements OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(ExecutionRetentionService.name);
+  private readonly enabled: boolean;
   private readonly outputRetentionDays: number;
   private readonly eventsRetentionDays: number;
   private readonly reportRetentionDays: number;
+  private readonly scheduleTimezone: 'UTC';
   private timerId: NodeJS.Timeout | null = null;
 
   constructor(
@@ -35,6 +37,12 @@ export class ExecutionRetentionService
     private readonly metricsService: MetricsService,
     configService: ConfigService,
   ) {
+    const enabledFlag = (
+      configService.get<string>('EXECUTION_RETENTION_ENABLED', 'true') ?? 'true'
+    )
+      .trim()
+      .toLowerCase();
+    this.enabled = ['1', 'true', 'yes', 'on'].includes(enabledFlag);
     this.outputRetentionDays = parsePositiveInteger(
       configService.get<string>('EXECUTION_OUTPUT_RETENTION_DAYS', '30'),
       30,
@@ -47,9 +55,21 @@ export class ExecutionRetentionService
       configService.get<string>('EXECUTION_REPORT_RETENTION_DAYS', '30'),
       30,
     );
+    const configuredTimezone =
+      configService.get<string>('EXECUTION_RETENTION_TIMEZONE', 'UTC') ?? 'UTC';
+    if (configuredTimezone.toUpperCase() !== 'UTC') {
+      this.logger.warn(
+        `Unsupported EXECUTION_RETENTION_TIMEZONE=${configuredTimezone}; falling back to UTC`,
+      );
+    }
+    this.scheduleTimezone = 'UTC';
   }
 
   onModuleInit(): void {
+    if (!this.enabled) {
+      this.logger.log('Execution retention scheduler is disabled');
+      return;
+    }
     this.scheduleNextRun();
   }
 
@@ -87,6 +107,7 @@ export class ExecutionRetentionService
       })
       .where('created_at < :cutoff', { cutoff: outputCutoff })
       .andWhere("output <> ''")
+      .andWhere("status IN ('completed', 'failed', 'cancelled')")
       .execute();
     const clearedOutputsCount = clearedOutputs.affected ?? 0;
     if (clearedOutputsCount > 0) {
@@ -112,12 +133,15 @@ export class ExecutionRetentionService
 
   private scheduleNextRun(): void {
     const nextRun = new Date();
-    nextRun.setHours(3, 15, 0, 0);
+    nextRun.setUTCHours(3, 15, 0, 0);
     if (nextRun.getTime() <= Date.now()) {
-      nextRun.setDate(nextRun.getDate() + 1);
+      nextRun.setUTCDate(nextRun.getUTCDate() + 1);
     }
 
     const delayMs = nextRun.getTime() - Date.now();
+    this.logger.log(
+      `Scheduled next retention cleanup at ${nextRun.toISOString()} (${this.scheduleTimezone})`,
+    );
     this.timerId = setTimeout(() => {
       this.runCleanup()
         .catch((error: unknown) => {

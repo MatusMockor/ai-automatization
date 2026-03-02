@@ -576,8 +576,6 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       }
       if (status === 'cancelled') {
         this.metricsService.incrementExecutionsCompleted();
-      }
-      if (status === 'cancelled') {
         await this.executionRepository.update(
           { id: executionId },
           {

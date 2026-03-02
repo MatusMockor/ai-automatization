@@ -6,10 +6,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient } from 'redis';
+import { parsePositiveInteger } from '../common/utils/parse.utils';
 
 type QueueJobPayload = {
   executionId: string;
   queuedAt: string;
+  attempts: number;
 };
 
 type RedisClient = ReturnType<typeof createClient>;
@@ -19,7 +21,9 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ExecutionQueueService.name);
   private readonly driver: 'redis' | 'inline';
   private readonly queueName: string;
+  private readonly deadLetterQueueName: string;
   private readonly redisUrl: string;
+  private readonly maxAttempts: number;
   private producerClient: RedisClient | null = null;
   private consumerClient: RedisClient | null = null;
 
@@ -35,9 +39,14 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
     this.queueName =
       this.configService.get<string>('EXECUTION_QUEUE_NAME', 'executions') ??
       'executions';
+    this.deadLetterQueueName = `${this.queueName}:dead`;
     this.redisUrl =
       this.configService.get<string>('REDIS_URL', 'redis://redis:6379') ??
       'redis://redis:6379';
+    this.maxAttempts = parsePositiveInteger(
+      this.configService.get<string>('EXECUTION_QUEUE_MAX_ATTEMPTS', '3'),
+      3,
+    );
   }
 
   async onModuleInit(): Promise<void> {
@@ -73,6 +82,7 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
     const payload: QueueJobPayload = {
       executionId,
       queuedAt: new Date().toISOString(),
+      attempts: 0,
     };
     await client.rPush(this.queueName, JSON.stringify(payload));
   }
@@ -88,7 +98,7 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
     const client = await this.ensureConsumerClient();
     while (!shouldStop()) {
       try {
-        const item = await client.brPop(this.queueName, 1);
+        const item = await client.blPop(this.queueName, 1);
         if (!item) {
           continue;
         }
@@ -98,7 +108,11 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
           continue;
         }
 
-        await onExecution(payload.executionId);
+        try {
+          await onExecution(payload.executionId);
+        } catch (error) {
+          await this.handleJobFailure(client, payload, error);
+        }
       } catch (error) {
         this.logger.error(
           'Execution queue consume iteration failed',
@@ -121,10 +135,47 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
           typeof parsed.queuedAt === 'string'
             ? parsed.queuedAt
             : new Date().toISOString(),
+        attempts:
+          typeof parsed.attempts === 'number' &&
+          Number.isFinite(parsed.attempts) &&
+          parsed.attempts >= 0
+            ? Math.trunc(parsed.attempts)
+            : 0,
       };
     } catch {
       return null;
     }
+  }
+
+  private async handleJobFailure(
+    client: RedisClient,
+    payload: QueueJobPayload,
+    error: unknown,
+  ): Promise<void> {
+    const nextAttempts = payload.attempts + 1;
+    this.logger.error(
+      `Execution queue job failed for ${payload.executionId} (attempt ${nextAttempts}/${this.maxAttempts})`,
+      error instanceof Error ? error.stack : String(error),
+    );
+
+    if (nextAttempts < this.maxAttempts) {
+      await client.rPush(
+        this.queueName,
+        JSON.stringify({
+          ...payload,
+          attempts: nextAttempts,
+        } satisfies QueueJobPayload),
+      );
+      return;
+    }
+
+    await client.rPush(
+      this.deadLetterQueueName,
+      JSON.stringify({
+        ...payload,
+        attempts: nextAttempts,
+      } satisfies QueueJobPayload),
+    );
   }
 
   private isRedisDriver(): boolean {

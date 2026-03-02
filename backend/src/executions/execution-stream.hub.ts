@@ -88,7 +88,7 @@ export class ExecutionStreamHub {
         );
       })
       .finally(() => {
-        if (terminal) {
+        if (terminal && this.writeQueues.get(executionId) === nextQueue) {
           this.writeQueues.delete(executionId);
         }
       });

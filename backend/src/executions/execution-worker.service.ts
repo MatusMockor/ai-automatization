@@ -78,7 +78,8 @@ export class ExecutionWorkerService implements OnModuleInit, OnModuleDestroy {
 
     const nowMs = Date.now();
     for (const execution of candidates) {
-      const ageMs = nowMs - execution.createdAt.getTime();
+      const ageBase = execution.startedAt ?? execution.createdAt;
+      const ageMs = nowMs - ageBase.getTime();
       if (ageMs > this.recoveryTimeoutMs) {
         await this.executionOrchestratorService.failDueToRecoveryTimeout(
           execution.id,
@@ -87,6 +88,11 @@ export class ExecutionWorkerService implements OnModuleInit, OnModuleDestroy {
       }
 
       await this.executionOrchestratorService.resetToQueued(execution.id);
+      if (this.executionQueueService.isInlineDriver()) {
+        await this.executionOrchestratorService.processExecution(execution.id);
+        continue;
+      }
+
       await this.executionQueueService.enqueue(execution.id);
     }
   }

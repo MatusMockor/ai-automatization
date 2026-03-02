@@ -59,6 +59,10 @@ export class CreateExecutionEventsTable1741608600000 implements MigrationInterfa
             columnNames: ['execution_id', 'created_at'],
           }),
           new TableIndex({
+            name: 'IDX_execution_events_created_at',
+            columnNames: ['created_at'],
+          }),
+          new TableIndex({
             name: 'UQ_execution_events_execution_sequence',
             columnNames: ['execution_id', 'sequence'],
             isUnique: true,
