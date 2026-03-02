@@ -47,35 +47,43 @@ describe('ChildProcessClaudeCliRunner', () => {
     const runner = new ChildProcessClaudeCliRunner();
     const fake = createFakeChildProcess();
     spawnMock.mockReturnValue(fake.process);
+    process.env.TEST_EXECUTION_SECRET = 'super-secret-value';
 
-    const startedProcessPromise = runner.start({
-      prompt: 'Create a plan',
-      action: 'plan',
-      cwd: '/tmp/repo',
-      anthropicAuthToken: 'test-token',
-    });
+    try {
+      const startedProcessPromise = runner.start({
+        prompt: 'Create a plan',
+        action: 'plan',
+        cwd: '/tmp/repo',
+        anthropicAuthToken: 'test-token',
+      });
 
-    fake.process.emit('spawn');
-    const startedProcess = await startedProcessPromise;
+      fake.process.emit('spawn');
+      const startedProcess = await startedProcessPromise;
 
-    expect(startedProcess.pid).toBe(1234);
-    expect(fake.stdinEnd).toHaveBeenCalledTimes(1);
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-    expect(spawnMock.mock.calls[0]?.[0]).toBe('claude');
-    expect(spawnMock.mock.calls[0]?.[1]).toEqual(
-      expect.arrayContaining(['--permission-mode', 'plan']),
-    );
-    expect(spawnMock.mock.calls[0]?.[2]?.env).toEqual(
-      expect.objectContaining({
-        CLAUDE_CODE_OAUTH_TOKEN: 'test-token',
-      }),
-    );
-    expect(spawnMock.mock.calls[0]?.[2]?.env?.ANTHROPIC_AUTH_TOKEN).toBe(
-      undefined,
-    );
-    expect(spawnMock.mock.calls[0]?.[2]?.env?.ANTHROPIC_API_KEY).toBe(
-      undefined,
-    );
+      expect(startedProcess.pid).toBe(1234);
+      expect(fake.stdinEnd).toHaveBeenCalledTimes(1);
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      expect(spawnMock.mock.calls[0]?.[0]).toBe('claude');
+      expect(spawnMock.mock.calls[0]?.[1]).toEqual(
+        expect.arrayContaining(['--permission-mode', 'plan']),
+      );
+      expect(spawnMock.mock.calls[0]?.[2]?.env).toEqual(
+        expect.objectContaining({
+          CLAUDE_CODE_OAUTH_TOKEN: 'test-token',
+        }),
+      );
+      expect(spawnMock.mock.calls[0]?.[2]?.env?.ANTHROPIC_AUTH_TOKEN).toBe(
+        undefined,
+      );
+      expect(spawnMock.mock.calls[0]?.[2]?.env?.ANTHROPIC_API_KEY).toBe(
+        undefined,
+      );
+      expect(spawnMock.mock.calls[0]?.[2]?.env?.TEST_EXECUTION_SECRET).toBe(
+        undefined,
+      );
+    } finally {
+      delete process.env.TEST_EXECUTION_SECRET;
+    }
   });
 
   it('should reject start when spawn emits error', async () => {

@@ -49,6 +49,8 @@ describe('CliGitPublicationClient', () => {
   const spawnMock = spawn as jest.MockedFunction<typeof spawn>;
   const cloneUrl = 'https://github.com/MatusMockor/termio.git';
   const accessToken = 'ghp_testToken123';
+  const toSpawnReturn = (process: FakeChildProcess): ReturnType<typeof spawn> =>
+    process as unknown as ReturnType<typeof spawn>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -56,7 +58,7 @@ describe('CliGitPublicationClient', () => {
 
   it('should use Basic auth extraheader for branchExistsRemote', async () => {
     spawnMock.mockReturnValue(
-      createFakeChildProcess({ stdout: 'refs/heads/main\n' }),
+      toSpawnReturn(createFakeChildProcess({ stdout: 'refs/heads/main\n' })),
     );
     const client = new CliGitPublicationClient(new ConfigService({}));
 
@@ -87,7 +89,7 @@ describe('CliGitPublicationClient', () => {
   });
 
   it('should use Basic auth extraheader for push', async () => {
-    spawnMock.mockReturnValue(createFakeChildProcess());
+    spawnMock.mockReturnValue(toSpawnReturn(createFakeChildProcess()));
     const client = new CliGitPublicationClient(new ConfigService({}));
 
     await client.push({
@@ -122,26 +124,17 @@ describe('CliGitPublicationClient', () => {
 
   it('should throw descriptive error for invalid clone URL', async () => {
     const client = new CliGitPublicationClient(new ConfigService({}));
-
-    await expect(
-      client.branchExistsRemote(
-        '/tmp/repo',
-        'feature/test',
-        'not-a-valid-url',
-        accessToken,
-      ),
-    ).rejects.toThrow(ExecutionPublicationError);
-
-    await expect(
-      client.branchExistsRemote(
-        '/tmp/repo',
-        'feature/test',
-        'not-a-valid-url',
-        accessToken,
-      ),
-    ).rejects.toThrow(
-      'Invalid clone URL format for authenticated git operation',
+    const promise = client.branchExistsRemote(
+      '/tmp/repo',
+      'feature/test',
+      'not-a-valid-url',
+      accessToken,
     );
+
+    await expect(promise).rejects.toMatchObject({
+      name: ExecutionPublicationError.name,
+      message: 'Invalid clone URL format for authenticated git operation',
+    });
 
     expect(spawnMock).not.toHaveBeenCalled();
   });

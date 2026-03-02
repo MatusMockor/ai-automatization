@@ -132,7 +132,6 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
           chunk,
         },
       });
-      this.detectFatalError(input.executionId, chunk);
     });
 
     process.onStderr((chunk) => {
@@ -168,6 +167,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       this.logger.error(
         `Execution process error for ${input.executionId}: ${error.message}`,
       );
+      this.detectFatalError(input.executionId, error.message);
     });
 
     const timeoutMs = Math.max(1, input.timeoutMs);
@@ -436,6 +436,11 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     } else if (activeExecution.fatalErrorMessage) {
       status = 'failed';
       errorMessage = activeExecution.fatalErrorMessage;
+      automationPatch = {
+        automationStatus: 'failed',
+        automationCompletedAt: finishedAt,
+        automationErrorMessage: errorMessage,
+      };
     } else if (activeExecution.cancelRequested) {
       status = 'cancelled';
       errorMessage = 'Execution cancelled';
