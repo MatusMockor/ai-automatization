@@ -45,7 +45,7 @@ export function ManualTasksPage() {
 
   // Run dropdown
   const [runOpenId, setRunOpenId] = useState<string | null>(null);
-  const [runningAction, setRunningAction] = useState<string | null>(null);
+  const [runningActions, setRunningActions] = useState<Set<string>>(new Set());
 
   const fetchTasks = async () => {
     try {
@@ -139,7 +139,7 @@ export function ManualTasksPage() {
     }
 
     const key = `${task.id}-${action}`;
-    setRunningAction(key);
+    setRunningActions((prev) => new Set(prev).add(key));
     try {
       await api.post('/executions', {
         repositoryId: selectedRepo.id,
@@ -155,7 +155,11 @@ export function ManualTasksPage() {
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to start execution'));
     } finally {
-      setRunningAction(null);
+      setRunningActions((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     }
   };
 
@@ -338,11 +342,11 @@ export function ManualTasksPage() {
                               <button
                                 key={action}
                                 type="button"
-                                disabled={runningAction === key || !selectedRepo}
+                                disabled={runningActions.has(key) || !selectedRepo}
                                 onClick={() => handleRun(task, action)}
                                 className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm hover:bg-foreground/5 disabled:opacity-50"
                               >
-                                {runningAction === key ? (
+                                {runningActions.has(key) ? (
                                   <div className="h-3 w-3 animate-spin rounded-full border-2 border-foreground border-t-transparent" />
                                 ) : (
                                   <Play className="h-3 w-3" />
