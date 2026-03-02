@@ -16,7 +16,10 @@ import type {
   ClaudeCliRunner,
   ClaudeCliStartOptions,
 } from '../src/executions/interfaces/claude-cli-runner.interface';
-import type { ExecutionAction } from '../src/executions/interfaces/execution.types';
+import type {
+  ExecutionAction,
+  TaskSource,
+} from '../src/executions/interfaces/execution.types';
 import type {
   GitCheckCommandResult,
   GitPublicationClient,
@@ -479,6 +482,40 @@ describe('Executions (e2e)', () => {
     expect(fakeGithubPullRequestsGateway.lastInput?.title).not.toMatch(
       /\b(ai|anthropic|claude|codex)\b/i,
     );
+  });
+
+  it('POST /api/executions should accept manual taskSource', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['manual task processed'],
+      delayMs: 10,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id, 'fix', {
+        taskId: 'manual-task-1',
+        taskExternalId: 'manual-task-1',
+        taskTitle: 'Manual task execution',
+        taskSource: 'manual',
+      }),
+    });
+
+    expect(response.statusCode).toBe(201);
+    const created = response.json<{ id: string }>();
+
+    const execution = await waitForExecution(
+      created.id,
+      (current) => current.status === 'completed',
+    );
+
+    expect(execution.taskSource).toBe('manual');
   });
 
   it('POST /api/executions should return 400 when claudeApiKey is missing', async () => {
@@ -1131,6 +1168,7 @@ const buildCreateExecutionPayload = (
     taskExternalId: string;
     taskTitle: string;
     taskDescription: string;
+    taskSource: TaskSource;
   }> = {},
 ) => ({
   repositoryId,
@@ -1139,5 +1177,5 @@ const buildCreateExecutionPayload = (
   taskExternalId: overrides.taskExternalId ?? 'TASK-0001',
   taskTitle: overrides.taskTitle ?? 'Fix backend issue',
   taskDescription: overrides.taskDescription ?? 'Implement task updates',
-  taskSource: 'jira',
+  taskSource: overrides.taskSource ?? 'jira',
 });

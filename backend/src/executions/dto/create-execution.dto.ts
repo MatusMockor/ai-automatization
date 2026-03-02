@@ -12,7 +12,7 @@ import type {
 } from '../interfaces/execution.types';
 
 const ACTIONS = ['fix', 'feature', 'plan'] as const;
-const TASK_SOURCES = ['asana', 'jira'] as const;
+const TASK_SOURCES = ['asana', 'jira', 'manual'] as const;
 
 export class CreateExecutionDto {
   @IsUUID()
