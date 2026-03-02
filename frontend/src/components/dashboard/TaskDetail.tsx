@@ -13,9 +13,11 @@ interface TaskDetailProps {
   executions: Execution[];
   onClose: () => void;
   onAction: (action: ExecutionAction) => void;
+  publishPullRequest: boolean;
+  onPublishPullRequestChange: (value: boolean) => void;
 }
 
-export function TaskDetail({ task, executions, onClose, onAction }: TaskDetailProps) {
+export function TaskDetail({ task, executions, onClose, onAction, publishPullRequest, onPublishPullRequestChange }: TaskDetailProps) {
   const openExternalTask = (rawUrl: string) => {
     try {
       const parsed = new URL(rawUrl);
@@ -99,6 +101,15 @@ export function TaskDetail({ task, executions, onClose, onAction }: TaskDetailPr
               Run with Claude
             </h3>
             <ActionButtons onAction={onAction} />
+            <label className="mt-3 flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={publishPullRequest}
+                onChange={(e) => onPublishPullRequestChange(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-border accent-primary"
+              />
+              Publish pull request
+            </label>
           </div>
 
           {/* Execution history */}

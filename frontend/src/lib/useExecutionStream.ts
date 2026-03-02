@@ -9,12 +9,14 @@ interface UseExecutionStreamOptions {
 export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamOptions) {
   const [output, setOutput] = useState('');
   const [status, setStatus] = useState<ExecutionStatus | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
   useEffect(() => {
     setOutput('');
     setStatus(null);
+    setErrorMessage(null);
 
     if (!executionId) {
       return;
@@ -78,10 +80,12 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
             break;
           case 'status':
             setStatus(event.status);
+            setErrorMessage(event.errorMessage ?? null);
             break;
           case 'completed':
           case 'error':
             setStatus(event.status);
+            setErrorMessage(event.errorMessage ?? null);
             break;
         }
       };
@@ -112,5 +116,5 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
     };
   }, [executionId]);
 
-  return { output, status };
+  return { output, status, errorMessage };
 }

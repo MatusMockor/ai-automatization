@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { timeAgo } from '@/lib/time';
+import { useTick } from '@/lib/useTick';
 import type { TaskManagerConnection, TaskManagerProvider, ConnectionPrefix } from '@/types';
 
 const providerInfo = {
@@ -38,6 +39,7 @@ const providerInfo = {
 };
 
 export function ConnectionsPage() {
+  useTick();
   const [connections, setConnections] = useState<TaskManagerConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [addingProvider, setAddingProvider] = useState<TaskManagerProvider | null>(null);
