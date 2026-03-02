@@ -261,7 +261,9 @@ export class ExecutionsService {
     const completeImmediately =
       isTerminalStatus && !this.runtimeManager.isExecutionActive(execution.id);
 
-    const normalizedAfterSequence = Math.max(0, afterSequence);
+    const normalizedAfterSequence = Number.isFinite(afterSequence)
+      ? Math.max(0, Math.trunc(afterSequence))
+      : 0;
     const replayEvents =
       normalizedAfterSequence > 0
         ? await this.executionEventStoreService.listAfterSequence(
@@ -577,14 +579,19 @@ export class ExecutionsService {
 
     const queryError = error as QueryFailedError & {
       code?: string;
+      constraint?: string;
       message: string;
     };
-    if (queryError.code === '23505') {
+    const constraint = queryError.constraint?.toLowerCase();
+    if (constraint === 'uq_executions_user_idempotency_key') {
       return true;
     }
 
     const message = queryError.message.toLowerCase();
     return (
+      (queryError.code === '23505' &&
+        message.includes('idempotency_key') &&
+        message.includes('user_id')) ||
       message.includes('uq_executions_user_idempotency_key') ||
       (message.includes('executions.user_id') &&
         message.includes('executions.idempotency_key'))

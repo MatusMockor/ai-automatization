@@ -82,6 +82,22 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       return;
     }
 
+    const startedAt = new Date();
+    const claimed = await this.executionRepository.update(
+      {
+        id: input.executionId,
+        status: 'pending',
+        orchestrationState: 'running',
+      },
+      {
+        status: 'running',
+        startedAt,
+      },
+    );
+    if ((claimed.affected ?? 0) !== 1) {
+      return;
+    }
+
     const process = await this.claudeCliRunner.start({
       prompt: input.prompt,
       action: input.action,
@@ -104,14 +120,10 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     };
     this.activeExecutions.set(input.executionId, activeExecution);
 
-    const startedAt = new Date();
     await this.executionRepository.update(
       { id: input.executionId },
       {
-        status: 'running',
-        orchestrationState: 'running',
         pid: process.pid,
-        startedAt,
       },
     );
     this.logger.log(
