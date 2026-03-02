@@ -74,6 +74,9 @@ export class CreateManualTasksTable1741348800000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(
+      `DELETE FROM "executions" WHERE "task_source" = 'manual'`,
+    );
     await this.replaceExecutionsTaskSourceCheck(queryRunner, ['asana', 'jira']);
     await queryRunner.dropTable('manual_tasks', true);
   }

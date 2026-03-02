@@ -25,7 +25,7 @@ const normalizeDescription = (value: unknown): unknown => {
 };
 
 export class UpdateManualTaskDto {
-  @IsOptional()
+  @ValidateIf((_, value: unknown) => value !== undefined)
   @Transform(({ value }: { value: unknown }) => normalizeTitle(value))
   @IsString()
   @MinLength(1)
