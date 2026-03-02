@@ -526,6 +526,9 @@ describe('Executions (e2e)', () => {
 
   it('POST /api/executions should return 400 when claudeOauthToken is missing', async () => {
     const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId, {
+      claudeOauthToken: null,
+    });
     const repository = await createRunnableRepository(session.userId);
 
     const response = await app.inject({
