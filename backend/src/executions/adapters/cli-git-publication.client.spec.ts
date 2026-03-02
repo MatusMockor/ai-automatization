@@ -122,6 +122,34 @@ describe('CliGitPublicationClient', () => {
     );
   });
 
+  it('should derive auth extraheader host from cloneUrl', async () => {
+    const enterpriseCloneUrl = 'https://git.mycompany.example/org/repo.git';
+    spawnMock.mockReturnValue(
+      toSpawnReturn(createFakeChildProcess({ stdout: 'ok\n' })),
+    );
+    const client = new CliGitPublicationClient(new ConfigService({}));
+
+    await client.branchExistsRemote(
+      '/tmp/repo',
+      'feature/test',
+      enterpriseCloneUrl,
+      accessToken,
+    );
+
+    const gitArgs = spawnMock.mock.calls[0]?.[1] as string[];
+    const headerArg = gitArgs.find((arg) =>
+      arg.startsWith(
+        'http.https://git.mycompany.example/.extraheader=Authorization: Basic ',
+      ),
+    );
+    expect(headerArg).toBeDefined();
+
+    const encoded = headerArg?.split('Authorization: Basic ')[1] ?? '';
+    expect(Buffer.from(encoded, 'base64').toString('utf8')).toBe(
+      `x-access-token:${accessToken}`,
+    );
+  });
+
   it('should throw descriptive error for invalid clone URL', async () => {
     const client = new CliGitPublicationClient(new ConfigService({}));
     const promise = client.branchExistsRemote(
@@ -134,6 +162,23 @@ describe('CliGitPublicationClient', () => {
     await expect(promise).rejects.toMatchObject({
       name: ExecutionPublicationError.name,
       message: 'Invalid clone URL format for authenticated git operation',
+    });
+
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it('should throw descriptive error for missing access token', async () => {
+    const client = new CliGitPublicationClient(new ConfigService({}));
+    const promise = client.branchExistsRemote(
+      '/tmp/repo',
+      'feature/test',
+      cloneUrl,
+      '   ',
+    );
+
+    await expect(promise).rejects.toMatchObject({
+      name: ExecutionPublicationError.name,
+      message: 'Missing git access token for authenticated git operation',
     });
 
     expect(spawnMock).not.toHaveBeenCalled();

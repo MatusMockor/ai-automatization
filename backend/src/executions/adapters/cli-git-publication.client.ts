@@ -159,6 +159,12 @@ export class CliGitPublicationClient implements GitPublicationClient {
   }
 
   private buildAuthGitConfigs(cloneUrl: string, accessToken: string): string[] {
+    if (accessToken.trim().length === 0) {
+      throw new ExecutionPublicationError(
+        'Missing git access token for authenticated git operation',
+      );
+    }
+
     try {
       const url = new URL(cloneUrl);
       const basicAuthToken = Buffer.from(
