@@ -70,6 +70,7 @@ describe('CliGitPublicationClient', () => {
     );
 
     expect(exists).toBe(true);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
     const gitArgs = spawnMock.mock.calls[0]?.[1] as string[];
     expect(gitArgs).toEqual(
       expect.arrayContaining(['ls-remote', '--heads', 'origin']),
