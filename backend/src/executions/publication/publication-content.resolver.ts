@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import type { TaskSource } from '../interfaces/execution.types';
 
 const FORBIDDEN_TERMS_PATTERN = /\b(ai|anthropic|claude|codex)\b/gi;
 
 type ResolvePublicationContentInput = {
   taskTitle: string;
   taskExternalId: string;
-  taskSource: 'asana' | 'jira';
+  taskSource: TaskSource;
   taskDescription: string | null;
   executionOutput: string;
   templateBody: string | null;

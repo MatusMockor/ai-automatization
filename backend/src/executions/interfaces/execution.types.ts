@@ -7,7 +7,7 @@ export type ExecutionStatus =
   | 'failed'
   | 'cancelled';
 
-export type TaskSource = 'asana' | 'jira';
+export type TaskSource = 'asana' | 'jira' | 'manual';
 
 export type AutomationStatus =
   | 'not_applicable'
