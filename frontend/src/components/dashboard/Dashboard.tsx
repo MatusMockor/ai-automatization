@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useTick } from '@/lib/useTick';
 import { useSyncRun } from '@/lib/useSyncRun';
 import { useTaskScopes } from '@/lib/useTaskScopes';
@@ -49,9 +49,11 @@ export function Dashboard() {
   const [publishPullRequest, setPublishPullRequest] = useState(true);
   const [requireCodeChanges, setRequireCodeChanges] = useState(true);
   const [executionRepoId, setExecutionRepoId] = useState<string | null>(null);
+  const latestTasksRequestRef = useRef(0);
 
   // Fetch tasks (re-runs when scope filters change)
   const fetchTasks = useCallback(async () => {
+    const requestId = ++latestTasksRequestRef.current;
     setLoading(true);
     try {
       setLoadError(null);
@@ -60,16 +62,18 @@ export function Dashboard() {
       if (selectedProjectId) params.asanaProjectId = selectedProjectId;
       if (selectedProjectKey) params.jiraProjectKey = selectedProjectKey;
       const { data } = await api.get<TaskFeedResponse>('/tasks', { params });
+      if (requestId !== latestTasksRequestRef.current) return;
       setTasks(data.items);
       setFeedErrors(data.errors);
     } catch (err) {
+      if (requestId !== latestTasksRequestRef.current) return;
       const message = getApiErrorMessage(err, 'Failed to load tasks');
       setLoadError(message);
       setTasks([]);
       setFeedErrors([]);
       toast.error(message);
     } finally {
-      setLoading(false);
+      if (requestId === latestTasksRequestRef.current) setLoading(false);
     }
   }, [selectedWorkspaceId, selectedProjectId, selectedProjectKey]);
 
@@ -196,7 +200,8 @@ export function Dashboard() {
   );
 
   const handleAction = async (action: ExecutionAction, task: TaskFeedItem) => {
-    const repoId = executionRepoId ?? selectedRepo?.id;
+    const isSelectedTask = selectedTask?.id === task.id;
+    const repoId = (isSelectedTask ? executionRepoId : null) ?? task.suggestedRepositoryId ?? selectedRepo?.id;
     if (!repoId) {
       toast.error('Select a repository first');
       return;

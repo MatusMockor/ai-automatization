@@ -35,9 +35,14 @@ export function useSyncRun({ onComplete }: UseSyncRunOptions) {
   useEffect(() => {
     if (!runId || syncState !== 'polling') return;
 
-    const interval = setInterval(async () => {
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
       try {
         const { data } = await api.get<SyncRun>(`/tasks/sync-runs/${runId}`);
+
+        if (cancelled) return;
 
         setProgress({
           connectionsTotal: data.connectionsTotal,
@@ -47,26 +52,41 @@ export function useSyncRun({ onComplete }: UseSyncRunOptions) {
         });
 
         if (data.status === 'completed') {
-          clearInterval(interval);
           setSyncState('done');
           onCompleteRef.current();
           setTimeout(() => {
             setSyncState((s) => (s === 'done' ? 'idle' : s));
           }, 3000);
-        } else if (data.status === 'failed') {
-          clearInterval(interval);
+          return;
+        }
+
+        if (data.status === 'failed') {
           setSyncState('failed');
           toast.error(data.errorMessage ?? 'Task sync failed');
           setTimeout(() => {
             setSyncState((s) => (s === 'failed' ? 'idle' : s));
           }, 5000);
+          return;
         }
-      } catch {
-        // Swallow network errors — retry on next tick
+      } catch (err) {
+        if (cancelled) return;
+        setSyncState('failed');
+        toast.error(getApiErrorMessage(err, 'Failed to poll sync status'));
+        setTimeout(() => {
+          setSyncState((s) => (s === 'failed' ? 'idle' : s));
+        }, 5000);
+        return;
       }
-    }, 2000);
 
-    return () => clearInterval(interval);
+      if (!cancelled) timeoutId = setTimeout(poll, 2000);
+    };
+
+    void poll();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [runId, syncState]);
 
   const triggerSync = useCallback(async () => {
