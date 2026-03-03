@@ -451,7 +451,8 @@ export class TaskManagersService {
       throw new BadGatewayException('Task manager provider request failed');
     }
 
-    throw error;
+    this.logProviderError(error, 'Task manager provider request failed');
+    throw new BadGatewayException('Task manager provider request failed');
   }
 
   private resolveTaskLimit(requestedLimit: number | undefined): number {

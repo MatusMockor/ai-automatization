@@ -17,6 +17,58 @@ import {
   TaskManagerProvider,
 } from '../interfaces/task-manager-provider.interface';
 
+type AsanaApiClient = {
+  authentications: {
+    token: {
+      accessToken?: string;
+    };
+  };
+  timeout?: number;
+};
+
+type AsanaUsersApi = {
+  getUser(
+    userId: string,
+    opts?: Record<string, unknown>,
+  ): Promise<AsanaApiEnvelope<{ gid?: string }>>;
+};
+
+type AsanaWorkspacesApi = {
+  getWorkspace(
+    workspaceId: string,
+    opts?: Record<string, unknown>,
+  ): Promise<AsanaApiEnvelope<{ gid?: string }>>;
+};
+
+type AsanaProjectsApi = {
+  getProject(
+    projectId: string,
+    opts?: Record<string, unknown>,
+  ): Promise<AsanaApiEnvelope<{ gid?: string }>>;
+  getProjectsForWorkspace(
+    workspaceId: string,
+    opts?: Record<string, unknown>,
+  ): Promise<AsanaApiEnvelope<Array<{ gid?: string; name?: string }>>>;
+};
+
+type AsanaTasksApi = {
+  getTasks(
+    opts?: Record<string, unknown>,
+  ): Promise<AsanaApiEnvelope<AsanaTaskResponse[]>>;
+  getTasksForProject(
+    projectId: string,
+    opts?: Record<string, unknown>,
+  ): Promise<AsanaApiEnvelope<AsanaTaskResponse[]>>;
+};
+
+type AsanaSdkModule = {
+  ApiClient: new () => AsanaApiClient;
+  UsersApi: new (client: AsanaApiClient) => AsanaUsersApi;
+  WorkspacesApi: new (client: AsanaApiClient) => AsanaWorkspacesApi;
+  ProjectsApi: new (client: AsanaApiClient) => AsanaProjectsApi;
+  TasksApi: new (client: AsanaApiClient) => AsanaTasksApi;
+};
+
 type AsanaApiEnvelope<TData> = {
   data?: TData;
 };
@@ -33,11 +85,12 @@ type AsanaTaskResponse = {
   modified_at?: string;
 };
 
+const AsanaSdk = Asana as unknown as AsanaSdkModule;
+
 @Injectable()
 export class AsanaTaskManagerProvider implements TaskManagerProvider {
   readonly provider = 'asana' as const;
 
-  private static readonly BASE_URL = 'https://app.asana.com/api/1.0';
   private readonly timeoutMs: number;
 
   constructor(private readonly configService: ConfigService) {
@@ -49,28 +102,47 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
 
   async validateConnection(config: TaskManagerConnectionConfig): Promise<void> {
     const asanaConfig = this.assertAsanaConfig(config);
-    const client = this.createClient(asanaConfig.personalAccessToken);
+    const client = this.createApiClient(asanaConfig.personalAccessToken);
+    const usersApi = new AsanaSdk.UsersApi(client);
+    const workspacesApi = new AsanaSdk.WorkspacesApi(client);
+    const projectsApi = new AsanaSdk.ProjectsApi(client);
 
     try {
-      await client.users.me();
+      await usersApi.getUser('me', { opt_fields: ['gid'] });
     } catch (error) {
       this.throwMappedAsanaError(error, 'Unable to validate Asana connection');
     }
 
     if (asanaConfig.workspaceId) {
-      await this.getResource(
-        `/workspaces/${encodeURIComponent(asanaConfig.workspaceId)}`,
-        asanaConfig.personalAccessToken,
-        'Asana workspace not found',
-      );
+      try {
+        await workspacesApi.getWorkspace(asanaConfig.workspaceId, {
+          opt_fields: ['gid'],
+        });
+      } catch (error) {
+        this.throwMappedAsanaError(
+          error,
+          'Unable to validate Asana workspace scope',
+          {
+            notFoundMessage: 'Asana workspace not found',
+          },
+        );
+      }
     }
 
     if (asanaConfig.projectId) {
-      await this.getResource(
-        `/projects/${encodeURIComponent(asanaConfig.projectId)}`,
-        asanaConfig.personalAccessToken,
-        'Asana project not found',
-      );
+      try {
+        await projectsApi.getProject(asanaConfig.projectId, {
+          opt_fields: ['gid'],
+        });
+      } catch (error) {
+        this.throwMappedAsanaError(
+          error,
+          'Unable to validate Asana project scope',
+          {
+            notFoundMessage: 'Asana project not found',
+          },
+        );
+      }
     }
   }
 
@@ -80,33 +152,44 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
   ): Promise<ProviderTask[]> {
     const asanaConfig = this.assertAsanaConfig(config);
 
-    const query = new URLSearchParams({
-      limit: String(limit),
-      opt_fields:
-        'gid,name,notes,permalink_url,completed,assignee.name,modified_at',
-    });
+    const client = this.createApiClient(asanaConfig.personalAccessToken);
+    const tasksApi = new AsanaSdk.TasksApi(client);
+    const opts: Record<string, unknown> = {
+      limit,
+      opt_fields: [
+        'gid',
+        'name',
+        'notes',
+        'permalink_url',
+        'completed',
+        'assignee.name',
+        'modified_at',
+      ],
+    };
 
-    const path = asanaConfig.projectId
-      ? `/projects/${encodeURIComponent(asanaConfig.projectId)}/tasks`
-      : asanaConfig.workspaceId
-        ? `/workspaces/${encodeURIComponent(asanaConfig.workspaceId)}/tasks/search`
-        : '/tasks';
-
-    if (!asanaConfig.projectId && !asanaConfig.workspaceId) {
-      query.set('assignee', 'me');
-      query.set('sort_by', 'modified_at');
+    let result: AsanaApiEnvelope<AsanaTaskResponse[]>;
+    try {
+      if (asanaConfig.projectId) {
+        result = await tasksApi.getTasksForProject(asanaConfig.projectId, opts);
+      } else if (asanaConfig.workspaceId) {
+        result = await tasksApi.getTasks({
+          workspace: asanaConfig.workspaceId,
+          assignee: 'me',
+          limit,
+          opt_fields: opts.opt_fields,
+        });
+      } else {
+        result = await tasksApi.getTasks({
+          ...opts,
+          assignee: 'me',
+          sort_by: 'modified_at',
+        });
+      }
+    } catch (error) {
+      this.throwMappedAsanaError(error, 'Unable to fetch Asana tasks');
     }
 
-    const response = await this.requestAsana(
-      `${path}?${query.toString()}`,
-      asanaConfig.personalAccessToken,
-      'Unable to fetch Asana tasks',
-    );
-
-    const body = (await response.json()) as AsanaApiEnvelope<
-      AsanaTaskResponse[]
-    >;
-    const tasks = Array.isArray(body.data) ? body.data : [];
+    const tasks = Array.isArray(result.data) ? result.data : [];
 
     return tasks
       .filter((task): task is AsanaTaskResponse =>
@@ -132,16 +215,23 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
       return [];
     }
 
-    const response = await this.requestAsana(
-      `/workspaces/${encodeURIComponent(asanaConfig.workspaceId)}/projects?limit=100&opt_fields=gid,name`,
-      asanaConfig.personalAccessToken,
-      'Unable to fetch Asana projects',
-    );
+    const client = this.createApiClient(asanaConfig.personalAccessToken);
+    const projectsApi = new AsanaSdk.ProjectsApi(client);
 
-    const body = (await response.json()) as AsanaApiEnvelope<
-      Array<{ gid?: string; name?: string }>
-    >;
-    const projects = Array.isArray(body.data) ? body.data : [];
+    let result: AsanaApiEnvelope<Array<{ gid?: string; name?: string }>>;
+    try {
+      result = await projectsApi.getProjectsForWorkspace(
+        asanaConfig.workspaceId,
+        {
+          limit: 100,
+          opt_fields: ['gid', 'name'],
+        },
+      );
+    } catch (error) {
+      this.throwMappedAsanaError(error, 'Unable to fetch Asana projects');
+    }
+
+    const projects = Array.isArray(result.data) ? result.data : [];
 
     return projects
       .filter((project): project is { gid: string; name: string } =>
@@ -153,8 +243,12 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
       }));
   }
 
-  private createClient(accessToken: string): Asana.Client {
-    return Asana.Client.create().useAccessToken(accessToken);
+  private createApiClient(accessToken: string): AsanaApiClient {
+    const client = new AsanaSdk.ApiClient();
+    client.authentications.token.accessToken = accessToken;
+    client.timeout = this.timeoutMs;
+
+    return client;
   }
 
   private assertAsanaConfig(
@@ -169,78 +263,30 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
     return config;
   }
 
-  private async getResource(
-    path: string,
-    accessToken: string,
-    notFoundMessage: string,
-  ): Promise<void> {
-    await this.requestAsana(
-      path,
-      accessToken,
-      'Unable to fetch Asana resource',
-      {
-        notFoundMessage,
-      },
-    );
-  }
-
-  private async requestAsana(
-    path: string,
-    accessToken: string,
-    failureMessage: string,
+  private throwMappedAsanaError(
+    error: unknown,
+    message: string,
     options: { notFoundMessage?: string } = {},
-  ): Promise<Response> {
-    let response: Response;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-
-    try {
-      response = await fetch(`${AsanaTaskManagerProvider.BASE_URL}${path}`, {
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new TaskManagerProviderRequestError(
-          'Asana request timed out before completion',
-        );
-      }
-      throw new TaskManagerProviderRequestError(failureMessage);
-    } finally {
-      clearTimeout(timeout);
+  ): never {
+    if (
+      error instanceof TaskManagerProviderAuthError ||
+      error instanceof TaskManagerProviderNotFoundError ||
+      error instanceof TaskManagerProviderRequestError
+    ) {
+      throw error;
     }
 
-    if (response.status === 401 || response.status === 403) {
-      throw new TaskManagerProviderAuthError(
-        'Asana credentials are invalid or do not have required access',
-      );
-    }
-
-    if (response.status === 404) {
-      throw new TaskManagerProviderNotFoundError(
-        options.notFoundMessage ?? 'Asana resource not found',
-      );
-    }
-
-    if (!response.ok) {
-      throw new TaskManagerProviderRequestError(
-        failureMessage,
-        response.status,
-      );
-    }
-
-    return response;
-  }
-
-  private throwMappedAsanaError(error: unknown, message: string): never {
     const statusCode = this.extractStatusCode(error);
 
     if (statusCode === 401 || statusCode === 403) {
       throw new TaskManagerProviderAuthError(
         'Asana credentials are invalid or do not have required access',
+      );
+    }
+
+    if (statusCode === 404) {
+      throw new TaskManagerProviderNotFoundError(
+        options.notFoundMessage ?? 'Asana resource not found',
       );
     }
 
