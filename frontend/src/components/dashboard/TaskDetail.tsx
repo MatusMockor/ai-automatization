@@ -5,8 +5,8 @@ import { TaskStatusDot } from '@/components/shared/StatusIcon';
 import { prefixConfig } from '@/components/shared/PrefixFilter';
 import { timeAgo } from '@/lib/time';
 import { cn } from '@/lib/utils';
-import type { TaskFeedItem, TaskPrefix, Execution, ExecutionAction } from '@/types';
-import { X, ExternalLink } from 'lucide-react';
+import type { TaskFeedItem, TaskPrefix, Execution, ExecutionAction, Repository } from '@/types';
+import { X, ExternalLink, GitBranch } from 'lucide-react';
 
 interface TaskDetailProps {
   task: TaskFeedItem;
@@ -17,9 +17,13 @@ interface TaskDetailProps {
   onPublishPullRequestChange: (value: boolean) => void;
   requireCodeChanges: boolean;
   onRequireCodeChangesChange: (value: boolean) => void;
+  executionRepoId: string | null;
+  onExecutionRepoIdChange: (repoId: string | null) => void;
+  repositories: Repository[];
+  selectedRepo: Repository | null;
 }
 
-export function TaskDetail({ task, executions, onClose, onAction, publishPullRequest, onPublishPullRequestChange, requireCodeChanges, onRequireCodeChangesChange }: TaskDetailProps) {
+export function TaskDetail({ task, executions, onClose, onAction, publishPullRequest, onPublishPullRequestChange, requireCodeChanges, onRequireCodeChangesChange, executionRepoId, onExecutionRepoIdChange, repositories, selectedRepo }: TaskDetailProps) {
   const openExternalTask = (rawUrl: string) => {
     try {
       const parsed = new URL(rawUrl);
@@ -102,6 +106,52 @@ export function TaskDetail({ task, executions, onClose, onAction, publishPullReq
             <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Run with Claude
             </h3>
+
+            {/* Repository selection */}
+            {(() => {
+              const effectiveRepoId = executionRepoId ?? selectedRepo?.id ?? null;
+              const repoExists = effectiveRepoId ? repositories.some((r) => r.id === effectiveRepoId) : false;
+              const displayRepoId = repoExists ? effectiveRepoId : (selectedRepo?.id ?? '');
+              const isManualOverride = executionRepoId !== null && executionRepoId !== task.suggestedRepositoryId;
+              const sourceLabel = isManualOverride
+                ? 'Manual selection'
+                : task.repositorySelectionSource === 'asana_project'
+                  ? 'Project default'
+                  : task.repositorySelectionSource === 'asana_workspace'
+                    ? 'Workspace default'
+                    : task.repositorySelectionSource === 'jira_project'
+                      ? 'Project default'
+                      : task.repositorySelectionSource === 'provider_default'
+                        ? 'Provider default'
+                        : 'Global selection';
+
+              return (
+                <div className="mb-3">
+                  <div className="flex items-center gap-2">
+                    <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+                    <select
+                      value={displayRepoId ?? ''}
+                      onChange={(e) => onExecutionRepoIdChange(e.target.value || null)}
+                      className="h-7 max-w-[240px] flex-1 truncate rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
+                    >
+                      {repositories.length === 0 && <option value="">No repositories</option>}
+                      {repositories.map((repo) => (
+                        <option key={repo.id} value={repo.id}>
+                          {repo.fullName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground/70">
+                    {sourceLabel}
+                    {task.primaryScopeName && !isManualOverride && task.repositorySelectionSource && (
+                      <> &middot; {task.primaryScopeName}</>
+                    )}
+                  </p>
+                </div>
+              );
+            })()}
+
             <ActionButtons onAction={onAction} />
             <label className="mt-3 flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
               <input
