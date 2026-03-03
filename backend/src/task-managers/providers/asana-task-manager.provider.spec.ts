@@ -295,7 +295,7 @@ describe('AsanaTaskManagerProvider', () => {
     expect(asanaMockState.tasksApi.getTasks).toHaveBeenCalledWith(
       expect.objectContaining({
         workspace: 'ws-1',
-        assignee: 'any',
+        assignee: 'me',
         limit: 20,
       }),
     );
@@ -356,7 +356,10 @@ describe('AsanaTaskManagerProvider', () => {
 
   it('fetches sync tasks for workspace scope with cursor support', async () => {
     const provider = createProvider();
-    asanaMockState.tasksApi.getTasks.mockResolvedValue({
+    asanaMockState.projectsApi.getProjectsForWorkspace.mockResolvedValue({
+      data: [{ gid: 'proj-1', name: 'Project 1' }],
+    });
+    asanaMockState.tasksApi.getTasksForProject.mockResolvedValue({
       data: [
         {
           gid: 'task-3',
@@ -380,15 +383,21 @@ describe('AsanaTaskManagerProvider', () => {
       'cursor-1',
     );
 
-    expect(asanaMockState.tasksApi.getTasks).toHaveBeenCalledWith(
+    expect(
+      asanaMockState.projectsApi.getProjectsForWorkspace,
+    ).toHaveBeenCalledWith(
+      'ws-1',
       expect.objectContaining({
-        workspace: 'ws-1',
-        assignee: 'any',
-        limit: 50,
-        offset: 'cursor-1',
+        limit: 100,
       }),
     );
-    expect(result.nextCursor).toBe('cursor-2');
+    expect(asanaMockState.tasksApi.getTasksForProject).toHaveBeenCalledWith(
+      'proj-1',
+      expect.objectContaining({
+        limit: 50,
+      }),
+    );
+    expect(result.nextCursor).toBeTruthy();
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0]?.externalId).toBe('task-3');
   });

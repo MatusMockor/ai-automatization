@@ -182,7 +182,7 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
       } else if (asanaConfig.workspaceId) {
         result = await tasksApi.getTasks({
           workspace: asanaConfig.workspaceId,
-          assignee: 'any',
+          assignee: 'me',
           limit,
           opt_fields: opts.opt_fields,
         });
@@ -311,35 +311,131 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
 
     const client = this.createApiClient(asanaConfig.personalAccessToken);
     const tasksApi = new AsanaSdk.TasksApi(client);
+    const projectsApi = new AsanaSdk.ProjectsApi(client);
 
-    let result: AsanaApiEnvelope<AsanaTaskResponse[]>;
+    let projectsResult: AsanaApiEnvelope<
+      Array<{ gid?: string; name?: string }>
+    >;
     try {
-      result = await tasksApi.getTasks({
-        workspace: scope.id,
-        assignee: 'any',
-        limit,
-        offset: cursor,
-        opt_fields: [
-          'gid',
-          'name',
-          'notes',
-          'permalink_url',
-          'completed',
-          'assignee.name',
-          'modified_at',
-        ],
+      projectsResult = await projectsApi.getProjectsForWorkspace(scope.id, {
+        limit: 100,
+        opt_fields: ['gid', 'name'],
       });
     } catch (error) {
       this.throwMappedAsanaError(
         error,
-        `Unable to fetch Asana tasks for workspace ${scope.id}`,
+        `Unable to fetch Asana projects for workspace ${scope.id}`,
       );
     }
 
+    const projects = (
+      Array.isArray(projectsResult.data) ? projectsResult.data : []
+    )
+      .filter((project): project is { gid: string } => Boolean(project.gid))
+      .map((project) => project.gid);
+
+    if (projects.length === 0) {
+      return {
+        tasks: [],
+        nextCursor: null,
+      };
+    }
+
+    const state = this.parseWorkspaceCursor(cursor);
+    let projectIndex = Math.max(
+      0,
+      Math.min(state.projectIndex, projects.length - 1),
+    );
+    let projectOffset = state.projectOffset;
+    const tasks: ProviderTask[] = [];
+    let nextCursor: string | null = null;
+
+    while (tasks.length < limit && projectIndex < projects.length) {
+      const remaining = limit - tasks.length;
+      let result: AsanaApiEnvelope<AsanaTaskResponse[]>;
+      try {
+        result = await tasksApi.getTasksForProject(projects[projectIndex], {
+          limit: remaining,
+          offset: projectOffset,
+          opt_fields: [
+            'gid',
+            'name',
+            'notes',
+            'permalink_url',
+            'completed',
+            'assignee.name',
+            'modified_at',
+          ],
+        });
+      } catch (error) {
+        this.throwMappedAsanaError(
+          error,
+          `Unable to fetch Asana tasks for project ${projects[projectIndex]}`,
+        );
+      }
+
+      tasks.push(...this.mapTasks(result));
+
+      const nextOffset = result.next_page?.offset ?? null;
+      if (nextOffset) {
+        nextCursor = this.encodeWorkspaceCursor({
+          projectIndex,
+          projectOffset: nextOffset,
+        });
+        break;
+      }
+
+      projectIndex += 1;
+      projectOffset = undefined;
+    }
+
+    if (!nextCursor && projectIndex < projects.length) {
+      nextCursor = this.encodeWorkspaceCursor({
+        projectIndex,
+      });
+    }
+
     return {
-      tasks: this.mapTasks(result),
-      nextCursor: result.next_page?.offset ?? null,
+      tasks,
+      nextCursor,
     };
+  }
+
+  private parseWorkspaceCursor(cursor?: string): {
+    projectIndex: number;
+    projectOffset?: string;
+  } {
+    if (!cursor) {
+      return { projectIndex: 0 };
+    }
+
+    try {
+      const parsed = JSON.parse(
+        Buffer.from(cursor, 'base64url').toString('utf8'),
+      ) as {
+        projectIndex?: number;
+        projectOffset?: string;
+      };
+      return {
+        projectIndex:
+          typeof parsed.projectIndex === 'number' && parsed.projectIndex >= 0
+            ? parsed.projectIndex
+            : 0,
+        projectOffset:
+          typeof parsed.projectOffset === 'string'
+            ? parsed.projectOffset
+            : undefined,
+      };
+    } catch {
+      return { projectIndex: 0 };
+    }
+  }
+
+  private encodeWorkspaceCursor(state: {
+    projectIndex: number;
+    projectOffset?: string;
+  }): string {
+    return Buffer.from(JSON.stringify(state), 'utf8').toString('base64url');
   }
 
   private createApiClient(accessToken: string): AsanaApiClient {
