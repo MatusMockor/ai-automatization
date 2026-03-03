@@ -6,7 +6,7 @@ import { TaskScopeRepositoryDefault } from './entities/task-scope-repository-def
 import { TaskRepositoryDefaultsService } from './task-repository-defaults.service';
 
 describe('TaskRepositoryDefaultsService', () => {
-  const createService = () => {
+  const createService = (databaseType: 'postgres' | 'sqljs' = 'postgres') => {
     const upsertQueryBuilder = {
       insert: jest.fn().mockReturnThis(),
       into: jest.fn().mockReturnThis(),
@@ -18,8 +18,17 @@ describe('TaskRepositoryDefaultsService', () => {
     const defaultsRepository = {
       find: jest.fn(),
       findOne: jest.fn(),
+      update: jest.fn(),
+      insert: jest.fn(),
       delete: jest.fn(),
       createQueryBuilder: jest.fn(() => upsertQueryBuilder),
+      manager: {
+        connection: {
+          options: {
+            type: databaseType,
+          },
+        },
+      },
     } as unknown as jest.Mocked<Repository<TaskScopeRepositoryDefault>>;
 
     const repositoriesService = {
@@ -262,5 +271,34 @@ describe('TaskRepositoryDefaultsService', () => {
         '("user_id","provider") WHERE "scope_type" IS NULL AND "scope_id" IS NULL',
       ),
     );
+  });
+
+  it('uses portable upsert flow for sqljs (no postgres ON CONFLICT clause)', async () => {
+    const { service, defaultsRepository, upsertQueryBuilder } =
+      createService('sqljs');
+    defaultsRepository.update.mockResolvedValue({ affected: 0 } as never);
+    defaultsRepository.insert.mockResolvedValue({} as never);
+    defaultsRepository.findOne.mockResolvedValue({
+      id: 'default-3',
+      provider: 'asana',
+      scopeType: null,
+      scopeId: null,
+      repositoryId: 'repo-3',
+      userId: 'user-1',
+      repository: {} as never,
+      user: {} as never,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as TaskScopeRepositoryDefault);
+
+    const result = await service.upsertForUser('user-1', {
+      provider: 'asana',
+      repositoryId: 'repo-3',
+    });
+
+    expect(upsertQueryBuilder.execute).not.toHaveBeenCalled();
+    expect(defaultsRepository.update).toHaveBeenCalled();
+    expect(defaultsRepository.insert).toHaveBeenCalled();
+    expect(result.id).toBe('default-3');
   });
 });

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { IsNull, QueryFailedError, Repository } from 'typeorm';
 import { RepositoriesService } from '../repositories/repositories.service';
 import type { TaskManagerProviderType } from '../task-managers/interfaces/task-manager-provider.interface';
 import { DeleteTaskRepositoryDefaultDto } from './dto/delete-task-repository-default.dto';
@@ -15,6 +15,15 @@ import { TaskScopeRepositoryDefault } from './entities/task-scope-repository-def
 type ResolvedScope = {
   scopeType: 'asana_project' | 'asana_workspace' | 'jira_project' | null;
   scopeId: string | null;
+};
+
+type DatabaseError = QueryFailedError & {
+  code?: string;
+  driverError?: {
+    code?: string;
+    errno?: number;
+    message?: string;
+  };
 };
 
 export type RepositorySelectionSource =
@@ -77,23 +86,27 @@ export class TaskRepositoryDefaultsService {
       repositoryId: dto.repositoryId,
     };
 
-    const queryBuilder = this.defaultsRepository
-      .createQueryBuilder()
-      .insert()
-      .into(TaskScopeRepositoryDefault)
-      .values(values);
+    if (this.isPostgres()) {
+      const queryBuilder = this.defaultsRepository
+        .createQueryBuilder()
+        .insert()
+        .into(TaskScopeRepositoryDefault)
+        .values(values);
 
-    if (scope.scopeType === null && scope.scopeId === null) {
-      queryBuilder.onConflict(
-        `("user_id","provider") WHERE "scope_type" IS NULL AND "scope_id" IS NULL DO UPDATE SET "repository_id" = EXCLUDED."repository_id", "updated_at" = now()`,
-      );
+      if (scope.scopeType === null && scope.scopeId === null) {
+        queryBuilder.onConflict(
+          `("user_id","provider") WHERE "scope_type" IS NULL AND "scope_id" IS NULL DO UPDATE SET "repository_id" = EXCLUDED."repository_id", "updated_at" = now()`,
+        );
+      } else {
+        queryBuilder.onConflict(
+          `("user_id","provider","scope_type","scope_id") WHERE "scope_type" IS NOT NULL AND "scope_id" IS NOT NULL DO UPDATE SET "repository_id" = EXCLUDED."repository_id", "updated_at" = now()`,
+        );
+      }
+
+      await queryBuilder.execute();
     } else {
-      queryBuilder.onConflict(
-        `("user_id","provider","scope_type","scope_id") WHERE "scope_type" IS NOT NULL AND "scope_id" IS NOT NULL DO UPDATE SET "repository_id" = EXCLUDED."repository_id", "updated_at" = now()`,
-      );
+      await this.upsertDefaultPortable(userId, dto.provider, scope, values);
     }
-
-    await queryBuilder.execute();
 
     const saved = await this.findExistingDefault(
       userId,
@@ -298,6 +311,70 @@ export class TaskRepositoryDefaultsService {
         scopeId: scopeId === null ? IsNull() : scopeId,
       },
     });
+  }
+
+  private async upsertDefaultPortable(
+    userId: string,
+    provider: TaskManagerProviderType,
+    scope: ResolvedScope,
+    values: Pick<
+      TaskScopeRepositoryDefault,
+      'userId' | 'provider' | 'scopeType' | 'scopeId' | 'repositoryId'
+    >,
+  ): Promise<void> {
+    const where = {
+      userId,
+      provider,
+      scopeType: scope.scopeType === null ? IsNull() : scope.scopeType,
+      scopeId: scope.scopeId === null ? IsNull() : scope.scopeId,
+    };
+
+    const updated = await this.defaultsRepository.update(where, {
+      repositoryId: values.repositoryId,
+    });
+    if ((updated.affected ?? 0) > 0) {
+      return;
+    }
+
+    try {
+      await this.defaultsRepository.insert(values);
+      return;
+    } catch (error) {
+      if (!this.isUniqueViolation(error)) {
+        throw error;
+      }
+    }
+
+    await this.defaultsRepository.update(where, {
+      repositoryId: values.repositoryId,
+    });
+  }
+
+  private isPostgres(): boolean {
+    return (
+      this.defaultsRepository.manager.connection.options.type === 'postgres'
+    );
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    if (!(error instanceof QueryFailedError)) {
+      return false;
+    }
+
+    const databaseError = error as DatabaseError;
+    const driverCode = databaseError.driverError?.code;
+    const driverErrno = databaseError.driverError?.errno;
+    const driverMessage =
+      databaseError.driverError?.message ?? databaseError.message ?? '';
+
+    return (
+      databaseError.code === '23505' ||
+      driverCode === '23505' ||
+      databaseError.code === 'SQLITE_CONSTRAINT' ||
+      driverCode === 'SQLITE_CONSTRAINT' ||
+      driverErrno === 2067 ||
+      /unique/i.test(driverMessage)
+    );
   }
 
   private mapToResponse(
