@@ -201,9 +201,19 @@ export function Dashboard() {
 
   const handleAction = async (action: ExecutionAction, task: TaskFeedItem) => {
     const isSelectedTask = selectedTask?.id === task.id;
-    const repoId = (isSelectedTask ? executionRepoId : null) ?? task.suggestedRepositoryId ?? selectedRepo?.id;
+    const repoExists = (id: string | null | undefined) => id && repositories.some((r) => r.id === id);
+    const preferredRepoId =
+      (isSelectedTask ? executionRepoId : null) ??
+      task.suggestedRepositoryId ??
+      selectedRepo?.id ??
+      null;
+    const repoId = repoExists(preferredRepoId)
+      ? preferredRepoId
+      : repoExists(selectedRepo?.id)
+        ? selectedRepo!.id
+        : null;
     if (!repoId) {
-      toast.error('Select a repository first');
+      toast.error('Select a valid repository first');
       return;
     }
     try {
