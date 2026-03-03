@@ -284,7 +284,7 @@ export class TaskManagersService {
       lastValidatedAt: connection.lastValidatedAt,
       lastSyncedAt: connection.lastSyncedAt,
       lastSyncStatus: connection.lastSyncStatus,
-      lastSyncError: connection.lastSyncError,
+      lastSyncError: this.toPublicSyncError(connection.lastSyncError),
       createdAt: connection.createdAt,
       updatedAt: connection.updatedAt,
       prefixes: (connection.prefixes ?? []).map((prefix) =>
@@ -485,6 +485,14 @@ export class TaskManagersService {
     }
 
     this.logger.error(`${message}: ${details}`);
+  }
+
+  private toPublicSyncError(error: string | null): string | null {
+    if (!error) {
+      return null;
+    }
+
+    return 'Task sync failed. Please retry or reconnect.';
   }
 
   private isUniqueViolation(error: unknown): boolean {

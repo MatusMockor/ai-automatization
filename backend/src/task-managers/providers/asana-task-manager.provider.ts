@@ -226,20 +226,12 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
     const client = this.createApiClient(asanaConfig.personalAccessToken);
     const projectsApi = new AsanaSdk.ProjectsApi(client);
 
-    let result: AsanaApiEnvelope<Array<{ gid?: string; name?: string }>>;
-    try {
-      result = await projectsApi.getProjectsForWorkspace(
-        asanaConfig.workspaceId,
-        {
-          limit: 100,
-          opt_fields: ['gid', 'name'],
-        },
-      );
-    } catch (error) {
-      this.throwMappedAsanaError(error, 'Unable to fetch Asana projects');
-    }
-
-    const projects = Array.isArray(result.data) ? result.data : [];
+    const projects = await this.listAllProjectsForWorkspace(
+      projectsApi,
+      asanaConfig.workspaceId,
+      ['gid', 'name'],
+      'Unable to fetch Asana projects',
+    );
 
     return projects
       .filter((project): project is { gid: string; name: string } =>
@@ -320,17 +312,7 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
       ];
     }
 
-    let result: AsanaApiEnvelope<AsanaWorkspaceResponse[]>;
-    try {
-      result = await workspacesApi.getWorkspaces({
-        limit: 100,
-        opt_fields: ['gid', 'name'],
-      });
-    } catch (error) {
-      this.throwMappedAsanaError(error, 'Unable to list Asana workspaces');
-    }
-
-    const workspaces = Array.isArray(result.data) ? result.data : [];
+    const workspaces = await this.listAllWorkspaces(workspacesApi);
     const scopes: ProviderSyncScope[] = [];
 
     for (const workspace of workspaces) {
@@ -453,22 +435,12 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
     projectsApi: AsanaProjectsApi,
     workspace: { id: string; name: string },
   ): Promise<ProviderSyncScope[]> {
-    let projectsResult: AsanaApiEnvelope<AsanaProjectResponse[]>;
-    try {
-      projectsResult = await projectsApi.getProjectsForWorkspace(workspace.id, {
-        limit: 100,
-        opt_fields: ['gid', 'name', 'workspace.gid', 'workspace.name'],
-      });
-    } catch (error) {
-      this.throwMappedAsanaError(
-        error,
-        `Unable to fetch Asana projects for workspace ${workspace.id}`,
-      );
-    }
-
-    const projects = Array.isArray(projectsResult.data)
-      ? projectsResult.data
-      : [];
+    const projects = await this.listAllProjectsForWorkspace(
+      projectsApi,
+      workspace.id,
+      ['gid', 'name', 'workspace.gid', 'workspace.name'],
+      `Unable to fetch Asana projects for workspace ${workspace.id}`,
+    );
 
     return projects
       .filter((project): project is AsanaProjectResponse =>
@@ -484,6 +456,74 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
           name: project.workspace?.name ?? workspace.name,
         },
       }));
+  }
+
+  private async listAllWorkspaces(
+    workspacesApi: AsanaWorkspacesApi,
+  ): Promise<AsanaWorkspaceResponse[]> {
+    const workspaces: AsanaWorkspaceResponse[] = [];
+    let offset: string | undefined;
+
+    do {
+      let result: AsanaApiEnvelope<AsanaWorkspaceResponse[]>;
+      const requestOpts: Record<string, unknown> = {
+        limit: 100,
+        opt_fields: ['gid', 'name'],
+      };
+      if (offset) {
+        requestOpts.offset = offset;
+      }
+
+      try {
+        result = await workspacesApi.getWorkspaces(requestOpts);
+      } catch (error) {
+        this.throwMappedAsanaError(error, 'Unable to list Asana workspaces');
+      }
+
+      if (Array.isArray(result.data)) {
+        workspaces.push(...result.data);
+      }
+      offset = result.next_page?.offset;
+    } while (offset);
+
+    return workspaces;
+  }
+
+  private async listAllProjectsForWorkspace(
+    projectsApi: AsanaProjectsApi,
+    workspaceId: string,
+    optFields: string[],
+    errorMessage: string,
+  ): Promise<AsanaProjectResponse[]> {
+    const projects: AsanaProjectResponse[] = [];
+    let offset: string | undefined;
+
+    do {
+      let result: AsanaApiEnvelope<AsanaProjectResponse[]>;
+      const requestOpts: Record<string, unknown> = {
+        limit: 100,
+        opt_fields: optFields,
+      };
+      if (offset) {
+        requestOpts.offset = offset;
+      }
+
+      try {
+        result = await projectsApi.getProjectsForWorkspace(
+          workspaceId,
+          requestOpts,
+        );
+      } catch (error) {
+        this.throwMappedAsanaError(error, errorMessage);
+      }
+
+      if (Array.isArray(result.data)) {
+        projects.push(...result.data);
+      }
+      offset = result.next_page?.offset;
+    } while (offset);
+
+    return projects;
   }
 
   private createApiClient(accessToken: string): AsanaApiClient {

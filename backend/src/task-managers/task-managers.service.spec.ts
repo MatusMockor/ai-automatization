@@ -93,4 +93,41 @@ describe('TaskManagersService', () => {
 
     expect(invokeThrowMappedProviderError).toThrow(BadGatewayException);
   });
+
+  it('sanitizes lastSyncError in connection response payload', () => {
+    const { service } = createService();
+
+    const response = (
+      service as unknown as {
+        mapConnectionToResponse: (connection: TaskManagerConnection) => {
+          lastSyncError: string | null;
+        };
+      }
+    ).mapConnectionToResponse({
+      id: 'connection-1',
+      provider: 'asana',
+      name: 'Asana',
+      status: 'connected',
+      baseUrl: null,
+      workspaceId: null,
+      projectId: null,
+      projectKey: null,
+      secretEncrypted: 'encrypted',
+      emailEncrypted: null,
+      authMode: null,
+      lastValidatedAt: null,
+      lastSyncedAt: null,
+      lastSyncStatus: 'failed',
+      lastSyncError: 'Asana token invalid: bearer abc123',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      prefixes: [],
+      userId: 'user-1',
+      user: {} as never,
+    } as TaskManagerConnection);
+
+    expect(response.lastSyncError).toBe(
+      'Task sync failed. Please retry or reconnect.',
+    );
+  });
 });

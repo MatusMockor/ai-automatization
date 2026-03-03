@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Not, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { parsePositiveInteger } from '../common/utils/parse.utils';
 import { TaskManagerConnection } from '../task-managers/entities/task-manager-connection.entity';
@@ -368,19 +368,23 @@ export class TaskSyncService {
       config,
       scopes,
     );
+    const now = new Date();
 
     if (tasksByExternalId.size === 0) {
-      const deleted = await this.syncedTaskRepository.delete({
-        connectionId: connection.id,
-      });
+      const deleted = await this.syncedTaskRepository.manager.transaction(
+        async (manager) =>
+          this.deleteAllTasksForConnection(
+            manager.getRepository(SyncedTask),
+            connection.id,
+          ),
+      );
 
       return {
         tasksUpserted: 0,
-        tasksDeleted: deleted.affected ?? 0,
+        tasksDeleted: deleted,
       };
     }
 
-    const now = new Date();
     const upsertRows = Array.from(tasksByExternalId.entries()).map(
       ([externalId, aggregate]) => ({
         userId: connection.userId,
@@ -397,17 +401,18 @@ export class TaskSyncService {
       }),
     );
 
-    await this.bulkUpsertSyncedTasks(upsertRows);
-
     const externalIds = upsertRows.map((row) => row.externalId);
-    const persistedTasks = await this.findPersistedTasks(
-      connection.id,
-      externalIds,
+    const deleted = await this.syncedTaskRepository.manager.transaction(
+      async (manager) =>
+        this.persistConnectionSnapshot(
+          manager,
+          connection.id,
+          now,
+          upsertRows,
+          externalIds,
+          tasksByExternalId,
+        ),
     );
-
-    await this.replaceTaskScopes(persistedTasks, tasksByExternalId);
-
-    const deleted = await this.deleteStaleTasks(connection.id, externalIds);
 
     return {
       tasksUpserted: upsertRows.length,
@@ -510,7 +515,55 @@ export class TaskSyncService {
     existing.scopes.set(scopeKey, normalizedScope);
   }
 
+  private async persistConnectionSnapshot(
+    manager: EntityManager,
+    connectionId: string,
+    syncTimestamp: Date,
+    upsertRows: Array<
+      Pick<
+        SyncedTask,
+        | 'userId'
+        | 'connectionId'
+        | 'provider'
+        | 'externalId'
+        | 'title'
+        | 'description'
+        | 'url'
+        | 'status'
+        | 'assignee'
+        | 'sourceUpdatedAt'
+        | 'lastSyncedAt'
+      >
+    >,
+    externalIds: string[],
+    tasksByExternalId: Map<string, AggregatedTask>,
+  ): Promise<number> {
+    const syncedTaskRepository = manager.getRepository(SyncedTask);
+    const syncedTaskScopeRepository = manager.getRepository(SyncedTaskScope);
+
+    await this.bulkUpsertSyncedTasks(syncedTaskRepository, upsertRows);
+
+    const persistedTasks = await this.findPersistedTasks(
+      syncedTaskRepository,
+      connectionId,
+      externalIds,
+    );
+
+    await this.replaceTaskScopes(
+      syncedTaskScopeRepository,
+      persistedTasks,
+      tasksByExternalId,
+    );
+
+    return this.deleteStaleTasks(
+      syncedTaskRepository,
+      connectionId,
+      syncTimestamp,
+    );
+  }
+
   private async bulkUpsertSyncedTasks(
+    syncedTaskRepository: Repository<SyncedTask>,
     rows: Array<
       Pick<
         SyncedTask,
@@ -532,14 +585,12 @@ export class TaskSyncService {
 
     for (let index = 0; index < rows.length; index += chunkSize) {
       const chunk = rows.slice(index, index + chunkSize);
-      await this.syncedTaskRepository.upsert(chunk, [
-        'connectionId',
-        'externalId',
-      ]);
+      await syncedTaskRepository.upsert(chunk, ['connectionId', 'externalId']);
     }
   }
 
   private async findPersistedTasks(
+    syncedTaskRepository: Repository<SyncedTask>,
     connectionId: string,
     externalIds: string[],
   ): Promise<Array<Pick<SyncedTask, 'id' | 'externalId'>>> {
@@ -548,7 +599,7 @@ export class TaskSyncService {
 
     for (let index = 0; index < externalIds.length; index += chunkSize) {
       const chunk = externalIds.slice(index, index + chunkSize);
-      const found = await this.syncedTaskRepository.find({
+      const found = await syncedTaskRepository.find({
         where: {
           connectionId,
           externalId: In(chunk),
@@ -565,6 +616,7 @@ export class TaskSyncService {
   }
 
   private async replaceTaskScopes(
+    syncedTaskScopeRepository: Repository<SyncedTaskScope>,
     persistedTasks: Array<Pick<SyncedTask, 'id' | 'externalId'>>,
     tasksByExternalId: Map<string, AggregatedTask>,
   ): Promise<void> {
@@ -573,7 +625,7 @@ export class TaskSyncService {
     }
 
     const taskIds = persistedTasks.map((task) => task.id);
-    await this.syncedTaskScopeRepository.delete({ taskId: In(taskIds) });
+    await syncedTaskScopeRepository.delete({ taskId: In(taskIds) });
 
     const scopeRows: Array<
       Pick<
@@ -619,25 +671,31 @@ export class TaskSyncService {
 
     const chunkSize = 500;
     for (let index = 0; index < scopeRows.length; index += chunkSize) {
-      await this.syncedTaskScopeRepository.insert(
+      await syncedTaskScopeRepository.insert(
         scopeRows.slice(index, index + chunkSize),
       );
     }
   }
 
-  private async deleteStaleTasks(
+  private async deleteAllTasksForConnection(
+    syncedTaskRepository: Repository<SyncedTask>,
     connectionId: string,
-    currentExternalIds: string[],
   ): Promise<number> {
-    if (currentExternalIds.length === 0) {
-      const result = await this.syncedTaskRepository.delete({ connectionId });
-      return result.affected ?? 0;
-    }
+    const result = await syncedTaskRepository.delete({ connectionId });
+    return result.affected ?? 0;
+  }
 
-    const result = await this.syncedTaskRepository.delete({
-      connectionId,
-      externalId: Not(In(currentExternalIds)),
-    });
+  private async deleteStaleTasks(
+    syncedTaskRepository: Repository<SyncedTask>,
+    connectionId: string,
+    syncTimestamp: Date,
+  ): Promise<number> {
+    const result = await syncedTaskRepository
+      .createQueryBuilder()
+      .delete()
+      .where('"connection_id" = :connectionId', { connectionId })
+      .andWhere('"last_synced_at" < :syncTimestamp', { syncTimestamp })
+      .execute();
 
     return result.affected ?? 0;
   }

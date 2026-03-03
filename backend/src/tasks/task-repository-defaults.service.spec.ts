@@ -7,12 +7,19 @@ import { TaskRepositoryDefaultsService } from './task-repository-defaults.servic
 
 describe('TaskRepositoryDefaultsService', () => {
   const createService = () => {
+    const upsertQueryBuilder = {
+      insert: jest.fn().mockReturnThis(),
+      into: jest.fn().mockReturnThis(),
+      values: jest.fn().mockReturnThis(),
+      onConflict: jest.fn().mockReturnThis(),
+      execute: jest.fn(),
+    };
+
     const defaultsRepository = {
       find: jest.fn(),
       findOne: jest.fn(),
-      create: jest.fn(),
-      save: jest.fn(),
       delete: jest.fn(),
+      createQueryBuilder: jest.fn(() => upsertQueryBuilder),
     } as unknown as jest.Mocked<Repository<TaskScopeRepositoryDefault>>;
 
     const repositoriesService = {
@@ -28,6 +35,7 @@ describe('TaskRepositoryDefaultsService', () => {
       service,
       defaultsRepository,
       repositoriesService,
+      upsertQueryBuilder,
     };
   };
 
@@ -140,5 +148,119 @@ describe('TaskRepositoryDefaultsService', () => {
         scopeId: 'proj-1',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('treats provider defaults only when both scopeType and scopeId are null', async () => {
+    const { service, defaultsRepository } = createService();
+    defaultsRepository.find.mockResolvedValue([
+      {
+        provider: 'asana',
+        scopeType: null,
+        scopeId: null,
+        repositoryId: 'repo-provider',
+      },
+      {
+        provider: 'asana',
+        scopeType: null,
+        scopeId: 'ws-1',
+        repositoryId: 'repo-malformed',
+      },
+    ] as TaskScopeRepositoryDefault[]);
+
+    const lookup = await service.buildLookupForUser('user-1');
+    const scopes: SyncedTaskScope[] = [
+      {
+        id: 'scope-1',
+        taskId: 'task-1',
+        task: {} as never,
+        scopeType: 'asana_workspace',
+        scopeId: 'ws-1',
+        scopeName: 'Workspace 1',
+        parentScopeType: null,
+        parentScopeId: null,
+        parentScopeName: null,
+        isPrimary: true,
+      },
+    ];
+
+    const resolved = service.resolveSuggestedRepository(
+      'asana',
+      scopes,
+      lookup,
+    );
+
+    expect(resolved).toEqual({
+      repositoryId: 'repo-provider',
+      source: 'provider_default',
+    });
+  });
+
+  it('uses atomic upsert for scoped defaults', async () => {
+    const {
+      service,
+      defaultsRepository,
+      repositoriesService,
+      upsertQueryBuilder,
+    } = createService();
+    defaultsRepository.findOne.mockResolvedValue({
+      id: 'default-1',
+      provider: 'asana',
+      scopeType: 'asana_project',
+      scopeId: 'proj-1',
+      repositoryId: 'repo-1',
+      userId: 'user-1',
+      repository: {} as never,
+      user: {} as never,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as TaskScopeRepositoryDefault);
+    upsertQueryBuilder.execute.mockResolvedValue({});
+
+    const result = await service.upsertForUser('user-1', {
+      provider: 'asana',
+      repositoryId: 'repo-1',
+      scopeType: 'asana_project',
+      scopeId: 'proj-1',
+    });
+
+    expect(repositoriesService.assertOwnedRepository).toHaveBeenCalledWith(
+      'user-1',
+      'repo-1',
+    );
+    expect(upsertQueryBuilder.insert).toHaveBeenCalledTimes(1);
+    expect(upsertQueryBuilder.onConflict).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '("user_id","provider","scope_type","scope_id") WHERE "scope_type" IS NOT NULL AND "scope_id" IS NOT NULL',
+      ),
+    );
+    expect(result.id).toBe('default-1');
+  });
+
+  it('uses provider-level atomic upsert conflict target when scope is null', async () => {
+    const { service, defaultsRepository, upsertQueryBuilder } = createService();
+    defaultsRepository.findOne.mockResolvedValue({
+      id: 'default-2',
+      provider: 'asana',
+      scopeType: null,
+      scopeId: null,
+      repositoryId: 'repo-2',
+      userId: 'user-1',
+      repository: {} as never,
+      user: {} as never,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as TaskScopeRepositoryDefault);
+    upsertQueryBuilder.execute.mockResolvedValue({});
+
+    await service.upsertForUser('user-1', {
+      provider: 'asana',
+      repositoryId: 'repo-2',
+    });
+
+    expect(upsertQueryBuilder.onConflict).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '("user_id","provider") WHERE "scope_type" IS NULL AND "scope_id" IS NULL',
+      ),
+    );
   });
 });
