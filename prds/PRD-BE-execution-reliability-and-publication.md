@@ -45,9 +45,9 @@ Ciel je dodat backend zlepsenia pre reliability, publication a observability exe
 - `orchestration_state` not null default `queued`.
 - Indexy:
 - `(user_id, created_at desc)`.
-- Partial unique `(user_id, idempotency_key)` where `idempotency_key is not null`.
+- Partial unique `(user_id, idempotency_key)` where `idempotency_key is not null and created_at > now() - interval '24 hours'` (alebo runtime enforcement cez SELECT ... FOR UPDATE s TTL check, aby expired riadky neblokovali reuse).
 
-2. Execution events durability (optional but recommended)
+2. Execution events durability (required for deterministic SSE replay)
 - Nova tabulka `execution_events`:
 - `execution_id`, `sequence`, `event_type`, `payload_json`, `created_at`.
 - Unique `(execution_id, sequence)`.

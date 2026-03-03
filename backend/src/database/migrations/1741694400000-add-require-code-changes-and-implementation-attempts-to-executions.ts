@@ -9,7 +9,7 @@ export class AddRequireCodeChangesAndImplementationAttemptsToExecutions174169440
       new TableColumn({
         name: 'require_code_changes',
         type: 'boolean',
-        default: 'false',
+        default: 'true',
       }),
       new TableColumn({
         name: 'implementation_attempts',

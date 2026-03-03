@@ -96,7 +96,7 @@ export function Dashboard() {
                 automationStatus: event.automationStatus,
                 pullRequestUrl: event.pullRequestUrl ?? e.pullRequestUrl,
                 automationErrorMessage:
-                  event.automationStatus === 'failed'
+                  event.automationStatus === 'failed' || event.automationStatus === 'no_changes'
                     ? (event.message ?? e.automationErrorMessage)
                     : null,
               }

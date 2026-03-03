@@ -51,7 +51,7 @@ class ChildProcessClaudeCliProcess implements ClaudeCliProcess {
 @Injectable()
 export class ChildProcessClaudeCliRunner implements ClaudeCliRunner {
   private readonly logger = new Logger(ChildProcessClaudeCliRunner.name);
-  private static readonly DEFAULT_MODEL = 'claude-opus-4-6';
+  private static readonly DEFAULT_MODEL = 'opus';
   private static readonly DEFAULT_ALLOWED_TOOLS =
     'Bash,Read,Edit,Write,Glob,Grep';
   private static readonly IMPLEMENTATION_PERMISSION_MODE = 'acceptEdits';
