@@ -183,7 +183,7 @@ export class ExecutionPublicationService {
         if (this.isStrictCodeChangesMode(execution)) {
           await this.cleanupBranch(execution, githubToken, branchName);
           branchCleanupHandled = true;
-          return this.handleStrictNoDiff(execution, branchName);
+          return await this.handleStrictNoDiff(execution);
         }
 
         if (!reportArtifactPath) {
@@ -276,7 +276,6 @@ export class ExecutionPublicationService {
 
   private async handleStrictNoDiff(
     execution: Execution,
-    branchName: string,
   ): Promise<CompletedPublicationResult> {
     if (
       execution.implementationAttempts <
@@ -312,7 +311,6 @@ export class ExecutionPublicationService {
       );
       this.publishAutomationEvent(execution.id, {
         automationStatus: 'pending',
-        branchName,
         message: `No code diff detected, retrying implementation attempt ${nextAttempt}/${maxAttempts}`,
       });
 

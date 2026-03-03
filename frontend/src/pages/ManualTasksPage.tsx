@@ -55,6 +55,7 @@ export function ManualTasksPage() {
   // Run dropdown
   const [runOpenId, setRunOpenId] = useState<string | null>(null);
   const [runningActions, setRunningActions] = useState<Set<string>>(new Set());
+  const inFlightRunRef = useRef<Set<string>>(new Set());
   const [publishPullRequest, setPublishPullRequest] = useState(true);
   const [requireCodeChanges, setRequireCodeChanges] = useState(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -171,6 +172,11 @@ export function ManualTasksPage() {
     }
 
     const key = `${task.id}-${action}`;
+    if (inFlightRunRef.current.has(key)) {
+      return;
+    }
+    inFlightRunRef.current.add(key);
+    const idempotencyKey = createIdempotencyKey();
     setRunningActions((prev) => new Set(prev).add(key));
     try {
       await api.post('/executions', {
@@ -184,13 +190,14 @@ export function ManualTasksPage() {
         publishPullRequest,
         requireCodeChanges,
       }, {
-        headers: { 'Idempotency-Key': createIdempotencyKey() },
+        headers: { 'Idempotency-Key': idempotencyKey },
       });
       setRunOpenId(null);
       toast.success(`${action.charAt(0).toUpperCase() + action.slice(1)} execution started`);
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to start execution'));
     } finally {
+      inFlightRunRef.current.delete(key);
       setRunningActions((prev) => {
         const next = new Set(prev);
         next.delete(key);
@@ -368,9 +375,7 @@ export function ManualTasksPage() {
                         }}
                         id={`run-menu-button-${task.id}`}
                         aria-label={`Run action for ${task.title}`}
-                        aria-haspopup="menu"
                         aria-expanded={runOpenId === task.id}
-                        aria-controls={runOpenId === task.id ? `run-menu-${task.id}` : undefined}
                         className="flex items-center gap-1 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
                         title="Run action"
                       >
@@ -380,20 +385,9 @@ export function ManualTasksPage() {
                       {runOpenId === task.id && (
                         <div
                           id={`run-menu-${task.id}`}
-                          role="menu"
-                          aria-labelledby={`run-menu-button-${task.id}`}
                           className="absolute right-0 top-full z-10 mt-1 min-w-[160px] rounded-lg border border-border bg-card p-1.5 shadow-lg"
                         >
                           <label
-                            role="menuitemcheckbox"
-                            aria-checked={publishPullRequest}
-                            tabIndex={0}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                setPublishPullRequest((prev) => !prev);
-                              }
-                            }}
                             className="flex items-center gap-2.5 rounded-md px-3 py-2 text-xs text-muted-foreground cursor-pointer select-none transition-colors hover:bg-foreground/10 hover:text-foreground"
                           >
                             <input
@@ -405,15 +399,6 @@ export function ManualTasksPage() {
                             Publish PR
                           </label>
                           <label
-                            role="menuitemcheckbox"
-                            aria-checked={requireCodeChanges}
-                            tabIndex={0}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                setRequireCodeChanges((prev) => !prev);
-                              }
-                            }}
                             className="flex items-center gap-2.5 rounded-md px-3 py-2 text-xs text-muted-foreground cursor-pointer select-none transition-colors hover:bg-foreground/10 hover:text-foreground"
                           >
                             <input
@@ -434,7 +419,6 @@ export function ManualTasksPage() {
                             const key = `${task.id}-${action}`;
                             return (
                               <button
-                                role="menuitem"
                                 key={action}
                                 type="button"
                                 disabled={runningActions.has(key) || !selectedRepo}

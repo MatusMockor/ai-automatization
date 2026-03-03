@@ -107,34 +107,55 @@ describe('ChildProcessClaudeCliRunner', () => {
     const runner = new ChildProcessClaudeCliRunner();
     const fake = createFakeChildProcess();
     spawnMock.mockReturnValue(fake.process);
+    const previousModel = process.env.EXECUTION_CLAUDE_MODEL;
+    const previousPermissionMode = process.env.EXECUTION_CLAUDE_PERMISSION_MODE;
+    const previousAllowedTools = process.env.EXECUTION_CLAUDE_ALLOWED_TOOLS;
     process.env.EXECUTION_CLAUDE_MODEL = 'claude-opus-4-6-custom';
     process.env.EXECUTION_CLAUDE_PERMISSION_MODE = 'override-permission';
     process.env.EXECUTION_CLAUDE_ALLOWED_TOOLS = 'Read,Edit,Write';
 
-    const startedProcessPromise = runner.start({
-      prompt: 'Implement a fix',
-      action: 'feature',
-      cwd: '/tmp/repo',
-      anthropicAuthToken: 'test-token',
-    });
+    try {
+      const startedProcessPromise = runner.start({
+        prompt: 'Implement a fix',
+        action: 'feature',
+        cwd: '/tmp/repo',
+        anthropicAuthToken: 'test-token',
+      });
 
-    fake.process.emit('spawn');
-    await startedProcessPromise;
+      fake.process.emit('spawn');
+      await startedProcessPromise;
 
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-    expect(spawnMock.mock.calls[0]?.[1]).toEqual(
-      expect.arrayContaining([
-        '--model',
-        'claude-opus-4-6-custom',
-        '--allowedTools',
-        'Read,Edit,Write',
-        '--permission-mode',
-        'override-permission',
-      ]),
-    );
-    expect(spawnMock.mock.calls[0]?.[1]).not.toEqual(
-      expect.arrayContaining(['--permission-mode', 'plan']),
-    );
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      expect(spawnMock.mock.calls[0]?.[1]).toEqual(
+        expect.arrayContaining([
+          '--model',
+          'claude-opus-4-6-custom',
+          '--allowedTools',
+          'Read,Edit,Write',
+          '--permission-mode',
+          'override-permission',
+        ]),
+      );
+      expect(spawnMock.mock.calls[0]?.[1]).not.toEqual(
+        expect.arrayContaining(['--permission-mode', 'plan']),
+      );
+    } finally {
+      if (previousModel === undefined) {
+        delete process.env.EXECUTION_CLAUDE_MODEL;
+      } else {
+        process.env.EXECUTION_CLAUDE_MODEL = previousModel;
+      }
+      if (previousPermissionMode === undefined) {
+        delete process.env.EXECUTION_CLAUDE_PERMISSION_MODE;
+      } else {
+        process.env.EXECUTION_CLAUDE_PERMISSION_MODE = previousPermissionMode;
+      }
+      if (previousAllowedTools === undefined) {
+        delete process.env.EXECUTION_CLAUDE_ALLOWED_TOOLS;
+      } else {
+        process.env.EXECUTION_CLAUDE_ALLOWED_TOOLS = previousAllowedTools;
+      }
+    }
   });
 
   it('should reject start when spawn emits error', async () => {
