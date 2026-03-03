@@ -151,7 +151,7 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
               'Failed to dead-letter malformed execution queue payload, returning to queue',
               error instanceof Error ? error.stack : String(error),
             );
-            await this.returnLastProcessingItemToQueue(client);
+            await this.returnProcessingItemToQueue(client, item);
           }
           continue;
         }
@@ -169,7 +169,7 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
                 ? failureError.stack
                 : String(failureError),
             );
-            await this.returnLastProcessingItemToQueue(client);
+            await this.returnProcessingItemToQueue(client, item);
           }
         }
       } catch (error) {
@@ -336,15 +336,18 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
     ]);
   }
 
-  private async returnLastProcessingItemToQueue(
+  private async returnProcessingItemToQueue(
     client: RedisClient,
+    rawPayload: string,
   ): Promise<void> {
-    await client.sendCommand<string | null>([
-      'LMOVE',
+    await client.sendCommand<number>([
+      'EVAL',
+      // Move back exactly the same payload that failed on this consumer.
+      "local removed = redis.call('LREM', KEYS[1], 1, ARGV[1]); if removed > 0 then return redis.call('LPUSH', KEYS[2], ARGV[1]); end; return 0;",
+      '2',
       this.processingQueueName,
       this.queueName,
-      'RIGHT',
-      'LEFT',
+      rawPayload,
     ]);
   }
 
