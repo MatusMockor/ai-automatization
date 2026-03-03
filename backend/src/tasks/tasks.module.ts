@@ -7,7 +7,9 @@ import { TaskManagersModule } from '../task-managers/task-managers.module';
 import { TasksController } from './tasks.controller';
 import { SyncedTaskScope } from './entities/synced-task-scope.entity';
 import { SyncedTask } from './entities/synced-task.entity';
+import { TaskScopeRepositoryDefault } from './entities/task-scope-repository-default.entity';
 import { TaskSyncRun } from './entities/task-sync-run.entity';
+import { TaskRepositoryDefaultsService } from './task-repository-defaults.service';
 import { TaskSyncService } from './task-sync.service';
 import { TasksService } from './tasks.service';
 
@@ -21,9 +23,10 @@ import { TasksService } from './tasks.service';
       SyncedTask,
       SyncedTaskScope,
       TaskSyncRun,
+      TaskScopeRepositoryDefault,
     ]),
   ],
   controllers: [TasksController],
-  providers: [TasksService, TaskSyncService],
+  providers: [TasksService, TaskSyncService, TaskRepositoryDefaultsService],
 })
 export class TasksModule {}

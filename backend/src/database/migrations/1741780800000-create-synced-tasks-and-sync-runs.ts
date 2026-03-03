@@ -188,6 +188,24 @@ export class CreateSyncedTasksAndSyncRuns1741780800000 implements MigrationInter
             length: '255',
           },
           {
+            name: 'parent_scope_type',
+            type: 'varchar',
+            length: '32',
+            isNullable: true,
+          },
+          {
+            name: 'parent_scope_id',
+            type: 'varchar',
+            length: '128',
+            isNullable: true,
+          },
+          {
+            name: 'parent_scope_name',
+            type: 'varchar',
+            length: '255',
+            isNullable: true,
+          },
+          {
             name: 'is_primary',
             type: 'boolean',
             default: false,
@@ -216,11 +234,117 @@ export class CreateSyncedTasksAndSyncRuns1741780800000 implements MigrationInter
             name: 'IDX_synced_task_scopes_scope_type_id',
             columnNames: ['scope_type', 'scope_id'],
           }),
+          new TableIndex({
+            name: 'IDX_synced_task_scopes_parent_scope',
+            columnNames: ['parent_scope_type', 'parent_scope_id'],
+          }),
         ],
         checks: [
           new TableCheck({
             name: 'CHK_synced_task_scopes_scope_type',
-            expression: `scope_type IN ('asana_workspace', 'jira_project')`,
+            expression: `scope_type IN ('asana_workspace', 'asana_project', 'jira_project')`,
+          }),
+          new TableCheck({
+            name: 'CHK_synced_task_scopes_parent_scope_type',
+            expression: `parent_scope_type IS NULL OR parent_scope_type IN ('asana_workspace', 'jira_project')`,
+          }),
+          new TableCheck({
+            name: 'CHK_synced_task_scopes_parent_scope_pair',
+            expression:
+              '(parent_scope_type IS NULL AND parent_scope_id IS NULL AND parent_scope_name IS NULL) OR (parent_scope_type IS NOT NULL AND parent_scope_id IS NOT NULL AND parent_scope_name IS NOT NULL)',
+          }),
+        ],
+      }),
+      true,
+    );
+
+    await queryRunner.createTable(
+      new Table({
+        name: 'task_scope_repository_defaults',
+        columns: [
+          {
+            name: 'id',
+            type: 'uuid',
+            isPrimary: true,
+            isGenerated: true,
+            generationStrategy: 'uuid',
+            default: 'uuid_generate_v4()',
+          },
+          {
+            name: 'user_id',
+            type: 'uuid',
+          },
+          {
+            name: 'provider',
+            type: 'varchar',
+            length: '32',
+          },
+          {
+            name: 'scope_type',
+            type: 'varchar',
+            length: '32',
+            isNullable: true,
+          },
+          {
+            name: 'scope_id',
+            type: 'varchar',
+            length: '128',
+            isNullable: true,
+          },
+          {
+            name: 'repository_id',
+            type: 'uuid',
+          },
+          {
+            name: 'created_at',
+            type: 'timestamptz',
+            default: 'now()',
+          },
+          {
+            name: 'updated_at',
+            type: 'timestamptz',
+            default: 'now()',
+          },
+        ],
+        uniques: [
+          new TableUnique({
+            name: 'UQ_task_scope_repository_defaults_user_provider_scope',
+            columnNames: ['user_id', 'provider', 'scope_type', 'scope_id'],
+          }),
+        ],
+        foreignKeys: [
+          new TableForeignKey({
+            columnNames: ['user_id'],
+            referencedTableName: 'users',
+            referencedColumnNames: ['id'],
+            onDelete: 'CASCADE',
+          }),
+          new TableForeignKey({
+            columnNames: ['repository_id'],
+            referencedTableName: 'repositories',
+            referencedColumnNames: ['id'],
+            onDelete: 'CASCADE',
+          }),
+        ],
+        indices: [
+          new TableIndex({
+            name: 'IDX_task_scope_repo_defaults_user_provider',
+            columnNames: ['user_id', 'provider'],
+          }),
+        ],
+        checks: [
+          new TableCheck({
+            name: 'CHK_task_scope_repo_defaults_provider',
+            expression: `provider IN ('asana', 'jira')`,
+          }),
+          new TableCheck({
+            name: 'CHK_task_scope_repo_defaults_scope_type',
+            expression: `scope_type IS NULL OR scope_type IN ('asana_workspace', 'asana_project', 'jira_project')`,
+          }),
+          new TableCheck({
+            name: 'CHK_task_scope_repo_defaults_scope_pair',
+            expression:
+              '(scope_type IS NULL AND scope_id IS NULL) OR (scope_type IS NOT NULL AND scope_id IS NOT NULL)',
           }),
         ],
       }),
@@ -321,6 +445,7 @@ export class CreateSyncedTasksAndSyncRuns1741780800000 implements MigrationInter
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.dropTable('task_sync_runs', true);
+    await queryRunner.dropTable('task_scope_repository_defaults', true);
     await queryRunner.dropTable('synced_task_scopes', true);
     await queryRunner.dropTable('synced_tasks', true);
 

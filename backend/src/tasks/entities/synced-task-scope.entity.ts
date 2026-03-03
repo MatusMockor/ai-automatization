@@ -9,12 +9,19 @@ import {
 } from 'typeorm';
 import { SyncedTask } from './synced-task.entity';
 
-export type SyncedTaskScopeType = 'asana_workspace' | 'jira_project';
+export type SyncedTaskScopeType =
+  | 'asana_workspace'
+  | 'asana_project'
+  | 'jira_project';
 
 @Entity({ name: 'synced_task_scopes' })
 @Unique('UQ_synced_task_scopes_task_scope', ['taskId', 'scopeType', 'scopeId'])
 @Index('IDX_synced_task_scopes_task_id', ['taskId'])
 @Index('IDX_synced_task_scopes_scope_type_id', ['scopeType', 'scopeId'])
+@Index('IDX_synced_task_scopes_parent_scope', [
+  'parentScopeType',
+  'parentScopeId',
+])
 export class SyncedTaskScope {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -34,6 +41,30 @@ export class SyncedTaskScope {
 
   @Column({ name: 'scope_name', type: 'varchar', length: 255 })
   scopeName!: string;
+
+  @Column({
+    name: 'parent_scope_type',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  parentScopeType!: 'asana_workspace' | 'jira_project' | null;
+
+  @Column({
+    name: 'parent_scope_id',
+    type: 'varchar',
+    length: 128,
+    nullable: true,
+  })
+  parentScopeId!: string | null;
+
+  @Column({
+    name: 'parent_scope_name',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  parentScopeName!: string | null;
 
   @Column({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary!: boolean;

@@ -84,12 +84,43 @@ class FakeAsanaTaskManagerProvider implements TaskManagerProvider {
 
   async listSyncScopes(
     config: TaskManagerConnectionConfig,
-  ): Promise<Array<{ type: 'asana_workspace'; id: string; name: string }>> {
+  ): Promise<ProviderSyncScope[]> {
     if (config.provider !== 'asana') {
       throw new Error('Invalid provider config for Asana fake provider');
     }
 
+    if (config.projectId) {
+      return [
+        {
+          type: 'asana_project',
+          id: config.projectId,
+          name: `Project ${config.projectId}`,
+          parent: config.workspaceId
+            ? {
+                type: 'asana_workspace',
+                id: config.workspaceId,
+                name: `Workspace ${config.workspaceId}`,
+              }
+            : undefined,
+        },
+      ];
+    }
+
     if (config.workspaceId) {
+      const projectIds = this.listProjectIdsForWorkspace(config.workspaceId);
+      if (projectIds.length > 0) {
+        return projectIds.map((projectId) => ({
+          type: 'asana_project',
+          id: projectId,
+          name: `Project ${projectId}`,
+          parent: {
+            type: 'asana_workspace',
+            id: config.workspaceId ?? '',
+            name: `Workspace ${config.workspaceId}`,
+          },
+        }));
+      }
+
       return [
         {
           type: 'asana_workspace',
@@ -99,16 +130,35 @@ class FakeAsanaTaskManagerProvider implements TaskManagerProvider {
       ];
     }
 
-    const workspaceIds = [...this.tasksByScope.keys()]
-      .concat([...this.failuresByScope.keys()])
-      .map((scopeKey) => scopeKey.split(':')[0] ?? '')
-      .filter((workspaceId) => workspaceId.length > 0 && workspaceId !== '*');
+    const workspaceIds = this.listWorkspaceIds();
+    const scopes: ProviderSyncScope[] = [];
 
-    return [...new Set(workspaceIds)].map((workspaceId) => ({
-      type: 'asana_workspace',
-      id: workspaceId,
-      name: `Workspace ${workspaceId}`,
-    }));
+    for (const workspaceId of workspaceIds) {
+      const projectIds = this.listProjectIdsForWorkspace(workspaceId);
+      if (projectIds.length > 0) {
+        scopes.push(
+          ...projectIds.map((projectId) => ({
+            type: 'asana_project' as const,
+            id: projectId,
+            name: `Project ${projectId}`,
+            parent: {
+              type: 'asana_workspace' as const,
+              id: workspaceId,
+              name: `Workspace ${workspaceId}`,
+            },
+          })),
+        );
+        continue;
+      }
+
+      scopes.push({
+        type: 'asana_workspace',
+        id: workspaceId,
+        name: `Workspace ${workspaceId}`,
+      });
+    }
+
+    return scopes;
   }
 
   async fetchTasksForScope(
@@ -120,32 +170,46 @@ class FakeAsanaTaskManagerProvider implements TaskManagerProvider {
     if (config.provider !== 'asana') {
       throw new Error('Invalid provider config for Asana fake provider');
     }
-    if (scope.type !== 'asana_workspace') {
-      throw new Error('Invalid scope type for Asana fake provider');
-    }
-
-    const matchingFailureKey = [...this.failuresByScope.keys()].find(
-      (scopeKey) => scopeKey.startsWith(`${scope.id}:`),
-    );
-    if (matchingFailureKey) {
-      this.throwFailure(matchingFailureKey);
-    }
-
     const startAt = this.parseCursor(cursor);
-    const tasks = [...this.tasksByScope.entries()]
-      .filter(([scopeKey]) => scopeKey.startsWith(`${scope.id}:`))
-      .flatMap(([, scopeTasks]) => scopeTasks);
-    const sortedTasks = this.sortTasks(tasks);
-    const paginatedTasks = sortedTasks.slice(startAt, startAt + limit);
-    const nextCursor =
-      startAt + paginatedTasks.length < sortedTasks.length
-        ? String(startAt + paginatedTasks.length)
-        : null;
 
-    return {
-      tasks: paginatedTasks,
-      nextCursor,
-    };
+    if (scope.type === 'asana_project') {
+      const workspaceId = scope.parent?.id ?? null;
+      const matchingFailureKeys = [...this.failuresByScope.keys()].filter(
+        (scopeKey) =>
+          scopeKey.endsWith(`:${scope.id}`) &&
+          (workspaceId === null || scopeKey.startsWith(`${workspaceId}:`)),
+      );
+      for (const scopeKey of matchingFailureKeys) {
+        this.throwFailure(scopeKey);
+      }
+
+      const matchingScopeKeys = [...this.tasksByScope.keys()].filter(
+        (scopeKey) =>
+          scopeKey.endsWith(`:${scope.id}`) &&
+          (workspaceId === null || scopeKey.startsWith(`${workspaceId}:`)),
+      );
+      const tasks = matchingScopeKeys.flatMap(
+        (scopeKey) => this.tasksByScope.get(scopeKey) ?? [],
+      );
+      return this.paginateTasks(tasks, startAt, limit);
+    }
+
+    if (scope.type === 'asana_workspace') {
+      const matchingFailureKey = [...this.failuresByScope.keys()].find(
+        (scopeKey) => scopeKey.startsWith(`${scope.id}:`),
+      );
+      if (matchingFailureKey) {
+        this.throwFailure(matchingFailureKey);
+      }
+
+      const tasks = [...this.tasksByScope.entries()]
+        .filter(([scopeKey]) => scopeKey.startsWith(`${scope.id}:`))
+        .flatMap(([, scopeTasks]) => scopeTasks);
+
+      return this.paginateTasks(tasks, startAt, limit);
+    }
+
+    throw new Error('Invalid scope type for Asana fake provider');
   }
 
   private buildScopeKey(
@@ -180,6 +244,47 @@ class FakeAsanaTaskManagerProvider implements TaskManagerProvider {
 
       return a.externalId.localeCompare(b.externalId);
     });
+  }
+
+  private paginateTasks(
+    tasks: ProviderTask[],
+    startAt: number,
+    limit: number,
+  ): { tasks: ProviderTask[]; nextCursor: string | null } {
+    const sortedTasks = this.sortTasks(tasks);
+    const paginatedTasks = sortedTasks.slice(startAt, startAt + limit);
+    const nextCursor =
+      startAt + paginatedTasks.length < sortedTasks.length
+        ? String(startAt + paginatedTasks.length)
+        : null;
+
+    return {
+      tasks: paginatedTasks,
+      nextCursor,
+    };
+  }
+
+  private listWorkspaceIds(): string[] {
+    return [
+      ...new Set(
+        [...this.tasksByScope.keys(), ...this.failuresByScope.keys()]
+          .map((scopeKey) => scopeKey.split(':')[0] ?? '')
+          .filter(
+            (workspaceId) => workspaceId.length > 0 && workspaceId !== '*',
+          ),
+      ),
+    ];
+  }
+
+  private listProjectIdsForWorkspace(workspaceId: string): string[] {
+    return [
+      ...new Set(
+        [...this.tasksByScope.keys(), ...this.failuresByScope.keys()]
+          .filter((scopeKey) => scopeKey.startsWith(`${workspaceId}:`))
+          .map((scopeKey) => scopeKey.split(':')[1] ?? '')
+          .filter((projectId) => projectId.length > 0 && projectId !== '*'),
+      ),
+    ];
   }
 
   private parseCursor(cursor: string | undefined): number {
@@ -913,6 +1018,11 @@ describe('Tasks (e2e)', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json<{
       asanaWorkspaces: Array<{ id: string; taskCount: number }>;
+      asanaProjects: Array<{
+        id: string;
+        workspaceId: string;
+        taskCount: number;
+      }>;
       jiraProjects: Array<{ key: string; taskCount: number }>;
     }>();
 
@@ -932,13 +1042,24 @@ describe('Tasks (e2e)', () => {
         }),
       ]),
     );
+    expect(body.asanaProjects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: asanaProjectId,
+          workspaceId: asanaWorkspaceId,
+          taskCount: 1,
+        }),
+      ]),
+    );
   });
 
-  it('GET /api/tasks should apply asanaWorkspaceId and jiraProjectKey filters', async () => {
+  it('GET /api/tasks should apply asanaWorkspaceId, asanaProjectId and jiraProjectKey filters', async () => {
     const session = await createLoginSession();
 
     const asanaWorkspaceA = faker.string.numeric(8);
     const asanaWorkspaceB = faker.string.numeric(8);
+    const asanaProjectA = faker.string.numeric(8);
+    const asanaProjectB = faker.string.numeric(8);
     const jiraBaseUrl = 'https://scope-filter.atlassian.net';
     const jiraProjectA = 'SFA';
     const jiraProjectB = 'SFB';
@@ -947,15 +1068,15 @@ describe('Tasks (e2e)', () => {
       userId: session.userId,
       provider: 'asana',
       workspaceId: asanaWorkspaceA,
-      projectId: faker.string.numeric(8),
-      scopeKey: `asana:${asanaWorkspaceA}:*`,
+      projectId: asanaProjectA,
+      scopeKey: `asana:${asanaWorkspaceA}:${asanaProjectA}`,
     });
     await connectionFactory.create({
       userId: session.userId,
       provider: 'asana',
       workspaceId: asanaWorkspaceB,
-      projectId: faker.string.numeric(8),
-      scopeKey: `asana:${asanaWorkspaceB}:*`,
+      projectId: asanaProjectB,
+      scopeKey: `asana:${asanaWorkspaceB}:${asanaProjectB}`,
     });
     await connectionFactory.create({
       userId: session.userId,
@@ -974,14 +1095,14 @@ describe('Tasks (e2e)', () => {
       authMode: 'bearer',
     });
 
-    fakeAsanaProvider.seedTasks(asanaWorkspaceA, null, [
+    fakeAsanaProvider.seedTasks(asanaWorkspaceA, asanaProjectA, [
       buildProviderTask({
         externalId: 'F-A-1',
         title: 'fix/ workspace A task',
         updatedAt: '2026-03-16T10:00:00.000Z',
       }),
     ]);
-    fakeAsanaProvider.seedTasks(asanaWorkspaceB, null, [
+    fakeAsanaProvider.seedTasks(asanaWorkspaceB, asanaProjectB, [
       buildProviderTask({
         externalId: 'F-A-2',
         title: 'fix/ workspace B task',
@@ -1016,6 +1137,34 @@ describe('Tasks (e2e)', () => {
     expect(asanaFiltered.statusCode).toBe(200);
     expect(
       asanaFiltered
+        .json<{ items: Array<{ externalId: string }> }>()
+        .items.map((item) => item.externalId),
+    ).toEqual(['F-A-1']);
+
+    const asanaProjectFiltered = await app.inject({
+      method: 'GET',
+      url: `/api/tasks?asanaProjectId=${asanaProjectB}`,
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(asanaProjectFiltered.statusCode).toBe(200);
+    expect(
+      asanaProjectFiltered
+        .json<{ items: Array<{ externalId: string }> }>()
+        .items.map((item) => item.externalId),
+    ).toEqual(['F-A-2']);
+
+    const asanaCombinedFiltered = await app.inject({
+      method: 'GET',
+      url: `/api/tasks?asanaWorkspaceId=${asanaWorkspaceA}&asanaProjectId=${asanaProjectA}`,
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(asanaCombinedFiltered.statusCode).toBe(200);
+    expect(
+      asanaCombinedFiltered
         .json<{ items: Array<{ externalId: string }> }>()
         .items.map((item) => item.externalId),
     ).toEqual(['F-A-1']);
@@ -1084,6 +1233,247 @@ describe('Tasks (e2e)', () => {
       },
     });
     expect(response.json<{ items: unknown[] }>().items).toEqual([]);
+  });
+
+  it('repository defaults API should drive suggested repository priority (project > workspace > provider)', async () => {
+    const session = await createLoginSession();
+    const workspaceId = faker.string.numeric(8);
+    const projectId = faker.string.numeric(8);
+
+    await connectionFactory.create({
+      userId: session.userId,
+      provider: 'asana',
+      workspaceId,
+      projectId,
+      scopeKey: `asana:${workspaceId}:${projectId}`,
+    });
+
+    const providerRepository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+    const workspaceRepository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+    const projectRepository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+
+    fakeAsanaProvider.seedTasks(workspaceId, projectId, [
+      buildProviderTask({
+        externalId: 'MAP-1',
+        title: 'fix/ task with mapping',
+        updatedAt: '2026-03-16T12:00:00.000Z',
+      }),
+    ]);
+
+    const run = await startAndAwaitSync(session);
+    expect(run.status).toBe('completed');
+
+    const setProviderDefault = await app.inject({
+      method: 'PUT',
+      url: '/api/tasks/repository-defaults',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        provider: 'asana',
+        repositoryId: providerRepository.id,
+      },
+    });
+    expect(setProviderDefault.statusCode).toBe(200);
+
+    let tasksResponse = await app.inject({
+      method: 'GET',
+      url: '/api/tasks',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(tasksResponse.statusCode).toBe(200);
+    expect(
+      tasksResponse.json<{
+        items: Array<{
+          suggestedRepositoryId: string | null;
+          repositorySelectionSource: string | null;
+        }>;
+      }>().items[0],
+    ).toEqual(
+      expect.objectContaining({
+        suggestedRepositoryId: providerRepository.id,
+        repositorySelectionSource: 'provider_default',
+      }),
+    );
+
+    const setWorkspaceDefault = await app.inject({
+      method: 'PUT',
+      url: '/api/tasks/repository-defaults',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        provider: 'asana',
+        repositoryId: workspaceRepository.id,
+        scopeType: 'asana_workspace',
+        scopeId: workspaceId,
+      },
+    });
+    expect(setWorkspaceDefault.statusCode).toBe(200);
+
+    tasksResponse = await app.inject({
+      method: 'GET',
+      url: '/api/tasks',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(tasksResponse.statusCode).toBe(200);
+    expect(
+      tasksResponse.json<{
+        items: Array<{
+          suggestedRepositoryId: string | null;
+          repositorySelectionSource: string | null;
+        }>;
+      }>().items[0],
+    ).toEqual(
+      expect.objectContaining({
+        suggestedRepositoryId: workspaceRepository.id,
+        repositorySelectionSource: 'asana_workspace',
+      }),
+    );
+
+    const setProjectDefault = await app.inject({
+      method: 'PUT',
+      url: '/api/tasks/repository-defaults',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        provider: 'asana',
+        repositoryId: projectRepository.id,
+        scopeType: 'asana_project',
+        scopeId: projectId,
+      },
+    });
+    expect(setProjectDefault.statusCode).toBe(200);
+
+    tasksResponse = await app.inject({
+      method: 'GET',
+      url: '/api/tasks',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(tasksResponse.statusCode).toBe(200);
+    expect(
+      tasksResponse.json<{
+        items: Array<{
+          suggestedRepositoryId: string | null;
+          repositorySelectionSource: string | null;
+        }>;
+      }>().items[0],
+    ).toEqual(
+      expect.objectContaining({
+        suggestedRepositoryId: projectRepository.id,
+        repositorySelectionSource: 'asana_project',
+      }),
+    );
+
+    const listDefaultsResponse = await app.inject({
+      method: 'GET',
+      url: '/api/tasks/repository-defaults',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(listDefaultsResponse.statusCode).toBe(200);
+    const listedDefaults = listDefaultsResponse.json<{
+      items: Array<{
+        provider: string;
+        scopeType: string | null;
+        scopeId: string | null;
+        repositoryId: string;
+      }>;
+    }>();
+    expect(listedDefaults.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: 'asana',
+          scopeType: null,
+          scopeId: null,
+          repositoryId: providerRepository.id,
+        }),
+        expect.objectContaining({
+          provider: 'asana',
+          scopeType: 'asana_workspace',
+          scopeId: workspaceId,
+          repositoryId: workspaceRepository.id,
+        }),
+        expect.objectContaining({
+          provider: 'asana',
+          scopeType: 'asana_project',
+          scopeId: projectId,
+          repositoryId: projectRepository.id,
+        }),
+      ]),
+    );
+
+    const deleteProjectDefault = await app.inject({
+      method: 'DELETE',
+      url: '/api/tasks/repository-defaults',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        provider: 'asana',
+        scopeType: 'asana_project',
+        scopeId: projectId,
+      },
+    });
+    expect(deleteProjectDefault.statusCode).toBe(204);
+
+    tasksResponse = await app.inject({
+      method: 'GET',
+      url: '/api/tasks',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(tasksResponse.statusCode).toBe(200);
+    expect(
+      tasksResponse.json<{
+        items: Array<{
+          suggestedRepositoryId: string | null;
+          repositorySelectionSource: string | null;
+        }>;
+      }>().items[0],
+    ).toEqual(
+      expect.objectContaining({
+        suggestedRepositoryId: workspaceRepository.id,
+        repositorySelectionSource: 'asana_workspace',
+      }),
+    );
+  });
+
+  it('repository defaults API should enforce repository ownership', async () => {
+    const ownerSession = await createLoginSession();
+    const attackerSession = await createLoginSession();
+    const foreignRepository = await repositoryFactory.create({
+      userId: ownerSession.userId,
+    });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/tasks/repository-defaults',
+      headers: {
+        authorization: `Bearer ${attackerSession.accessToken}`,
+      },
+      payload: {
+        provider: 'asana',
+        repositoryId: foreignRepository.id,
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
   });
 
   it('GET /api/tasks should return 400 for invalid limit values', async () => {

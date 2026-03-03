@@ -27,7 +27,19 @@ import { TaskSyncRun } from './entities/task-sync-run.entity';
 
 type AggregatedTask = {
   task: ProviderTask;
-  scopes: Map<string, { type: SyncedTaskScopeType; id: string; name: string }>;
+  scopes: Map<
+    string,
+    {
+      type: SyncedTaskScopeType;
+      id: string;
+      name: string;
+      parent?: {
+        type: 'asana_workspace' | 'jira_project';
+        id: string;
+        name: string;
+      };
+    }
+  >;
 };
 
 @Injectable()
@@ -105,44 +117,126 @@ export class TaskSyncService {
   }
 
   async listScopesForUser(userId: string): Promise<TaskScopesResponseDto> {
-    const rawScopes = await this.syncedTaskScopeRepository
+    const rawScopeRows = await this.syncedTaskScopeRepository
       .createQueryBuilder('scope')
       .innerJoin('scope.task', 'task')
       .select('scope.scopeType', 'scopeType')
       .addSelect('scope.scopeId', 'scopeId')
       .addSelect('scope.scopeName', 'scopeName')
-      .addSelect('COUNT(DISTINCT task.id)', 'taskCount')
+      .addSelect('scope.parentScopeType', 'parentScopeType')
+      .addSelect('scope.parentScopeId', 'parentScopeId')
+      .addSelect('scope.parentScopeName', 'parentScopeName')
+      .addSelect('task.id', 'taskId')
       .where('task.userId = :userId', { userId })
-      .groupBy('scope.scopeType')
-      .addGroupBy('scope.scopeId')
-      .addGroupBy('scope.scopeName')
       .getRawMany<{
         scopeType: SyncedTaskScopeType;
         scopeId: string;
         scopeName: string;
-        taskCount: string;
+        parentScopeType: 'asana_workspace' | 'jira_project' | null;
+        parentScopeId: string | null;
+        parentScopeName: string | null;
+        taskId: string;
       }>();
 
-    const asanaWorkspaces = rawScopes
-      .filter((scope) => scope.scopeType === 'asana_workspace')
-      .map((scope) => ({
-        id: scope.scopeId,
-        name: scope.scopeName,
-        taskCount: Number.parseInt(scope.taskCount, 10) || 0,
+    const workspaceTaskIds = new Map<
+      string,
+      {
+        name: string;
+        taskIds: Set<string>;
+      }
+    >();
+    const projectTaskIds = new Map<
+      string,
+      {
+        name: string;
+        workspaceId: string;
+        workspaceName: string;
+        taskIds: Set<string>;
+      }
+    >();
+    const jiraTaskIds = new Map<
+      string,
+      {
+        name: string;
+        taskIds: Set<string>;
+      }
+    >();
+
+    for (const row of rawScopeRows) {
+      if (row.scopeType === 'asana_workspace') {
+        const existing = workspaceTaskIds.get(row.scopeId) ?? {
+          name: row.scopeName,
+          taskIds: new Set<string>(),
+        };
+        existing.taskIds.add(row.taskId);
+        workspaceTaskIds.set(row.scopeId, existing);
+        continue;
+      }
+
+      if (row.scopeType === 'asana_project') {
+        if (
+          row.parentScopeType === 'asana_workspace' &&
+          row.parentScopeId &&
+          row.parentScopeName
+        ) {
+          const workspace = workspaceTaskIds.get(row.parentScopeId) ?? {
+            name: row.parentScopeName,
+            taskIds: new Set<string>(),
+          };
+          workspace.taskIds.add(row.taskId);
+          workspaceTaskIds.set(row.parentScopeId, workspace);
+
+          const project = projectTaskIds.get(row.scopeId) ?? {
+            name: row.scopeName,
+            workspaceId: row.parentScopeId,
+            workspaceName: row.parentScopeName,
+            taskIds: new Set<string>(),
+          };
+          project.taskIds.add(row.taskId);
+          projectTaskIds.set(row.scopeId, project);
+        }
+        continue;
+      }
+
+      if (row.scopeType === 'jira_project') {
+        const existing = jiraTaskIds.get(row.scopeId) ?? {
+          name: row.scopeName,
+          taskIds: new Set<string>(),
+        };
+        existing.taskIds.add(row.taskId);
+        jiraTaskIds.set(row.scopeId, existing);
+      }
+    }
+
+    const asanaWorkspaces = [...workspaceTaskIds.entries()]
+      .map(([id, workspace]) => ({
+        id,
+        name: workspace.name,
+        taskCount: workspace.taskIds.size,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    const jiraProjects = rawScopes
-      .filter((scope) => scope.scopeType === 'jira_project')
-      .map((scope) => ({
-        key: scope.scopeId,
-        name: scope.scopeName,
-        taskCount: Number.parseInt(scope.taskCount, 10) || 0,
+    const asanaProjects = [...projectTaskIds.entries()]
+      .map(([id, project]) => ({
+        id,
+        name: project.name,
+        workspaceId: project.workspaceId,
+        workspaceName: project.workspaceName,
+        taskCount: project.taskIds.size,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const jiraProjects = [...jiraTaskIds.entries()]
+      .map(([key, project]) => ({
+        key,
+        name: project.name,
+        taskCount: project.taskIds.size,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
     return {
       asanaWorkspaces,
+      asanaProjects,
       jiraProjects,
     };
   }
@@ -484,7 +578,14 @@ export class TaskSyncService {
     const scopeRows: Array<
       Pick<
         SyncedTaskScope,
-        'taskId' | 'scopeType' | 'scopeId' | 'scopeName' | 'isPrimary'
+        | 'taskId'
+        | 'scopeType'
+        | 'scopeId'
+        | 'scopeName'
+        | 'parentScopeType'
+        | 'parentScopeId'
+        | 'parentScopeName'
+        | 'isPrimary'
       >
     > = [];
 
@@ -504,6 +605,9 @@ export class TaskSyncService {
           scopeType: scope.type,
           scopeId: scope.id,
           scopeName: scope.name,
+          parentScopeType: scope.parent?.type ?? null,
+          parentScopeId: scope.parent?.id ?? null,
+          parentScopeName: scope.parent?.name ?? null,
           isPrimary: index === 0,
         });
       });
@@ -597,9 +701,15 @@ export class TaskSyncService {
     type: SyncedTaskScopeType;
     id: string;
     name: string;
+    parent?: {
+      type: 'asana_workspace' | 'jira_project';
+      id: string;
+      name: string;
+    };
   } {
     const scopeTypeMap: Record<ProviderSyncScopeType, SyncedTaskScopeType> = {
       asana_workspace: 'asana_workspace',
+      asana_project: 'asana_project',
       jira_project: 'jira_project',
     };
 
@@ -607,6 +717,14 @@ export class TaskSyncService {
       type: scopeTypeMap[scope.type],
       id: scope.id,
       name: scope.name,
+      parent:
+        scope.parent === undefined
+          ? undefined
+          : {
+              type: scope.parent.type,
+              id: scope.parent.id,
+              name: scope.parent.name,
+            },
     };
   }
 

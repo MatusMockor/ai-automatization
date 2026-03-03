@@ -49,11 +49,11 @@ type AsanaProjectsApi = {
   getProject(
     projectId: string,
     opts?: Record<string, unknown>,
-  ): Promise<AsanaApiEnvelope<{ gid?: string }>>;
+  ): Promise<AsanaApiEnvelope<AsanaProjectResponse>>;
   getProjectsForWorkspace(
     workspaceId: string,
     opts?: Record<string, unknown>,
-  ): Promise<AsanaApiEnvelope<Array<{ gid?: string; name?: string }>>>;
+  ): Promise<AsanaApiEnvelope<AsanaProjectResponse[]>>;
 };
 
 type AsanaTasksApi = {
@@ -79,6 +79,20 @@ type AsanaApiEnvelope<TData> = {
   next_page?: {
     offset?: string;
   };
+};
+
+type AsanaWorkspaceResponse = {
+  gid?: string;
+  name?: string;
+};
+
+type AsanaProjectResponse = {
+  gid?: string;
+  name?: string;
+  workspace?: {
+    gid?: string;
+    name?: string;
+  } | null;
 };
 
 type AsanaTaskResponse = {
@@ -243,37 +257,70 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
     const asanaConfig = this.assertAsanaConfig(config);
     const client = this.createApiClient(asanaConfig.personalAccessToken);
     const workspacesApi = new AsanaSdk.WorkspacesApi(client);
+    const projectsApi = new AsanaSdk.ProjectsApi(client);
 
-    if (asanaConfig.workspaceId) {
-      let workspaceResult: AsanaApiEnvelope<{ gid?: string; name?: string }>;
+    if (asanaConfig.projectId) {
+      let projectResult: AsanaApiEnvelope<AsanaProjectResponse>;
       try {
-        workspaceResult = await workspacesApi.getWorkspace(
-          asanaConfig.workspaceId,
-          {
-            opt_fields: ['gid', 'name'],
-          },
-        );
+        projectResult = await projectsApi.getProject(asanaConfig.projectId, {
+          opt_fields: ['gid', 'name', 'workspace.gid', 'workspace.name'],
+        });
       } catch (error) {
         this.throwMappedAsanaError(
           error,
-          `Unable to load Asana workspace ${asanaConfig.workspaceId}`,
-          { notFoundMessage: 'Asana workspace not found' },
+          `Unable to load Asana project ${asanaConfig.projectId}`,
+          { notFoundMessage: 'Asana project not found' },
         );
       }
 
-      const workspaceId = workspaceResult.data?.gid ?? asanaConfig.workspaceId;
-      const workspaceName = workspaceResult.data?.name ?? workspaceId;
+      const projectId = projectResult.data?.gid ?? asanaConfig.projectId;
+      const projectName = projectResult.data?.name ?? projectId;
+      const projectWorkspace = projectResult.data?.workspace;
+      const workspaceId = projectWorkspace?.gid ?? asanaConfig.workspaceId;
+      const workspaceName =
+        projectWorkspace?.name ?? asanaConfig.workspaceId ?? workspaceId;
 
       return [
         {
-          type: 'asana_workspace',
-          id: workspaceId,
-          name: workspaceName,
+          type: 'asana_project',
+          id: projectId,
+          name: projectName,
+          parent:
+            workspaceId && workspaceName
+              ? {
+                  type: 'asana_workspace',
+                  id: workspaceId,
+                  name: workspaceName,
+                }
+              : undefined,
         },
       ];
     }
 
-    let result: AsanaApiEnvelope<Array<{ gid?: string; name?: string }>>;
+    if (asanaConfig.workspaceId) {
+      const workspace = await this.getWorkspaceOrThrow(
+        workspacesApi,
+        asanaConfig.workspaceId,
+      );
+      const projectScopes = await this.listProjectScopesForWorkspace(
+        projectsApi,
+        workspace,
+      );
+
+      if (projectScopes.length > 0) {
+        return projectScopes;
+      }
+
+      return [
+        {
+          type: 'asana_workspace',
+          id: workspace.id,
+          name: workspace.name,
+        },
+      ];
+    }
+
+    let result: AsanaApiEnvelope<AsanaWorkspaceResponse[]>;
     try {
       result = await workspacesApi.getWorkspaces({
         limit: 100,
@@ -284,16 +331,34 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
     }
 
     const workspaces = Array.isArray(result.data) ? result.data : [];
+    const scopes: ProviderSyncScope[] = [];
 
-    return workspaces
-      .filter((workspace): workspace is { gid: string; name: string } =>
-        Boolean(workspace.gid && workspace.name),
-      )
-      .map((workspace) => ({
-        type: 'asana_workspace',
+    for (const workspace of workspaces) {
+      if (!workspace.gid || !workspace.name) {
+        continue;
+      }
+
+      const normalizedWorkspace = {
         id: workspace.gid,
         name: workspace.name,
-      }));
+      };
+      const projectScopes = await this.listProjectScopesForWorkspace(
+        projectsApi,
+        normalizedWorkspace,
+      );
+
+      if (projectScopes.length > 0) {
+        scopes.push(...projectScopes);
+      } else {
+        scopes.push({
+          type: 'asana_workspace',
+          id: normalizedWorkspace.id,
+          name: normalizedWorkspace.name,
+        });
+      }
+    }
+
+    return scopes;
   }
 
   async fetchTasksForScope(
@@ -303,139 +368,122 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
     cursor?: string,
   ): Promise<ProviderScopeTaskPage> {
     const asanaConfig = this.assertAsanaConfig(config);
-    if (scope.type !== 'asana_workspace') {
-      throw new TaskManagerProviderConfigurationError(
-        'Asana provider received unsupported sync scope type',
-      );
-    }
-
     const client = this.createApiClient(asanaConfig.personalAccessToken);
     const tasksApi = new AsanaSdk.TasksApi(client);
-    const projectsApi = new AsanaSdk.ProjectsApi(client);
+    const opts: Record<string, unknown> = {
+      limit,
+      offset: cursor,
+      opt_fields: [
+        'gid',
+        'name',
+        'notes',
+        'permalink_url',
+        'completed',
+        'assignee.name',
+        'modified_at',
+      ],
+    };
 
-    let projectsResult: AsanaApiEnvelope<
-      Array<{ gid?: string; name?: string }>
-    >;
+    let result: AsanaApiEnvelope<AsanaTaskResponse[]>;
+    if (scope.type === 'asana_project') {
+      try {
+        result = await tasksApi.getTasksForProject(scope.id, opts);
+      } catch (error) {
+        this.throwMappedAsanaError(
+          error,
+          `Unable to fetch Asana tasks for project ${scope.id}`,
+        );
+      }
+
+      return {
+        tasks: this.mapTasks(result),
+        nextCursor: result.next_page?.offset ?? null,
+      };
+    }
+
+    if (scope.type === 'asana_workspace') {
+      try {
+        result = await tasksApi.getTasks({
+          workspace: scope.id,
+          assignee: 'me',
+          ...opts,
+        });
+      } catch (error) {
+        this.throwMappedAsanaError(
+          error,
+          `Unable to fetch Asana tasks for workspace ${scope.id}`,
+        );
+      }
+
+      return {
+        tasks: this.mapTasks(result),
+        nextCursor: result.next_page?.offset ?? null,
+      };
+    }
+
+    throw new TaskManagerProviderConfigurationError(
+      'Asana provider received unsupported sync scope type',
+    );
+  }
+
+  private async getWorkspaceOrThrow(
+    workspacesApi: AsanaWorkspacesApi,
+    workspaceId: string,
+  ): Promise<{ id: string; name: string }> {
+    let workspaceResult: AsanaApiEnvelope<AsanaWorkspaceResponse>;
     try {
-      projectsResult = await projectsApi.getProjectsForWorkspace(scope.id, {
-        limit: 100,
+      workspaceResult = await workspacesApi.getWorkspace(workspaceId, {
         opt_fields: ['gid', 'name'],
       });
     } catch (error) {
       this.throwMappedAsanaError(
         error,
-        `Unable to fetch Asana projects for workspace ${scope.id}`,
+        `Unable to load Asana workspace ${workspaceId}`,
+        { notFoundMessage: 'Asana workspace not found' },
       );
     }
 
-    const projects = (
-      Array.isArray(projectsResult.data) ? projectsResult.data : []
-    )
-      .filter((project): project is { gid: string } => Boolean(project.gid))
-      .map((project) => project.gid);
-
-    if (projects.length === 0) {
-      return {
-        tasks: [],
-        nextCursor: null,
-      };
-    }
-
-    const state = this.parseWorkspaceCursor(cursor);
-    let projectIndex = Math.max(
-      0,
-      Math.min(state.projectIndex, projects.length - 1),
-    );
-    let projectOffset = state.projectOffset;
-    const tasks: ProviderTask[] = [];
-    let nextCursor: string | null = null;
-
-    while (tasks.length < limit && projectIndex < projects.length) {
-      const remaining = limit - tasks.length;
-      let result: AsanaApiEnvelope<AsanaTaskResponse[]>;
-      try {
-        result = await tasksApi.getTasksForProject(projects[projectIndex], {
-          limit: remaining,
-          offset: projectOffset,
-          opt_fields: [
-            'gid',
-            'name',
-            'notes',
-            'permalink_url',
-            'completed',
-            'assignee.name',
-            'modified_at',
-          ],
-        });
-      } catch (error) {
-        this.throwMappedAsanaError(
-          error,
-          `Unable to fetch Asana tasks for project ${projects[projectIndex]}`,
-        );
-      }
-
-      tasks.push(...this.mapTasks(result));
-
-      const nextOffset = result.next_page?.offset ?? null;
-      if (nextOffset) {
-        nextCursor = this.encodeWorkspaceCursor({
-          projectIndex,
-          projectOffset: nextOffset,
-        });
-        break;
-      }
-
-      projectIndex += 1;
-      projectOffset = undefined;
-    }
-
-    if (!nextCursor && projectIndex < projects.length) {
-      nextCursor = this.encodeWorkspaceCursor({
-        projectIndex,
-      });
-    }
-
     return {
-      tasks,
-      nextCursor,
+      id: workspaceResult.data?.gid ?? workspaceId,
+      name: workspaceResult.data?.name ?? workspaceId,
     };
   }
 
-  private parseWorkspaceCursor(cursor?: string): {
-    projectIndex: number;
-    projectOffset?: string;
-  } {
-    if (!cursor) {
-      return { projectIndex: 0 };
-    }
-
+  private async listProjectScopesForWorkspace(
+    projectsApi: AsanaProjectsApi,
+    workspace: { id: string; name: string },
+  ): Promise<ProviderSyncScope[]> {
+    let projectsResult: AsanaApiEnvelope<AsanaProjectResponse[]>;
     try {
-      const parsed = JSON.parse(
-        Buffer.from(cursor, 'base64url').toString('utf8'),
-      ) as {
-        projectIndex?: number;
-        projectOffset?: string;
-      };
-      return {
-        projectIndex:
-          typeof parsed.projectIndex === 'number' && parsed.projectIndex >= 0
-            ? parsed.projectIndex
-            : 0,
-        projectOffset:
-          typeof parsed.projectOffset === 'string'
-            ? parsed.projectOffset
-            : undefined,
-      };
-    } catch {
-      return { projectIndex: 0 };
+      projectsResult = await projectsApi.getProjectsForWorkspace(workspace.id, {
+        limit: 100,
+        opt_fields: ['gid', 'name', 'workspace.gid', 'workspace.name'],
+      });
+    } catch (error) {
+      this.throwMappedAsanaError(
+        error,
+        `Unable to fetch Asana projects for workspace ${workspace.id}`,
+      );
     }
-  }
 
-  private encodeWorkspaceCursor(state: {
-    projectIndex: number;
-    projectOffset?: string;
-  }): string {
-    return Buffer.from(JSON.stringify(state), 'utf8').toString('base64url');
+    const projects = Array.isArray(projectsResult.data)
+      ? projectsResult.data
+      : [];
+
+    return projects
+      .filter((project): project is AsanaProjectResponse =>
+        Boolean(project.gid && project.name),
+      )
+      .map((project) => ({
+        type: 'asana_project' as const,
+        id: project.gid ?? '',
+        name: project.name ?? '',
+        parent: {
+          type: 'asana_workspace' as const,
+          id: project.workspace?.gid ?? workspace.id,
+          name: project.workspace?.name ?? workspace.name,
+        },
+      }));
   }
 
   private createApiClient(accessToken: string): AsanaApiClient {

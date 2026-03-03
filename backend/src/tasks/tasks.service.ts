@@ -15,12 +15,23 @@ import {
 } from './dto/task-feed-response.dto';
 import { TaskScopesResponseDto } from './dto/task-scopes-response.dto';
 import { TaskSyncRunResponseDto } from './dto/task-sync-run-response.dto';
+import { DeleteTaskRepositoryDefaultDto } from './dto/delete-task-repository-default.dto';
+import {
+  TaskRepositoryDefaultItemDto,
+  TaskRepositoryDefaultsResponseDto,
+} from './dto/task-repository-defaults-response.dto';
 import { SyncedTaskScope } from './entities/synced-task-scope.entity';
 import { SyncedTask } from './entities/synced-task.entity';
+import {
+  RepositorySelectionSource,
+  TaskRepositoryDefaultsService,
+} from './task-repository-defaults.service';
 import { TaskSyncService } from './task-sync.service';
+import { UpsertTaskRepositoryDefaultDto } from './dto/upsert-task-repository-default.dto';
 
 type ScopeFilter = {
   asanaWorkspaceId?: string;
+  asanaProjectId?: string;
   jiraProjectKey?: string;
 };
 
@@ -35,6 +46,7 @@ export class TasksService {
     private readonly taskManagersService: TaskManagersService,
     private readonly taskFilterService: TaskFilterService,
     private readonly taskSyncService: TaskSyncService,
+    private readonly taskRepositoryDefaultsService: TaskRepositoryDefaultsService,
     private readonly repositoriesService: RepositoriesService,
     private readonly configService: ConfigService,
   ) {
@@ -88,12 +100,17 @@ export class TasksService {
 
     const scopeFilteredTasks = this.filterByScope(persistedTasks, {
       asanaWorkspaceId: query.asanaWorkspaceId,
+      asanaProjectId: query.asanaProjectId,
       jiraProjectKey: query.jiraProjectKey,
     });
+
+    const repositoryDefaultsLookup =
+      await this.taskRepositoryDefaultsService.buildLookupForUser(userId);
 
     const prefixFilteredItems = this.applyConnectionPrefixes(
       scopeFilteredTasks,
       connectionById,
+      repositoryDefaultsLookup,
     );
 
     const additionalPrefixFilteredItems =
@@ -133,27 +150,67 @@ export class TasksService {
     return this.taskSyncService.listScopesForUser(userId);
   }
 
+  listRepositoryDefaultsForUser(
+    userId: string,
+  ): Promise<TaskRepositoryDefaultsResponseDto> {
+    return this.taskRepositoryDefaultsService.listForUser(userId);
+  }
+
+  async upsertRepositoryDefaultForUser(
+    userId: string,
+    dto: UpsertTaskRepositoryDefaultDto,
+  ): Promise<TaskRepositoryDefaultsResponseDto> {
+    const item = await this.taskRepositoryDefaultsService.upsertForUser(
+      userId,
+      dto,
+    );
+
+    return this.mapRepositoryDefaultsResponse([item]);
+  }
+
+  async deleteRepositoryDefaultForUser(
+    userId: string,
+    dto: DeleteTaskRepositoryDefaultDto,
+  ): Promise<void> {
+    await this.taskRepositoryDefaultsService.deleteForUser(userId, dto);
+  }
+
   private filterByScope(
     tasks: SyncedTask[],
     filter: ScopeFilter,
   ): SyncedTask[] {
-    const { asanaWorkspaceId, jiraProjectKey } = filter;
+    const { asanaWorkspaceId, asanaProjectId, jiraProjectKey } = filter;
 
-    if (!asanaWorkspaceId && !jiraProjectKey) {
+    if (!asanaWorkspaceId && !asanaProjectId && !jiraProjectKey) {
       return tasks;
     }
 
     return tasks.filter((task) => {
       if (task.provider === 'asana') {
-        if (!asanaWorkspaceId) {
+        if (!asanaWorkspaceId && !asanaProjectId) {
           return false;
         }
 
-        return task.scopes.some(
-          (scope) =>
-            scope.scopeType === 'asana_workspace' &&
-            scope.scopeId === asanaWorkspaceId,
-        );
+        const workspaceMatches = !asanaWorkspaceId
+          ? true
+          : task.scopes.some(
+              (scope) =>
+                (scope.scopeType === 'asana_workspace' &&
+                  scope.scopeId === asanaWorkspaceId) ||
+                (scope.scopeType === 'asana_project' &&
+                  scope.parentScopeType === 'asana_workspace' &&
+                  scope.parentScopeId === asanaWorkspaceId),
+            );
+
+        const projectMatches = !asanaProjectId
+          ? true
+          : task.scopes.some(
+              (scope) =>
+                scope.scopeType === 'asana_project' &&
+                scope.scopeId === asanaProjectId,
+            );
+
+        return workspaceMatches && projectMatches;
       }
 
       if (task.provider === 'jira') {
@@ -185,6 +242,9 @@ export class TasksService {
           createdAt: Date;
         }>;
       }
+    >,
+    repositoryDefaultsLookup: Awaited<
+      ReturnType<TaskRepositoryDefaultsService['buildLookupForUser']>
     >,
   ): TaskFeedItemDto[] {
     const groupedByConnection = new Map<string, SyncedTask[]>();
@@ -245,6 +305,12 @@ export class TasksService {
         }
 
         const primaryScope = this.resolvePrimaryScope(persistedTask.scopes);
+        const suggestedRepository =
+          this.taskRepositoryDefaultsService.resolveSuggestedRepository(
+            persistedTask.provider,
+            persistedTask.scopes,
+            repositoryDefaultsLookup,
+          );
         items.push({
           id: `${connectionId}:${persistedTask.provider}:${persistedTask.externalId}`,
           connectionId,
@@ -259,6 +325,8 @@ export class TasksService {
           primaryScopeType: primaryScope?.scopeType ?? null,
           primaryScopeId: primaryScope?.scopeId ?? null,
           primaryScopeName: primaryScope?.scopeName ?? null,
+          suggestedRepositoryId: suggestedRepository.repositoryId,
+          repositorySelectionSource: suggestedRepository.source,
           hasMultipleScopes: persistedTask.scopes.length > 1,
           updatedAt: this.taskUpdatedAt(persistedTask),
         });
@@ -317,6 +385,12 @@ export class TasksService {
     }
 
     return a.connectionId.localeCompare(b.connectionId);
+  }
+
+  private mapRepositoryDefaultsResponse(
+    items: TaskRepositoryDefaultItemDto[],
+  ): TaskRepositoryDefaultsResponseDto {
+    return { items };
   }
 
   private resolveLimit(limit: number | undefined): number {
