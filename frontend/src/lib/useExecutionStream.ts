@@ -115,7 +115,9 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
             setOutput(event.output);
             setStatus(event.status);
             if (event.automationStatus) setAutomationStatus(event.automationStatus);
-            if (event.lastSequence != null) lastSequenceRef.current = event.lastSequence;
+            if (event.lastSequence != null) {
+              lastSequenceRef.current = Math.max(lastSequenceRef.current, event.lastSequence);
+            }
             break;
           case 'stdout':
           case 'stderr':

@@ -76,21 +76,37 @@ export function ExecutionsPage() {
       );
     }
     if (event.type === 'publication') {
+      const errorMsg = event.automationStatus === 'failed' ? (event.message ?? null) : null;
       setExecutions((prev) =>
         prev.map((e) =>
           e.id === event.executionId
-            ? { ...e, automationStatus: event.automationStatus, pullRequestUrl: event.pullRequestUrl ?? e.pullRequestUrl }
+            ? {
+                ...e,
+                automationStatus: event.automationStatus,
+                pullRequestUrl: event.pullRequestUrl ?? e.pullRequestUrl,
+                automationErrorMessage: errorMsg ?? e.automationErrorMessage,
+              }
             : e,
         ),
       );
       setSelected((prev) =>
         prev?.id === event.executionId
-          ? { ...prev, automationStatus: event.automationStatus, pullRequestUrl: event.pullRequestUrl ?? prev.pullRequestUrl }
+          ? {
+              ...prev,
+              automationStatus: event.automationStatus,
+              pullRequestUrl: event.pullRequestUrl ?? prev.pullRequestUrl,
+              automationErrorMessage: errorMsg ?? prev.automationErrorMessage,
+            }
           : prev,
       );
       setSelectedDetail((prev) =>
         prev?.id === event.executionId
-          ? { ...prev, automationStatus: event.automationStatus, pullRequestUrl: event.pullRequestUrl ?? prev.pullRequestUrl }
+          ? {
+              ...prev,
+              automationStatus: event.automationStatus,
+              pullRequestUrl: event.pullRequestUrl ?? prev.pullRequestUrl,
+              automationErrorMessage: errorMsg ?? prev.automationErrorMessage,
+            }
           : prev,
       );
     }
@@ -140,11 +156,14 @@ export function ExecutionsPage() {
                 </div>
               )}
               {executions.map((exec) => (
-                <button
+                <div
                   key={exec.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => handleSelect(exec)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelect(exec); } }}
                   className={cn(
-                    'relative flex w-full items-center gap-4 px-5 py-3.5 text-left transition-colors',
+                    'relative flex w-full cursor-pointer items-center gap-4 px-5 py-3.5 text-left transition-colors',
                     selected?.id === exec.id ? 'bg-primary/5' : 'hover:bg-foreground/[0.02]',
                   )}
                 >
@@ -185,7 +204,7 @@ export function ExecutionsPage() {
                       {exec.finishedAt && <> · Finished {timeAgo(exec.finishedAt)}</>}
                     </div>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           )}
