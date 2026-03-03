@@ -51,6 +51,10 @@ class ChildProcessClaudeCliProcess implements ClaudeCliProcess {
 @Injectable()
 export class ChildProcessClaudeCliRunner implements ClaudeCliRunner {
   private readonly logger = new Logger(ChildProcessClaudeCliRunner.name);
+  private static readonly DEFAULT_MODEL = 'claude-opus-4-6';
+  private static readonly DEFAULT_ALLOWED_TOOLS =
+    'Bash,Read,Edit,Write,Glob,Grep';
+  private static readonly IMPLEMENTATION_PERMISSION_MODE = 'acceptEdits';
   private static readonly SAFE_ENV_KEYS = [
     'CI',
     'FORCE_COLOR',
@@ -151,21 +155,54 @@ export class ChildProcessClaudeCliRunner implements ClaudeCliRunner {
     action: ClaudeCliStartOptions['action'],
     prompt: string,
   ): string[] {
+    const configuredAllowedTools =
+      process.env.EXECUTION_CLAUDE_ALLOWED_TOOLS?.trim();
+    const allowedTools =
+      configuredAllowedTools && configuredAllowedTools.length > 0
+        ? configuredAllowedTools
+        : ChildProcessClaudeCliRunner.DEFAULT_ALLOWED_TOOLS;
+
     const args = [
       '-p',
       prompt,
+      '--model',
+      this.resolveModel(),
       '--output-format',
       'stream-json',
       '--verbose',
       '--allowedTools',
-      'Bash,Read,Edit,Glob,Grep',
+      allowedTools,
     ];
 
     if (action === 'plan') {
       args.push('--permission-mode', 'plan');
+    } else {
+      args.push(
+        '--permission-mode',
+        this.resolveImplementationPermissionMode(),
+      );
     }
 
     return args;
+  }
+
+  private resolveModel(): string {
+    const configuredModel = process.env.EXECUTION_CLAUDE_MODEL?.trim();
+    if (configuredModel && configuredModel.length > 0) {
+      return configuredModel;
+    }
+
+    return ChildProcessClaudeCliRunner.DEFAULT_MODEL;
+  }
+
+  private resolveImplementationPermissionMode(): string {
+    const configuredPermissionMode =
+      process.env.EXECUTION_CLAUDE_PERMISSION_MODE?.trim();
+    if (configuredPermissionMode && configuredPermissionMode.length > 0) {
+      return configuredPermissionMode;
+    }
+
+    return ChildProcessClaudeCliRunner.IMPLEMENTATION_PERMISSION_MODE;
   }
 
   private buildClaudeEnv(oauthToken: string | undefined): NodeJS.ProcessEnv {

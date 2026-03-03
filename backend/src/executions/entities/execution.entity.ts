@@ -45,6 +45,12 @@ export class Execution {
   @Column({ name: 'publish_pull_request', type: 'boolean', default: true })
   publishPullRequest!: boolean;
 
+  @Column({ name: 'require_code_changes', type: 'boolean', default: false })
+  requireCodeChanges!: boolean;
+
+  @Column({ name: 'implementation_attempts', type: 'integer', default: 1 })
+  implementationAttempts!: number;
+
   @Column({
     name: 'idempotency_key',
     type: 'varchar',

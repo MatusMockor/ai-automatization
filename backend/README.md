@@ -97,6 +97,12 @@ Executions authenticate Claude CLI using a per-user OAuth token stored in settin
 
 The backend does not use `ANTHROPIC_API_KEY` env for execution auth.
 
+Claude CLI runtime for executions is configurable via env vars:
+
+- `EXECUTION_CLAUDE_MODEL` default: `claude-opus-4-6`
+- `EXECUTION_CLAUDE_PERMISSION_MODE` default for `feature/fix`: `acceptEdits`
+- `EXECUTION_CLAUDE_ALLOWED_TOOLS` default: `Bash,Read,Edit,Write,Glob,Grep`
+
 ## Project setup
 
 ```bash

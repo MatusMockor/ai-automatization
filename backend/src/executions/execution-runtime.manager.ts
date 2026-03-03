@@ -8,7 +8,10 @@ import { MetricsService } from '../observability/metrics.service';
 import { CLAUDE_CLI_RUNNER } from './constants/executions.tokens';
 import { ExecutionStreamEventDto } from './dto/execution-stream-event.dto';
 import { Execution } from './entities/execution.entity';
-import { ExecutionPublicationService } from './execution-publication.service';
+import {
+  CompletedPublicationResult,
+  ExecutionPublicationService,
+} from './execution-publication.service';
 import type {
   ClaudeCliProcess,
   ClaudeCliRunner,
@@ -539,27 +542,31 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     );
 
     if (status === 'completed') {
-      let publicationFailed = false;
+      let publicationResult: CompletedPublicationResult = { outcome: 'failed' };
       try {
-        await this.publicationService.handleCompletedExecution(executionId);
+        publicationResult =
+          await this.publicationService.handleCompletedExecution(executionId);
       } catch (error) {
-        publicationFailed = true;
         this.logger.error(
           `Execution publication hook failed for ${executionId}`,
           error instanceof Error ? error.stack : String(error),
         );
-        await this.executionRepository.update(
-          { id: executionId },
-          {
-            orchestrationState: 'failed',
-            automationStatus: 'failed',
-            automationCompletedAt: finishedAt,
-            automationErrorMessage: 'Execution publication hook failed',
-          },
-        );
+        publicationResult = { outcome: 'failed' };
       }
 
-      if (!publicationFailed) {
+      if (publicationResult.outcome === 'requeued') {
+        this.publish({
+          type: 'status',
+          payload: {
+            type: 'status',
+            executionId,
+            status: 'pending',
+          },
+        });
+      } else if (
+        publicationResult.outcome === 'published' ||
+        publicationResult.outcome === 'not_applicable'
+      ) {
         await this.executionRepository.update(
           { id: executionId },
           {
@@ -567,21 +574,59 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
           },
         );
         this.metricsService.incrementExecutionsCompleted();
-      } else {
-        this.metricsService.incrementExecutionsFailed();
-      }
-      this.publish(
-        {
-          type: 'completed',
-          payload: {
+        this.publish(
+          {
             type: 'completed',
-            executionId,
-            status,
-            exitCode,
+            payload: {
+              type: 'completed',
+              executionId,
+              status,
+              exitCode,
+            },
           },
-        },
-        true,
-      );
+          true,
+        );
+      } else {
+        const latestAfterPublication = await this.executionRepository.findOne({
+          select: {
+            automationErrorMessage: true,
+          },
+          where: {
+            id: executionId,
+          },
+        });
+        const publicationFailureMessage =
+          latestAfterPublication?.automationErrorMessage ??
+          'Execution publication failed';
+        await this.executionRepository.update(
+          { id: executionId },
+          {
+            status: 'failed',
+            orchestrationState: 'failed',
+            errorMessage: publicationFailureMessage,
+            automationStatus:
+              publicationResult.outcome === 'failed_no_changes'
+                ? 'no_changes'
+                : 'failed',
+            automationCompletedAt: new Date(),
+            automationErrorMessage: publicationFailureMessage,
+          },
+        );
+        this.metricsService.incrementExecutionsFailed();
+        this.publish(
+          {
+            type: 'error',
+            payload: {
+              type: 'error',
+              executionId,
+              status: 'failed',
+              exitCode,
+              errorMessage: publicationFailureMessage,
+            },
+          },
+          true,
+        );
+      }
     } else {
       if (status === 'failed') {
         this.metricsService.incrementExecutionsFailed();

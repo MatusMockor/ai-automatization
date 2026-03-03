@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTick } from '@/lib/useTick';
 import { ExecutionStatusIcon } from '@/components/shared/StatusIcon';
 import { timeAgo } from '@/lib/time';
@@ -21,6 +21,64 @@ export function ExecutionsPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Execution | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<Execution | null>(null);
+
+  // Detail panel horizontal resize
+  const DEFAULT_PANEL_WIDTH = 480;
+  const MIN_PANEL_WIDTH = 320;
+  const MAX_PANEL_WIDTH_RATIO = 0.75;
+  const STORAGE_KEY = 'executions-panel-width';
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const n = Number(stored);
+      if (n >= MIN_PANEL_WIDTH && n <= window.innerWidth * MAX_PANEL_WIDTH_RATIO) return n;
+    }
+    return DEFAULT_PANEL_WIDTH;
+  });
+  const [isDragging, setIsDragging] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const dragState = useRef({ startX: 0, startWidth: 0 });
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const maxWidth = window.innerWidth * MAX_PANEL_WIDTH_RATIO;
+      const delta = dragState.current.startX - e.clientX;
+      const next = Math.min(Math.max(dragState.current.startWidth + delta, MIN_PANEL_WIDTH), maxWidth);
+      if (panelRef.current) {
+        panelRef.current.style.width = `${next}px`;
+      }
+      requestAnimationFrame(() => setPanelWidth(next));
+    };
+
+    const onMouseUp = () => {
+      setIsDragging(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      if (panelRef.current) {
+        localStorage.setItem(STORAGE_KEY, String(Math.round(panelRef.current.offsetWidth)));
+      }
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isDragging]);
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragState.current = { startX: e.clientX, startWidth: panelWidth };
+    setIsDragging(true);
+  };
 
   useEffect(() => {
     const fetchExecutions = async () => {
@@ -64,14 +122,27 @@ export function ExecutionsPage() {
   const handleStreamEvent = useCallback((event: ExecutionStreamEvent) => {
     if (event.type === 'status' || event.type === 'completed' || event.type === 'error') {
       setExecutions((prev) =>
-        prev.map((e) => (e.id === event.executionId ? { ...e, status: event.status } : e)),
+        prev.map((e) =>
+          e.id === event.executionId
+            ? {
+                ...e,
+                status: event.status,
+                ...(event.status === 'pending' ? { output: '', errorMessage: null, automationStatus: 'pending' as const, automationErrorMessage: null } : {}),
+              }
+            : e,
+        ),
       );
       setSelected((prev) =>
         prev?.id === event.executionId ? { ...prev, status: event.status } : prev,
       );
       setSelectedDetail((prev) =>
         prev?.id === event.executionId
-          ? { ...prev, status: event.status, errorMessage: event.errorMessage ?? prev.errorMessage }
+          ? {
+              ...prev,
+              status: event.status,
+              errorMessage: event.errorMessage ?? prev.errorMessage,
+              ...(event.status === 'pending' ? { output: '', errorMessage: null, automationStatus: 'pending' as const, automationErrorMessage: null } : {}),
+            }
           : prev,
       );
     }
@@ -213,7 +284,23 @@ export function ExecutionsPage() {
 
       {/* Output panel */}
       {detail && (
-        <div className="flex w-[480px] shrink-0 flex-col border-l border-border dark:bg-[#141922] bg-[#f4f5f7]">
+        <div
+          ref={panelRef}
+          className="relative flex shrink-0 flex-col border-l border-border dark:bg-[#141922] bg-[#f4f5f7]"
+          style={{ width: panelWidth }}
+        >
+          {/* Horizontal drag handle */}
+          <div
+            onMouseDown={handleDragStart}
+            className="group absolute inset-y-0 left-0 z-10 flex w-2 cursor-col-resize items-center justify-center"
+          >
+            <div
+              className={cn(
+                'absolute inset-y-0 left-0 w-px transition-colors',
+                isDragging ? 'bg-primary/50' : 'bg-transparent group-hover:bg-foreground/10',
+              )}
+            />
+          </div>
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <div className="flex items-center gap-2 text-xs">
               <ExecutionStatusIcon status={detail.status} />
@@ -221,6 +308,11 @@ export function ExecutionsPage() {
               <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase', actionColors[detail.action])}>
                 {detail.action}
               </span>
+              {detail.implementationAttempts > 1 && (
+                <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-orange-500/10 text-orange-400">
+                  Attempt {detail.implementationAttempts}/3
+                </span>
+              )}
               {detail.pullRequestUrl && (
                 <a href={detail.pullRequestUrl} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-1 rounded px-2 py-1 text-xs text-emerald-400 hover:bg-emerald-500/10">

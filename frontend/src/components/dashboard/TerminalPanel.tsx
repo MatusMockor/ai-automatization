@@ -114,6 +114,11 @@ export function TerminalPanel({
             {execution.taskExternalId}
           </span>
           <span className="text-muted-foreground">{execution.action}</span>
+          {execution.implementationAttempts > 1 && (
+            <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-orange-500/10 text-orange-400">
+              Attempt {execution.implementationAttempts}/3
+            </span>
+          )}
           {execution.automationStatus && execution.automationStatus !== 'not_applicable' && automationBadgeConfig[execution.automationStatus] && (
             <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', automationBadgeConfig[execution.automationStatus].className)}>
               {automationBadgeConfig[execution.automationStatus].label}

@@ -62,7 +62,10 @@ export class ExecutionsService {
     idempotencyKeyHeader?: string,
   ): Promise<{ execution: ExecutionSummaryResponseDto; reused: boolean }> {
     const idempotencyKey = this.normalizeIdempotencyKey(idempotencyKeyHeader);
-    const requestHash = idempotencyKey ? this.computeRequestHash(dto) : null;
+    const requireCodeChanges = this.resolveRequireCodeChanges(dto);
+    const requestHash = idempotencyKey
+      ? this.computeRequestHash(dto, requireCodeChanges)
+      : null;
     const idempotencyCutoff = new Date(
       Date.now() - ExecutionsService.IDEMPOTENCY_TTL_MS,
     );
@@ -129,6 +132,8 @@ export class ExecutionsService {
             requestHash,
             orchestrationState: 'queued',
             publishPullRequest: dto.publishPullRequest ?? true,
+            requireCodeChanges,
+            implementationAttempts: 1,
             taskId: dto.taskId,
             taskExternalId: dto.taskExternalId,
             taskTitle: dto.taskTitle,
@@ -442,6 +447,8 @@ export class ExecutionsService {
     dto: CreateExecutionDto,
   ): string {
     const actionInstruction = this.resolveActionInstruction(action);
+    const implementationRequirements =
+      this.resolveImplementationRequirements(action);
     const descriptionBlock = dto.taskDescription
       ? `Task description:\n${dto.taskDescription}\n`
       : '';
@@ -453,7 +460,8 @@ export class ExecutionsService {
       `Task title: ${dto.taskTitle}`,
       `${descriptionBlock}`.trimEnd(),
       '',
-      'Please implement the changes directly in the repository and provide a concise summary of what was done.',
+      ...implementationRequirements,
+      'Provide a concise summary of what was implemented.',
     ]
       .filter((line) => line.length > 0)
       .join('\n');
@@ -471,11 +479,27 @@ export class ExecutionsService {
     return 'Analyze the request and produce an implementation plan.';
   }
 
+  private resolveImplementationRequirements(action: ExecutionAction): string[] {
+    if (action === 'plan') {
+      return [
+        'Do not modify files. Produce only an actionable implementation plan.',
+      ];
+    }
+
+    return [
+      'Hard requirement: modify repository files and produce a real git diff.',
+      'Do not return analysis-only output or report-only output.',
+      'If the request is vague, make minimal safe implementation assumptions and still implement concrete code changes with tests.',
+    ];
+  }
+
   private toSummaryResponse(execution: Execution): ExecutionSummaryResponseDto {
     return {
       id: execution.id,
       repositoryId: execution.repositoryId,
       publishPullRequest: execution.publishPullRequest,
+      requireCodeChanges: execution.requireCodeChanges,
+      implementationAttempts: execution.implementationAttempts,
       orchestrationState: execution.orchestrationState,
       idempotencyKey: this.maskIdempotencyKey(execution.idempotencyKey),
       taskId: execution.taskId,
@@ -528,7 +552,10 @@ export class ExecutionsService {
     return normalized;
   }
 
-  private computeRequestHash(dto: CreateExecutionDto): string {
+  private computeRequestHash(
+    dto: CreateExecutionDto,
+    requireCodeChanges: boolean,
+  ): string {
     const canonicalPayload = JSON.stringify({
       repositoryId: dto.repositoryId,
       action: dto.action,
@@ -538,9 +565,18 @@ export class ExecutionsService {
       taskDescription: dto.taskDescription ?? null,
       taskSource: dto.taskSource,
       publishPullRequest: dto.publishPullRequest ?? true,
+      requireCodeChanges,
     });
 
     return createHash('sha256').update(canonicalPayload, 'utf8').digest('hex');
+  }
+
+  private resolveRequireCodeChanges(dto: CreateExecutionDto): boolean {
+    if (dto.requireCodeChanges !== undefined) {
+      return dto.requireCodeChanges;
+    }
+
+    return dto.action === 'feature' || dto.action === 'fix';
   }
 
   private maskIdempotencyKey(value: string | null): string | null {
