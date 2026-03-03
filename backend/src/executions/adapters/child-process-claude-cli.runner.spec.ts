@@ -79,7 +79,8 @@ describe('ChildProcessClaudeCliRunner', () => {
       );
       const modelArgIndex = spawnMock.mock.calls[0]?.[1].indexOf('--model');
       expect(modelArgIndex).toBeGreaterThanOrEqual(0);
-      const modelValue = spawnMock.mock.calls[0]?.[1][(modelArgIndex ?? -1) + 1];
+      const modelValue =
+        spawnMock.mock.calls[0]?.[1][(modelArgIndex ?? -1) + 1];
       expect(modelValue).toBeDefined();
       expect(modelValue?.startsWith('--')).toBe(false);
       expect(spawnMock.mock.calls[0]?.[2]?.env).toEqual(
