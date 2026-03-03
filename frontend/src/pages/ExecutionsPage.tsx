@@ -155,7 +155,7 @@ export function ExecutionsPage() {
                 ...e,
                 automationStatus: event.automationStatus,
                 pullRequestUrl: event.pullRequestUrl ?? e.pullRequestUrl,
-                automationErrorMessage: errorMsg ?? e.automationErrorMessage,
+                automationErrorMessage: errorMsg,
               }
             : e,
         ),
@@ -166,7 +166,7 @@ export function ExecutionsPage() {
               ...prev,
               automationStatus: event.automationStatus,
               pullRequestUrl: event.pullRequestUrl ?? prev.pullRequestUrl,
-              automationErrorMessage: errorMsg ?? prev.automationErrorMessage,
+              automationErrorMessage: errorMsg,
             }
           : prev,
       );
@@ -176,7 +176,7 @@ export function ExecutionsPage() {
               ...prev,
               automationStatus: event.automationStatus,
               pullRequestUrl: event.pullRequestUrl ?? prev.pullRequestUrl,
-              automationErrorMessage: errorMsg ?? prev.automationErrorMessage,
+              automationErrorMessage: errorMsg,
             }
           : prev,
       );

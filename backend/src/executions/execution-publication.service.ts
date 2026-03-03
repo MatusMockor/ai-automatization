@@ -153,6 +153,7 @@ export class ExecutionPublicationService {
     let branchName: string | null = null;
     let reportArtifactPath: string | null = null;
     let reportOnlyPublication = false;
+    let branchCleanupHandled = false;
 
     try {
       branchName = await this.resolveAvailableBranchName(
@@ -181,6 +182,7 @@ export class ExecutionPublicationService {
       if (!hasChanges) {
         if (this.isStrictCodeChangesMode(execution)) {
           await this.cleanupBranch(execution, githubToken, branchName);
+          branchCleanupHandled = true;
           return this.handleStrictNoDiff(execution, branchName);
         }
 
@@ -258,7 +260,9 @@ export class ExecutionPublicationService {
       await this.failAutomation(execution.id, message, branchName);
       return { outcome: 'failed' };
     } finally {
-      await this.cleanupBranch(execution, githubToken, branchName);
+      if (!branchCleanupHandled) {
+        await this.cleanupBranch(execution, githubToken, branchName);
+      }
     }
   }
 

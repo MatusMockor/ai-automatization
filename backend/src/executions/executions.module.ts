@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RedactionService } from '../common/security/redaction.service';
+import { ManualTask } from '../manual-tasks/entities/manual-task.entity';
 import { ManagedRepository } from '../repositories/entities/repository.entity';
 import { RepositoriesModule } from '../repositories/repositories.module';
 import { SettingsModule } from '../settings/settings.module';
@@ -32,7 +33,12 @@ import { PullRequestTemplateResolver } from './publication/pull-request-template
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Execution, ExecutionEvent, ManagedRepository]),
+    TypeOrmModule.forFeature([
+      Execution,
+      ExecutionEvent,
+      ManagedRepository,
+      ManualTask,
+    ]),
     RepositoriesModule,
     SettingsModule,
   ],

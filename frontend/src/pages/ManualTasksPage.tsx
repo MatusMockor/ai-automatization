@@ -11,7 +11,6 @@ import {
   Play,
   ChevronDown,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { timeAgo } from '@/lib/time';
 import { useRepo } from '@/context/RepoContext';
@@ -59,8 +58,17 @@ export function ManualTasksPage() {
         setRunOpenId(null);
       }
     };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setRunOpenId(null);
+      }
+    };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
   }, [runOpenId]);
 
   const fetchTasks = async () => {
@@ -376,9 +384,14 @@ export function ManualTasksPage() {
                               checked={requireCodeChanges}
                               onChange={(e) => setRequireCodeChanges(e.target.checked)}
                               className="h-3.5 w-3.5 rounded border-border accent-primary"
+                              title="Retry up to 3 times if no code diff is detected"
+                              aria-describedby={`require-changes-hint-${task.id}`}
                             />
                             Require changes
                           </label>
+                          <span id={`require-changes-hint-${task.id}`} className="sr-only">
+                            Retry up to 3 times if no code diff is detected
+                          </span>
                           <div className="my-1.5 border-t border-border" />
                           {RUN_ACTIONS.map(({ action, label }) => {
                             const key = `${task.id}-${action}`;

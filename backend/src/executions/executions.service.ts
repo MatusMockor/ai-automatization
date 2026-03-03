@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -18,6 +19,7 @@ import { ManagedRepository } from '../repositories/entities/repository.entity';
 import { RepositoriesService } from '../repositories/repositories.service';
 import { SettingsService } from '../settings/settings.service';
 import { User } from '../users/entities/user.entity';
+import { ManualTask } from '../manual-tasks/entities/manual-task.entity';
 import { CreateExecutionDto } from './dto/create-execution.dto';
 import {
   ExecutionDetailResponseDto,
@@ -42,6 +44,8 @@ export class ExecutionsService {
   constructor(
     @InjectRepository(Execution)
     private readonly executionsRepository: Repository<Execution>,
+    @InjectRepository(ManualTask)
+    private readonly manualTasksRepository: Repository<ManualTask>,
     private readonly repositoriesService: RepositoriesService,
     private readonly settingsService: SettingsService,
     private readonly executionDispatchService: ExecutionDispatchService,
@@ -63,6 +67,7 @@ export class ExecutionsService {
   ): Promise<{ execution: ExecutionSummaryResponseDto; reused: boolean }> {
     const idempotencyKey = this.normalizeIdempotencyKey(idempotencyKeyHeader);
     const requireCodeChanges = this.resolveRequireCodeChanges(dto);
+    await this.assertManualTaskOwnership(userId, dto);
     const requestHash = idempotencyKey
       ? this.computeRequestHash(dto, requireCodeChanges)
       : null;
@@ -100,7 +105,7 @@ export class ExecutionsService {
       );
     }
 
-    const prompt = this.buildPrompt(dto.action, dto);
+    const prompt = this.buildPrompt(dto.action, dto, requireCodeChanges);
 
     let transactionResult: { execution: Execution; reused: boolean };
     try {
@@ -445,10 +450,13 @@ export class ExecutionsService {
   private buildPrompt(
     action: ExecutionAction,
     dto: CreateExecutionDto,
+    requireCodeChanges: boolean,
   ): string {
     const actionInstruction = this.resolveActionInstruction(action);
-    const implementationRequirements =
-      this.resolveImplementationRequirements(action);
+    const implementationRequirements = this.resolveImplementationRequirements(
+      action,
+      requireCodeChanges,
+    );
     const descriptionBlock = dto.taskDescription
       ? `Task description:\n${dto.taskDescription}\n`
       : '';
@@ -479,10 +487,20 @@ export class ExecutionsService {
     return 'Analyze the request and produce an implementation plan.';
   }
 
-  private resolveImplementationRequirements(action: ExecutionAction): string[] {
+  private resolveImplementationRequirements(
+    action: ExecutionAction,
+    requireCodeChanges: boolean,
+  ): string[] {
     if (action === 'plan') {
       return [
         'Do not modify files. Produce only an actionable implementation plan.',
+      ];
+    }
+
+    if (!requireCodeChanges) {
+      return [
+        'Implement practical code changes when they are needed for the requested outcome.',
+        'If no code change is truly required, explain why briefly and clearly.',
       ];
     }
 
@@ -491,6 +509,25 @@ export class ExecutionsService {
       'Do not return analysis-only output or report-only output.',
       'If the request is vague, make minimal safe implementation assumptions and still implement concrete code changes with tests.',
     ];
+  }
+
+  private async assertManualTaskOwnership(
+    userId: string,
+    dto: CreateExecutionDto,
+  ): Promise<void> {
+    if (dto.taskSource !== 'manual') {
+      return;
+    }
+
+    const manualTask = await this.manualTasksRepository.findOne({
+      where: { id: dto.taskId },
+      select: { id: true, userId: true },
+    });
+    if (!manualTask || manualTask.userId !== userId) {
+      throw new ForbiddenException(
+        'Manual task does not belong to authenticated user',
+      );
+    }
   }
 
   private toSummaryResponse(execution: Execution): ExecutionSummaryResponseDto {
