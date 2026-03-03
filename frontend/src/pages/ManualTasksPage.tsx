@@ -49,6 +49,7 @@ export function ManualTasksPage() {
   const [runOpenId, setRunOpenId] = useState<string | null>(null);
   const [runningActions, setRunningActions] = useState<Set<string>>(new Set());
   const [publishPullRequest, setPublishPullRequest] = useState(true);
+  const [requireCodeChanges, setRequireCodeChanges] = useState(true);
 
   const fetchTasks = async () => {
     try {
@@ -153,6 +154,7 @@ export function ManualTasksPage() {
         taskDescription: task.description,
         taskSource: 'manual',
         publishPullRequest,
+        requireCodeChanges,
       }, {
         headers: { 'Idempotency-Key': crypto.randomUUID() },
       });
@@ -334,7 +336,7 @@ export function ManualTasksPage() {
                         onClick={() => {
                           const opening = runOpenId !== task.id;
                           setRunOpenId(opening ? task.id : null);
-                          if (opening) setPublishPullRequest(true);
+                          if (opening) { setPublishPullRequest(true); setRequireCodeChanges(true); }
                         }}
                         aria-label={`Run action for ${task.title}`}
                         aria-haspopup="menu"
@@ -355,6 +357,15 @@ export function ManualTasksPage() {
                               className="h-3.5 w-3.5 rounded border-border accent-primary"
                             />
                             Publish PR
+                          </label>
+                          <label className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-muted-foreground cursor-pointer select-none hover:bg-foreground/5">
+                            <input
+                              type="checkbox"
+                              checked={requireCodeChanges}
+                              onChange={(e) => setRequireCodeChanges(e.target.checked)}
+                              className="h-3.5 w-3.5 rounded border-border accent-primary"
+                            />
+                            Require changes
                           </label>
                           <div className="my-1 border-t border-border" />
                           {RUN_ACTIONS.map(({ action, label }) => {

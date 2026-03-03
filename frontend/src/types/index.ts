@@ -36,6 +36,8 @@ export interface Execution {
   startedAt: string | null;
   finishedAt: string | null;
   publishPullRequest: boolean;
+  requireCodeChanges: boolean;
+  implementationAttempts: number;
   orchestrationState: ExecutionOrchestrationState;
   automationStatus: AutomationStatus;
   automationErrorMessage: string | null;
@@ -58,6 +60,7 @@ export interface CreateExecutionRequest {
   taskDescription?: string;
   taskSource: TaskSource;
   publishPullRequest?: boolean;
+  requireCodeChanges?: boolean;
 }
 
 export type ExecutionStreamEvent =
