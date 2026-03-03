@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { SourceBadge } from '@/components/shared/SourceBadge';
 import { ActionButtons } from '@/components/shared/ActionButtons';
 import { ExecutionHistory } from '@/components/shared/ExecutionHistory';
@@ -24,6 +25,12 @@ interface TaskDetailProps {
 }
 
 export function TaskDetail({ task, executions, onClose, onAction, publishPullRequest, onPublishPullRequestChange, requireCodeChanges, onRequireCodeChangesChange, executionRepoId, onExecutionRepoIdChange, repositories, selectedRepo }: TaskDetailProps) {
+  useEffect(() => {
+    if (executionRepoId && !repositories.some((repo) => repo.id === executionRepoId)) {
+      onExecutionRepoIdChange(null);
+    }
+  }, [executionRepoId, repositories, onExecutionRepoIdChange]);
+
   const openExternalTask = (rawUrl: string) => {
     try {
       const parsed = new URL(rawUrl);
@@ -130,6 +137,7 @@ export function TaskDetail({ task, executions, onClose, onAction, publishPullReq
                   <div className="flex items-center gap-2">
                     <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
                     <select
+                      aria-label="Execution repository"
                       value={displayRepoId ?? ''}
                       onChange={(e) => onExecutionRepoIdChange(e.target.value || null)}
                       className="h-7 max-w-[240px] flex-1 truncate rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20"

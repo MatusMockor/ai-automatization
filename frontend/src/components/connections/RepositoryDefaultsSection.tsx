@@ -43,9 +43,15 @@ function DefaultRow({ label, sublabel, currentDefault, repositories, onSelect, o
       </div>
       <div className="flex items-center gap-1.5">
         <select
+          aria-label={`${label} repository default`}
           value={currentDefault?.repositoryId ?? ''}
           onChange={(e) => {
-            if (e.target.value) onSelect(e.target.value);
+            const value = e.target.value;
+            if (value) {
+              onSelect(value);
+            } else if (currentDefault) {
+              onClear();
+            }
           }}
           disabled={saving}
           className="h-8 max-w-[200px] truncate rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 disabled:opacity-50"

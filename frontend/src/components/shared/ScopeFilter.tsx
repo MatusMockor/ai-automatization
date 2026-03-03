@@ -34,6 +34,7 @@ export function ScopeFilter({
     <div className="flex items-center gap-2">
       {hasWorkspaces && (
         <select
+          aria-label="Filter by Asana workspace"
           value={selectedWorkspaceId ?? ''}
           onChange={(e) => onWorkspaceChange(e.target.value || null)}
           disabled={disabled}
@@ -49,6 +50,7 @@ export function ScopeFilter({
       )}
       {hasAsanaProjects && (
         <select
+          aria-label="Filter by Asana project"
           value={selectedProjectId ?? ''}
           onChange={(e) => onProjectIdChange(e.target.value || null)}
           disabled={disabled}
@@ -64,6 +66,7 @@ export function ScopeFilter({
       )}
       {hasProjects && (
         <select
+          aria-label="Filter by Jira project"
           value={selectedProjectKey ?? ''}
           onChange={(e) => onProjectChange(e.target.value || null)}
           disabled={disabled}
