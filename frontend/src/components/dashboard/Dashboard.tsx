@@ -13,6 +13,14 @@ import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, TaskPrefi
 import { ALL_PREFIXES } from '@/types';
 import { Search, AlertTriangle } from 'lucide-react';
 
+const createIdempotencyKey = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `dashboard-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
 export function Dashboard() {
   useTick();
   const { selectedRepo } = useRepo();
@@ -179,7 +187,7 @@ export function Dashboard() {
         requireCodeChanges,
       };
       const { data } = await api.post<Execution>('/executions', body, {
-        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        headers: { 'Idempotency-Key': createIdempotencyKey() },
       });
       setExecutions((prev) => [data, ...prev]);
       setActiveExecutionId(data.id);

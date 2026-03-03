@@ -311,7 +311,7 @@ export class ExecutionPublicationService {
         },
       );
       this.publishAutomationEvent(execution.id, {
-        automationStatus: 'publishing',
+        automationStatus: 'pending',
         branchName,
         message: `No code diff detected, retrying implementation attempt ${nextAttempt}/${maxAttempts}`,
       });
@@ -531,6 +531,7 @@ export class ExecutionPublicationService {
     executionId: string,
     payload: {
       automationStatus:
+        | 'pending'
         | 'not_applicable'
         | 'publishing'
         | 'no_changes'

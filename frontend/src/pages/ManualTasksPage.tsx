@@ -22,6 +22,14 @@ const RUN_ACTIONS: { action: ExecutionAction; label: string }[] = [
   { action: 'plan', label: 'Plan' },
 ];
 
+const createIdempotencyKey = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `manual-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
 export function ManualTasksPage() {
   useTick();
   const { selectedRepo } = useRepo();
@@ -176,7 +184,7 @@ export function ManualTasksPage() {
         publishPullRequest,
         requireCodeChanges,
       }, {
-        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        headers: { 'Idempotency-Key': createIdempotencyKey() },
       });
       setRunOpenId(null);
       toast.success(`${action.charAt(0).toUpperCase() + action.slice(1)} execution started`);
