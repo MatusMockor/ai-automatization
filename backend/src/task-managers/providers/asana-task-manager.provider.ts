@@ -64,10 +64,6 @@ type AsanaTasksApi = {
     projectId: string,
     opts?: Record<string, unknown>,
   ): Promise<AsanaApiEnvelope<AsanaTaskResponse[]>>;
-  searchTasksForWorkspace(
-    workspaceId: string,
-    opts?: Record<string, unknown>,
-  ): Promise<AsanaApiEnvelope<AsanaTaskResponse[]>>;
 };
 
 type AsanaSdkModule = {
@@ -318,10 +314,11 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
 
     let result: AsanaApiEnvelope<AsanaTaskResponse[]>;
     try {
-      result = await tasksApi.searchTasksForWorkspace(scope.id, {
+      result = await tasksApi.getTasks({
+        workspace: scope.id,
+        assignee: 'me',
         limit,
         offset: cursor,
-        sort_by: 'modified_at',
         opt_fields: [
           'gid',
           'name',
