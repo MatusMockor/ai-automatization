@@ -15,9 +15,11 @@ interface TaskDetailProps {
   onAction: (action: ExecutionAction) => void;
   publishPullRequest: boolean;
   onPublishPullRequestChange: (value: boolean) => void;
+  requireCodeChanges: boolean;
+  onRequireCodeChangesChange: (value: boolean) => void;
 }
 
-export function TaskDetail({ task, executions, onClose, onAction, publishPullRequest, onPublishPullRequestChange }: TaskDetailProps) {
+export function TaskDetail({ task, executions, onClose, onAction, publishPullRequest, onPublishPullRequestChange, requireCodeChanges, onRequireCodeChangesChange }: TaskDetailProps) {
   const openExternalTask = (rawUrl: string) => {
     try {
       const parsed = new URL(rawUrl);
@@ -109,6 +111,15 @@ export function TaskDetail({ task, executions, onClose, onAction, publishPullReq
                 className="h-3.5 w-3.5 rounded border-border accent-primary"
               />
               Publish pull request
+            </label>
+            <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={requireCodeChanges}
+                onChange={(e) => onRequireCodeChangesChange(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-border accent-primary"
+              />
+              Require code changes
             </label>
           </div>
 

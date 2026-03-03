@@ -30,6 +30,7 @@ export function Dashboard() {
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
   const [publishPullRequest, setPublishPullRequest] = useState(true);
+  const [requireCodeChanges, setRequireCodeChanges] = useState(true);
 
   // Fetch tasks
   useEffect(() => {
@@ -54,6 +55,7 @@ export function Dashboard() {
 
   useEffect(() => {
     setPublishPullRequest(true);
+    setRequireCodeChanges(true);
   }, [selectedTask?.id]);
 
   // Fetch executions
@@ -169,6 +171,7 @@ export function Dashboard() {
         taskDescription: task.description,
         taskSource: task.source,
         publishPullRequest,
+        requireCodeChanges,
       };
       const { data } = await api.post<Execution>('/executions', body, {
         headers: { 'Idempotency-Key': crypto.randomUUID() },
@@ -284,6 +287,8 @@ export function Dashboard() {
               onAction={(action) => handleAction(action, selectedTask)}
               publishPullRequest={publishPullRequest}
               onPublishPullRequestChange={setPublishPullRequest}
+              requireCodeChanges={requireCodeChanges}
+              onRequireCodeChangesChange={setRequireCodeChanges}
             />
           ) : (
             <ActivityPanel />
