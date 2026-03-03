@@ -353,6 +353,43 @@ describe('AsanaTaskManagerProvider', () => {
     ]);
   });
 
+  it('paginates workspace listing in listSyncScopes', async () => {
+    const provider = createProvider();
+    asanaMockState.workspacesApi.getWorkspaces
+      .mockResolvedValueOnce({
+        data: [{ gid: 'ws-1', name: 'Workspace 1' }],
+        next_page: { offset: 'next-1' },
+      })
+      .mockResolvedValueOnce({
+        data: [{ gid: 'ws-2', name: 'Workspace 2' }],
+      });
+    asanaMockState.projectsApi.getProjectsForWorkspace.mockResolvedValue({
+      data: [],
+    });
+
+    const scopes = await provider.listSyncScopes(buildAsanaConfig());
+
+    expect(asanaMockState.workspacesApi.getWorkspaces).toHaveBeenNthCalledWith(
+      1,
+      {
+        limit: 100,
+        opt_fields: ['gid', 'name'],
+      },
+    );
+    expect(asanaMockState.workspacesApi.getWorkspaces).toHaveBeenNthCalledWith(
+      2,
+      {
+        limit: 100,
+        opt_fields: ['gid', 'name'],
+        offset: 'next-1',
+      },
+    );
+    expect(scopes).toEqual([
+      { type: 'asana_workspace', id: 'ws-1', name: 'Workspace 1' },
+      { type: 'asana_workspace', id: 'ws-2', name: 'Workspace 2' },
+    ]);
+  });
+
   it('lists configured workspace as project scopes when workspace has projects', async () => {
     const provider = createProvider();
     asanaMockState.workspacesApi.getWorkspace.mockResolvedValue({
@@ -480,6 +517,40 @@ describe('AsanaTaskManagerProvider', () => {
     ).toHaveBeenCalledWith('ws-1', {
       limit: 100,
       opt_fields: ['gid', 'name'],
+    });
+    expect(result).toEqual([
+      { id: 'proj-1', name: 'Alpha' },
+      { id: 'proj-2', name: 'Beta' },
+    ]);
+  });
+
+  it('paginates projects for fetchProjects and listSyncScopes workspace mode', async () => {
+    const provider = createProvider();
+    asanaMockState.projectsApi.getProjectsForWorkspace
+      .mockResolvedValueOnce({
+        data: [{ gid: 'proj-1', name: 'Alpha' }],
+        next_page: { offset: 'proj-next' },
+      })
+      .mockResolvedValueOnce({
+        data: [{ gid: 'proj-2', name: 'Beta' }],
+      });
+
+    const result = await provider.fetchProjects(
+      buildAsanaConfig({ workspaceId: 'ws-1' }),
+    );
+
+    expect(
+      asanaMockState.projectsApi.getProjectsForWorkspace,
+    ).toHaveBeenNthCalledWith(1, 'ws-1', {
+      limit: 100,
+      opt_fields: ['gid', 'name'],
+    });
+    expect(
+      asanaMockState.projectsApi.getProjectsForWorkspace,
+    ).toHaveBeenNthCalledWith(2, 'ws-1', {
+      limit: 100,
+      opt_fields: ['gid', 'name'],
+      offset: 'proj-next',
     });
     expect(result).toEqual([
       { id: 'proj-1', name: 'Alpha' },

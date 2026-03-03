@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -6,7 +7,6 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
-  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { ManagedRepository } from '../../repositories/entities/repository.entity';
@@ -15,12 +15,22 @@ import { User } from '../../users/entities/user.entity';
 import { SyncedTaskScopeType } from './synced-task-scope.entity';
 
 @Entity({ name: 'task_scope_repository_defaults' })
-@Unique('UQ_task_scope_repository_defaults_user_provider_scope', [
-  'userId',
-  'provider',
-  'scopeType',
-  'scopeId',
-])
+@Check(
+  'CHK_task_scope_repo_defaults_scope_pair',
+  `("scope_type" IS NULL AND "scope_id" IS NULL) OR ("scope_type" IS NOT NULL AND "scope_id" IS NOT NULL)`,
+)
+@Index('UQ_task_scope_repo_defaults_provider_default', ['userId', 'provider'], {
+  unique: true,
+  where: `"scope_type" IS NULL AND "scope_id" IS NULL`,
+})
+@Index(
+  'UQ_task_scope_repository_defaults_user_provider_scope',
+  ['userId', 'provider', 'scopeType', 'scopeId'],
+  {
+    unique: true,
+    where: `"scope_type" IS NOT NULL AND "scope_id" IS NOT NULL`,
+  },
+)
 @Index('IDX_task_scope_repo_defaults_user_provider', ['userId', 'provider'])
 export class TaskScopeRepositoryDefault {
   @PrimaryGeneratedColumn('uuid')

@@ -69,28 +69,42 @@ export class TaskRepositoryDefaultsService {
       dto.repositoryId,
     );
 
-    const existing = await this.findExistingDefault(
-      userId,
-      dto.provider,
-      scope.scopeType,
-      scope.scopeId,
-    );
-
-    if (existing) {
-      existing.repositoryId = dto.repositoryId;
-      const saved = await this.defaultsRepository.save(existing);
-      return this.mapToResponse(saved);
-    }
-
-    const created = this.defaultsRepository.create({
+    const values = {
       userId,
       provider: dto.provider,
       scopeType: scope.scopeType,
       scopeId: scope.scopeId,
       repositoryId: dto.repositoryId,
-    });
+    };
 
-    const saved = await this.defaultsRepository.save(created);
+    const queryBuilder = this.defaultsRepository
+      .createQueryBuilder()
+      .insert()
+      .into(TaskScopeRepositoryDefault)
+      .values(values);
+
+    if (scope.scopeType === null && scope.scopeId === null) {
+      queryBuilder.onConflict(
+        `("user_id","provider") WHERE "scope_type" IS NULL AND "scope_id" IS NULL DO UPDATE SET "repository_id" = EXCLUDED."repository_id", "updated_at" = now()`,
+      );
+    } else {
+      queryBuilder.onConflict(
+        `("user_id","provider","scope_type","scope_id") WHERE "scope_type" IS NOT NULL AND "scope_id" IS NOT NULL DO UPDATE SET "repository_id" = EXCLUDED."repository_id", "updated_at" = now()`,
+      );
+    }
+
+    await queryBuilder.execute();
+
+    const saved = await this.findExistingDefault(
+      userId,
+      dto.provider,
+      scope.scopeType,
+      scope.scopeId,
+    );
+    if (!saved) {
+      throw new BadRequestException('Failed to upsert repository default');
+    }
+
     return this.mapToResponse(saved);
   }
 
@@ -128,8 +142,12 @@ export class TaskRepositoryDefaultsService {
     const scopedDefaults = new Map<string, string>();
 
     for (const item of defaults) {
-      if (item.scopeType === null || item.scopeId === null) {
+      if (item.scopeType === null && item.scopeId === null) {
         providerDefaults.set(item.provider, item.repositoryId);
+        continue;
+      }
+
+      if (item.scopeType === null || item.scopeId === null) {
         continue;
       }
 

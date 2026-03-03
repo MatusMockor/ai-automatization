@@ -306,12 +306,6 @@ export class CreateSyncedTasksAndSyncRuns1741780800000 implements MigrationInter
             default: 'now()',
           },
         ],
-        uniques: [
-          new TableUnique({
-            name: 'UQ_task_scope_repository_defaults_user_provider_scope',
-            columnNames: ['user_id', 'provider', 'scope_type', 'scope_id'],
-          }),
-        ],
         foreignKeys: [
           new TableForeignKey({
             columnNames: ['user_id'],
@@ -330,6 +324,18 @@ export class CreateSyncedTasksAndSyncRuns1741780800000 implements MigrationInter
           new TableIndex({
             name: 'IDX_task_scope_repo_defaults_user_provider',
             columnNames: ['user_id', 'provider'],
+          }),
+          new TableIndex({
+            name: 'UQ_task_scope_repo_defaults_provider_default',
+            columnNames: ['user_id', 'provider'],
+            isUnique: true,
+            where: `"scope_type" IS NULL AND "scope_id" IS NULL`,
+          }),
+          new TableIndex({
+            name: 'UQ_task_scope_repository_defaults_user_provider_scope',
+            columnNames: ['user_id', 'provider', 'scope_type', 'scope_id'],
+            isUnique: true,
+            where: `"scope_type" IS NOT NULL AND "scope_id" IS NOT NULL`,
           }),
         ],
         checks: [
