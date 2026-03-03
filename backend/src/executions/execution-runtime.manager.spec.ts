@@ -64,6 +64,8 @@ describe('ExecutionRuntimeManager', () => {
     };
   };
 
+  // Tests seed `activeExecutions` directly via a cast to keep ExecutionRuntimeManager
+  // production visibility unchanged; this pattern is unit-test-only helper usage.
   const seedActiveExecution = (manager: ExecutionRuntimeManager): void => {
     (
       manager as unknown as { activeExecutions: Map<string, unknown> }

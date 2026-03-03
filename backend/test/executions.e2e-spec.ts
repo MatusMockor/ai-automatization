@@ -33,6 +33,7 @@ import type {
 import { ManagedRepository } from '../src/repositories/entities/repository.entity';
 import { EncryptionService } from '../src/common/encryption/encryption.service';
 import { ExecutionFactory } from './factories/execution.factory';
+import { ManualTaskFactory } from './factories/manual-task.factory';
 import { RepositoryFactory } from './factories/repository.factory';
 import { UserFactory } from './factories/user.factory';
 import { UserSettingsFactory } from './factories/user-settings.factory';
@@ -368,6 +369,7 @@ describe('Executions (e2e)', () => {
   let userSettingsFactory: UserSettingsFactory;
   let repositoryFactory: RepositoryFactory;
   let executionFactory: ExecutionFactory;
+  let manualTaskFactory: ManualTaskFactory;
   let fakeRunner: FakeClaudeCliRunner;
   let fakeGitPublicationClient: FakeGitPublicationClient;
   let fakeGithubPullRequestsGateway: FakeGithubPullRequestsGateway;
@@ -418,6 +420,7 @@ describe('Executions (e2e)', () => {
       TEST_REPOSITORIES_BASE_PATH,
     );
     executionFactory = new ExecutionFactory(dataSource);
+    manualTaskFactory = new ManualTaskFactory(dataSource);
   });
 
   beforeEach(async () => {
@@ -500,6 +503,11 @@ describe('Executions (e2e)', () => {
     const session = await createLoginSession();
     await userSettingsFactory.create(session.userId);
     const repository = await createRunnableRepository(session.userId);
+    const manualTask = await manualTaskFactory.create({
+      userId: session.userId,
+      title: 'Manual task execution',
+      description: 'Manual task should be executable by the owner',
+    });
 
     fakeRunner.enqueueBehavior({
       kind: 'success',
@@ -512,9 +520,9 @@ describe('Executions (e2e)', () => {
       url: '/api/executions',
       headers: { authorization: `Bearer ${session.accessToken}` },
       payload: buildCreateExecutionPayload(repository.id, 'fix', {
-        taskId: 'manual-task-1',
-        taskExternalId: 'manual-task-1',
-        taskTitle: 'Manual task execution',
+        taskId: manualTask.id,
+        taskExternalId: manualTask.id,
+        taskTitle: manualTask.title,
         taskSource: 'manual',
       }),
     });
@@ -528,6 +536,32 @@ describe('Executions (e2e)', () => {
     );
 
     expect(execution.taskSource).toBe('manual');
+  });
+
+  it('POST /api/executions should return 403 when manual task belongs to another user', async () => {
+    const owner = await createLoginSession();
+    const attacker = await createLoginSession();
+    await userSettingsFactory.create(attacker.userId);
+    const attackerRepository = await createRunnableRepository(attacker.userId);
+    const ownerManualTask = await manualTaskFactory.create({
+      userId: owner.userId,
+      title: 'Owner manual task',
+      description: 'Must not be executable by another user',
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${attacker.accessToken}` },
+      payload: buildCreateExecutionPayload(attackerRepository.id, 'fix', {
+        taskId: ownerManualTask.id,
+        taskExternalId: ownerManualTask.id,
+        taskTitle: ownerManualTask.title,
+        taskSource: 'manual',
+      }),
+    });
+
+    expect(response.statusCode).toBe(403);
   });
 
   it('POST /api/executions should return 400 when claudeOauthToken is missing', async () => {
