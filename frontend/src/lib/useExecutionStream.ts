@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ExecutionStatus, ExecutionStreamEvent } from '@/types';
+import type { AutomationStatus, ExecutionStatus, ExecutionStreamEvent } from '@/types';
 
 interface UseExecutionStreamOptions {
   executionId: string | null;
@@ -10,13 +10,17 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
   const [output, setOutput] = useState('');
   const [status, setStatus] = useState<ExecutionStatus | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [automationStatus, setAutomationStatus] = useState<AutomationStatus | null>(null);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+  const lastSequenceRef = useRef<number>(0);
 
   useEffect(() => {
     setOutput('');
     setStatus(null);
     setErrorMessage(null);
+    setAutomationStatus(null);
+    lastSequenceRef.current = 0;
 
     if (!executionId) {
       return;
@@ -37,6 +41,7 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
           setOutput(data.output ?? '');
           setStatus(data.status);
           setErrorMessage(data.errorMessage ?? null);
+          setAutomationStatus(data.automationStatus ?? null);
           onEventRef.current?.({
             type: data.status === 'completed' ? 'completed' :
                   data.status === 'failed' ? 'error' : 'status',
@@ -101,10 +106,16 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
       };
 
       const handleEvent = (event: ExecutionStreamEvent) => {
+        if (event.sequence != null && event.sequence > 0) {
+          if (event.sequence <= lastSequenceRef.current) return;
+          lastSequenceRef.current = event.sequence;
+        }
         switch (event.type) {
           case 'snapshot':
             setOutput(event.output);
             setStatus(event.status);
+            if (event.automationStatus) setAutomationStatus(event.automationStatus);
+            if (event.lastSequence != null) lastSequenceRef.current = event.lastSequence;
             break;
           case 'stdout':
           case 'stderr':
@@ -113,6 +124,9 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
           case 'status':
             setStatus(event.status);
             setErrorMessage((prev) => event.errorMessage ?? prev);
+            break;
+          case 'publication':
+            setAutomationStatus(event.automationStatus);
             break;
           case 'completed':
           case 'error':
@@ -149,5 +163,5 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
     };
   }, [executionId]);
 
-  return { output, status, errorMessage };
+  return { output, status, errorMessage, automationStatus };
 }

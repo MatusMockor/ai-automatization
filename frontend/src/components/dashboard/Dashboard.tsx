@@ -80,9 +80,18 @@ export function Dashboard() {
         ),
       );
     }
+    if (event.type === 'publication') {
+      setExecutions((prev) =>
+        prev.map((e) =>
+          e.id === event.executionId
+            ? { ...e, automationStatus: event.automationStatus, pullRequestUrl: event.pullRequestUrl ?? e.pullRequestUrl }
+            : e,
+        ),
+      );
+    }
   }, []);
 
-  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage } = useExecutionStream({
+  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage, automationStatus: streamAutomationStatus } = useExecutionStream({
     executionId: activeExecutionId,
     onEvent: handleStreamEvent,
   });
@@ -97,8 +106,9 @@ export function Dashboard() {
       output: streamOutput || base.output,
       status: streamStatus ?? base.status,
       errorMessage: streamErrorMessage ?? base.errorMessage,
+      automationStatus: streamAutomationStatus ?? base.automationStatus,
     };
-  }, [activeExecutionId, executions, streamOutput, streamStatus, streamErrorMessage]);
+  }, [activeExecutionId, executions, streamOutput, streamStatus, streamErrorMessage, streamAutomationStatus]);
 
   const runningCount = executions.filter((e) => e.status === 'running').length;
   const completedCount = executions.filter((e) => e.status === 'completed').length;
@@ -152,7 +162,9 @@ export function Dashboard() {
         taskSource: task.source,
         publishPullRequest,
       };
-      const { data } = await api.post<Execution>('/executions', body);
+      const { data } = await api.post<Execution>('/executions', body, {
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+      });
       setExecutions((prev) => [data, ...prev]);
       setActiveExecutionId(data.id);
       setTerminalOpen(true);

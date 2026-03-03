@@ -41,6 +41,13 @@ export function ExecutionHistory({ executions, compact = false }: ExecutionHisto
           <span className="text-sm font-medium">{actionLabels[exec.action]}</span>
           <span className="text-xs text-muted-foreground">{exec.taskExternalId}</span>
           <span className="ml-auto text-xs text-muted-foreground">{timeAgo(exec.createdAt)}</span>
+          {exec.automationStatus === 'published' && exec.pullRequestUrl && (
+            <a href={exec.pullRequestUrl} target="_blank" rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">
+              PR
+            </a>
+          )}
         </div>
       ))}
     </div>
