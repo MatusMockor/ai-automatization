@@ -21,6 +21,7 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ExecutionQueueService.name);
   private readonly driver: 'redis' | 'inline';
   private readonly queueName: string;
+  private readonly processingQueueName: string;
   private readonly deadLetterQueueName: string;
   private readonly redisUrl: string;
   private readonly maxAttempts: number;
@@ -42,6 +43,7 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
     this.queueName =
       this.configService.get<string>('EXECUTION_QUEUE_NAME', 'executions') ??
       'executions';
+    this.processingQueueName = `${this.queueName}:processing`;
     this.deadLetterQueueName = `${this.queueName}:dead`;
     this.redisUrl =
       this.configService.get<string>('REDIS_URL', 'redis://redis:6379') ??
@@ -64,7 +66,8 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    await this.ensureProducerClient();
+    const client = await this.ensureProducerClient();
+    await this.requeueProcessingQueue(client);
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -110,20 +113,32 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
     const client = await this.ensureConsumerClient();
     while (!shouldStop()) {
       try {
-        const item = await client.blPop(this.queueName, 1);
-        if (!item) {
+        const item = await client.sendCommand<string | null>([
+          'BLMOVE',
+          this.queueName,
+          this.processingQueueName,
+          'LEFT',
+          'RIGHT',
+          '1',
+        ]);
+        if (item === null) {
           continue;
         }
 
-        const payload = this.parsePayload(item.element);
+        const payload = this.parsePayload(item);
         if (!payload) {
+          this.logger.warn(
+            `Malformed execution queue payload moved to dead-letter queue: ${item.slice(0, 512)}`,
+          );
+          await this.handleMalformedPayload(client, item);
           continue;
         }
 
         try {
           await onExecution(payload.executionId);
+          await this.acknowledgeProcessingItem(client, item);
         } catch (error) {
-          await this.handleJobFailure(client, payload, error);
+          await this.handleJobFailure(client, payload, error, item);
         }
       } catch (error) {
         this.logger.error(
@@ -164,6 +179,7 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
     client: RedisClient,
     payload: QueueJobPayload,
     error: unknown,
+    rawPayload: string,
   ): Promise<void> {
     const nextAttempts = payload.attempts + 1;
     this.logger.error(
@@ -179,6 +195,7 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
           attempts: nextAttempts,
         } satisfies QueueJobPayload),
       );
+      await this.acknowledgeProcessingItem(client, rawPayload);
       return;
     }
 
@@ -189,6 +206,22 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
         attempts: nextAttempts,
       } satisfies QueueJobPayload),
     );
+    await this.acknowledgeProcessingItem(client, rawPayload);
+  }
+
+  private async handleMalformedPayload(
+    client: RedisClient,
+    rawPayload: string,
+  ): Promise<void> {
+    await client.rPush(
+      this.deadLetterQueueName,
+      JSON.stringify({
+        rawPayload,
+        queuedAt: new Date().toISOString(),
+        reason: 'malformed_payload',
+      }),
+    );
+    await this.acknowledgeProcessingItem(client, rawPayload);
   }
 
   private isRedisDriver(): boolean {
@@ -256,6 +289,33 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
       return await this.consumerClientPromise;
     } finally {
       this.consumerClientPromise = null;
+    }
+  }
+
+  private async acknowledgeProcessingItem(
+    client: RedisClient,
+    rawPayload: string,
+  ): Promise<void> {
+    await client.sendCommand([
+      'LREM',
+      this.processingQueueName,
+      '1',
+      rawPayload,
+    ]);
+  }
+
+  private async requeueProcessingQueue(client: RedisClient): Promise<void> {
+    while (true) {
+      const moved = await client.sendCommand<string | null>([
+        'LMOVE',
+        this.processingQueueName,
+        this.queueName,
+        'RIGHT',
+        'LEFT',
+      ]);
+      if (moved === null) {
+        return;
+      }
     }
   }
 

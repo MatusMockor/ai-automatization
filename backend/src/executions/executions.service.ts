@@ -207,7 +207,7 @@ export class ExecutionsService {
           status: 'failed',
           orchestrationState: 'failed',
           automationStatus: 'failed',
-          automationErrorMessage: 'Execution runtime startup failed',
+          automationErrorMessage: 'Failed to enqueue execution',
           automationCompletedAt: new Date(),
           finishedAt: new Date(),
           errorMessage: 'Failed to enqueue execution',
