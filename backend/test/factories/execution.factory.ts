@@ -13,6 +13,8 @@ type CreateExecutionInput = {
   userId: string;
   repositoryId: string;
   publishPullRequest?: boolean;
+  requireCodeChanges?: boolean;
+  implementationAttempts?: number;
   idempotencyKey?: string | null;
   requestHash?: string | null;
   orchestrationState?: ExecutionOrchestrationState;
@@ -67,11 +69,15 @@ export class ExecutionFactory {
           : status === 'failed'
             ? 'failed'
             : 'done';
+    const action = input.action ?? 'fix';
 
     const execution = executionRepository.create({
       userId: input.userId,
       repositoryId: input.repositoryId,
       publishPullRequest: input.publishPullRequest ?? true,
+      requireCodeChanges:
+        input.requireCodeChanges ?? (action === 'feature' || action === 'fix'),
+      implementationAttempts: input.implementationAttempts ?? 1,
       idempotencyKey: input.idempotencyKey ?? null,
       requestHash: input.requestHash ?? null,
       orchestrationState: input.orchestrationState ?? defaultOrchestrationState,
@@ -83,7 +89,7 @@ export class ExecutionFactory {
           ? faker.lorem.paragraph({ min: 1, max: 2 })
           : input.taskDescription,
       taskSource: input.taskSource ?? 'jira',
-      action: input.action ?? 'fix',
+      action,
       prompt: input.prompt ?? faker.lorem.paragraph(),
       status,
       automationStatus: input.automationStatus ?? 'pending',

@@ -341,7 +341,7 @@ export function ManualTasksPage() {
                         aria-label={`Run action for ${task.title}`}
                         aria-haspopup="menu"
                         aria-expanded={runOpenId === task.id}
-                        className="flex items-center gap-1 rounded-lg p-2 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                        className="flex items-center gap-1 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
                         title="Run action"
                       >
                         <Play className="h-4 w-4" />
@@ -349,7 +349,7 @@ export function ManualTasksPage() {
                       </button>
                       {runOpenId === task.id && (
                         <div className="absolute right-0 top-full z-10 mt-1 min-w-[120px] rounded-lg border border-border bg-card p-1 shadow-lg">
-                          <label className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-muted-foreground cursor-pointer select-none hover:bg-foreground/5">
+                          <label className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-muted-foreground cursor-pointer select-none transition-colors hover:bg-foreground/10 hover:text-foreground">
                             <input
                               type="checkbox"
                               checked={publishPullRequest}
@@ -358,7 +358,7 @@ export function ManualTasksPage() {
                             />
                             Publish PR
                           </label>
-                          <label className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-muted-foreground cursor-pointer select-none hover:bg-foreground/5">
+                          <label className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-muted-foreground cursor-pointer select-none transition-colors hover:bg-foreground/10 hover:text-foreground">
                             <input
                               type="checkbox"
                               checked={requireCodeChanges}
@@ -376,7 +376,7 @@ export function ManualTasksPage() {
                                 type="button"
                                 disabled={runningActions.has(key) || !selectedRepo}
                                 onClick={() => handleRun(task, action)}
-                                className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm hover:bg-foreground/5 disabled:opacity-50"
+                                className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors hover:bg-foreground/10 disabled:opacity-50"
                               >
                                 {runningActions.has(key) ? (
                                   <div className="h-3 w-3 animate-spin rounded-full border-2 border-foreground border-t-transparent" />
@@ -401,7 +401,7 @@ export function ManualTasksPage() {
                       type="button"
                       onClick={() => startEdit(task)}
                       aria-label={`Edit ${task.title}`}
-                      className="rounded-lg p-2 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                      className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
                       title="Edit task"
                     >
                       <Pencil className="h-4 w-4" />
@@ -413,7 +413,7 @@ export function ManualTasksPage() {
                         <button
                           onClick={() => handleDelete(task.id)}
                           disabled={deletingInFlight}
-                          className="rounded-lg px-2 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                          className="rounded-lg px-2 py-1 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
                         >
                           {deletingInFlight ? 'Deleting...' : 'Confirm'}
                         </button>
@@ -422,7 +422,7 @@ export function ManualTasksPage() {
                           type="button"
                           aria-label="Cancel deletion"
                           title="Cancel"
-                          className="rounded-lg p-2 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                          className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
                         >
                           <X className="h-4 w-4" />
                         </button>
@@ -432,7 +432,7 @@ export function ManualTasksPage() {
                         type="button"
                         onClick={() => setDeleting(task.id)}
                         aria-label={`Delete ${task.title}`}
-                        className="rounded-lg p-2 text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
+                        className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-400"
                         title="Delete task"
                       >
                         <Trash2 className="h-4 w-4" />

@@ -72,4 +72,9 @@ export class CreateExecutionDto {
   @Transform(({ value }: { value: unknown }) => toOptionalBoolean(value))
   @IsBoolean()
   publishPullRequest?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => toOptionalBoolean(value))
+  @IsBoolean()
+  requireCodeChanges?: boolean;
 }

@@ -41,6 +41,9 @@ describe('ChildProcessClaudeCliRunner', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    delete process.env.EXECUTION_CLAUDE_MODEL;
+    delete process.env.EXECUTION_CLAUDE_PERMISSION_MODE;
+    delete process.env.EXECUTION_CLAUDE_ALLOWED_TOOLS;
   });
 
   it('should close stdin after spawn and include plan permission mode for plan action', async () => {
@@ -65,7 +68,14 @@ describe('ChildProcessClaudeCliRunner', () => {
       expect(spawnMock).toHaveBeenCalledTimes(1);
       expect(spawnMock.mock.calls[0]?.[0]).toBe('claude');
       expect(spawnMock.mock.calls[0]?.[1]).toEqual(
-        expect.arrayContaining(['--permission-mode', 'plan']),
+        expect.arrayContaining([
+          '--model',
+          'claude-opus-4-6',
+          '--allowedTools',
+          'Bash,Read,Edit,Write,Glob,Grep',
+          '--permission-mode',
+          'plan',
+        ]),
       );
       expect(spawnMock.mock.calls[0]?.[2]?.env).toEqual(
         expect.objectContaining({
@@ -84,6 +94,40 @@ describe('ChildProcessClaudeCliRunner', () => {
     } finally {
       delete process.env.TEST_EXECUTION_SECRET;
     }
+  });
+
+  it('should include implementation permission mode for feature action and allow env overrides', async () => {
+    const runner = new ChildProcessClaudeCliRunner();
+    const fake = createFakeChildProcess();
+    spawnMock.mockReturnValue(fake.process);
+    process.env.EXECUTION_CLAUDE_MODEL = 'claude-opus-4-6-custom';
+    process.env.EXECUTION_CLAUDE_PERMISSION_MODE = 'acceptEdits';
+    process.env.EXECUTION_CLAUDE_ALLOWED_TOOLS = 'Read,Edit,Write';
+
+    const startedProcessPromise = runner.start({
+      prompt: 'Implement a fix',
+      action: 'feature',
+      cwd: '/tmp/repo',
+      anthropicAuthToken: 'test-token',
+    });
+
+    fake.process.emit('spawn');
+    await startedProcessPromise;
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(spawnMock.mock.calls[0]?.[1]).toEqual(
+      expect.arrayContaining([
+        '--model',
+        'claude-opus-4-6-custom',
+        '--allowedTools',
+        'Read,Edit,Write',
+        '--permission-mode',
+        'acceptEdits',
+      ]),
+    );
+    expect(spawnMock.mock.calls[0]?.[1]).not.toEqual(
+      expect.arrayContaining(['--permission-mode', 'plan']),
+    );
   });
 
   it('should reject start when spawn emits error', async () => {

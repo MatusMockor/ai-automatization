@@ -77,7 +77,12 @@ export function Dashboard() {
       setExecutions((prev) =>
         prev.map((e) =>
           e.id === event.executionId
-            ? { ...e, status: event.status, errorMessage: event.errorMessage ?? e.errorMessage }
+            ? {
+                ...e,
+                status: event.status,
+                errorMessage: event.errorMessage ?? e.errorMessage,
+                ...(event.status === 'pending' ? { output: '', errorMessage: null, automationStatus: 'pending' as const, automationErrorMessage: null } : {}),
+              }
             : e,
         ),
       );
