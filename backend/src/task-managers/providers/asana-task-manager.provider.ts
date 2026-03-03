@@ -182,7 +182,7 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
       } else if (asanaConfig.workspaceId) {
         result = await tasksApi.getTasks({
           workspace: asanaConfig.workspaceId,
-          assignee: 'me',
+          assignee: 'any',
           limit,
           opt_fields: opts.opt_fields,
         });
@@ -316,7 +316,7 @@ export class AsanaTaskManagerProvider implements TaskManagerProvider {
     try {
       result = await tasksApi.getTasks({
         workspace: scope.id,
-        assignee: 'me',
+        assignee: 'any',
         limit,
         offset: cursor,
         opt_fields: [

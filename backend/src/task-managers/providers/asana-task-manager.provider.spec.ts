@@ -295,7 +295,7 @@ describe('AsanaTaskManagerProvider', () => {
     expect(asanaMockState.tasksApi.getTasks).toHaveBeenCalledWith(
       expect.objectContaining({
         workspace: 'ws-1',
-        assignee: 'me',
+        assignee: 'any',
         limit: 20,
       }),
     );
@@ -383,7 +383,7 @@ describe('AsanaTaskManagerProvider', () => {
     expect(asanaMockState.tasksApi.getTasks).toHaveBeenCalledWith(
       expect.objectContaining({
         workspace: 'ws-1',
-        assignee: 'me',
+        assignee: 'any',
         limit: 50,
         offset: 'cursor-1',
       }),
