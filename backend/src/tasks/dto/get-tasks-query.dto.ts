@@ -87,6 +87,12 @@ export class GetTasksQueryDto {
   @Transform(({ value }: { value: unknown }) => normalizeOptionalString(value))
   @IsOptional()
   @IsString()
+  @MaxLength(128)
+  asanaProjectId?: string;
+
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalString(value))
+  @IsOptional()
+  @IsString()
   @MaxLength(64)
   jiraProjectKey?: string;
 }

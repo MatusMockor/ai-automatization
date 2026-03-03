@@ -55,12 +55,22 @@ export type ProviderProject = {
   name: string;
 };
 
-export type ProviderSyncScopeType = 'asana_workspace' | 'jira_project';
+export type ProviderSyncScopeType =
+  | 'asana_workspace'
+  | 'asana_project'
+  | 'jira_project';
+
+export type ProviderSyncScopeParentType = 'asana_workspace' | 'jira_project';
 
 export type ProviderSyncScope = {
   type: ProviderSyncScopeType;
   id: string;
   name: string;
+  parent?: {
+    type: ProviderSyncScopeParentType;
+    id: string;
+    name: string;
+  };
 };
 
 export type ProviderScopeTaskPage = {

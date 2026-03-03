@@ -138,16 +138,31 @@ describe('TaskSyncService', () => {
       addGroupBy: jest.fn().mockReturnThis(),
       getRawMany: jest.fn().mockResolvedValue([
         {
-          scopeType: 'asana_workspace',
-          scopeId: 'ws-1',
-          scopeName: 'Workspace 1',
-          taskCount: '2',
+          scopeType: 'asana_project',
+          scopeId: 'proj-1',
+          scopeName: 'Project 1',
+          parentScopeType: 'asana_workspace',
+          parentScopeId: 'ws-1',
+          parentScopeName: 'Workspace 1',
+          taskId: 'task-a',
+        },
+        {
+          scopeType: 'asana_project',
+          scopeId: 'proj-1',
+          scopeName: 'Project 1',
+          parentScopeType: 'asana_workspace',
+          parentScopeId: 'ws-1',
+          parentScopeName: 'Workspace 1',
+          taskId: 'task-b',
         },
         {
           scopeType: 'jira_project',
           scopeId: 'BE',
           scopeName: 'Backend',
-          taskCount: '3',
+          parentScopeType: null,
+          parentScopeId: null,
+          parentScopeName: null,
+          taskId: 'task-c',
         },
       ]),
     };
@@ -161,8 +176,17 @@ describe('TaskSyncService', () => {
     expect(scopes.asanaWorkspaces).toEqual([
       { id: 'ws-1', name: 'Workspace 1', taskCount: 2 },
     ]);
+    expect(scopes.asanaProjects).toEqual([
+      {
+        id: 'proj-1',
+        name: 'Project 1',
+        workspaceId: 'ws-1',
+        workspaceName: 'Workspace 1',
+        taskCount: 2,
+      },
+    ]);
     expect(scopes.jiraProjects).toEqual([
-      { key: 'BE', name: 'Backend', taskCount: 3 },
+      { key: 'BE', name: 'Backend', taskCount: 1 },
     ]);
   });
 
