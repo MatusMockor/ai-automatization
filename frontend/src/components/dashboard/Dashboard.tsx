@@ -84,7 +84,15 @@ export function Dashboard() {
       setExecutions((prev) =>
         prev.map((e) =>
           e.id === event.executionId
-            ? { ...e, automationStatus: event.automationStatus, pullRequestUrl: event.pullRequestUrl ?? e.pullRequestUrl }
+            ? {
+                ...e,
+                automationStatus: event.automationStatus,
+                pullRequestUrl: event.pullRequestUrl ?? e.pullRequestUrl,
+                automationErrorMessage:
+                  event.automationStatus === 'failed'
+                    ? (event.message ?? e.automationErrorMessage)
+                    : null,
+              }
             : e,
         ),
       );
