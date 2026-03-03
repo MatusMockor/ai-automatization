@@ -5,6 +5,7 @@ import { In, Not, Repository } from 'typeorm';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { parsePositiveInteger } from '../common/utils/parse.utils';
 import { TaskManagerConnection } from '../task-managers/entities/task-manager-connection.entity';
+import { TaskManagerProviderNotFoundError } from '../task-managers/errors/task-manager-provider.errors';
 import {
   TaskManagerConnectionConfig,
   TaskManagerProvider,
@@ -332,12 +333,33 @@ export class TaskSyncService {
       let pageCount = 0;
 
       while (pageCount < this.maxPagesPerScope) {
-        const page = await provider.fetchTasksForScope(
-          config,
-          scope,
-          this.pageLimit,
-          cursor,
-        );
+        let page:
+          | {
+              tasks: ProviderTask[];
+              nextCursor: string | null;
+            }
+          | undefined;
+        try {
+          page = await provider.fetchTasksForScope(
+            config,
+            scope,
+            this.pageLimit,
+            cursor,
+          );
+        } catch (error) {
+          if (error instanceof TaskManagerProviderNotFoundError) {
+            this.logger.warn(
+              `Skipping missing provider scope ${scope.type}:${scope.id}`,
+            );
+            break;
+          }
+
+          throw error;
+        }
+
+        if (!page) {
+          break;
+        }
 
         for (const task of page.tasks) {
           this.mergeAggregatedTask(tasksByExternalId, task, scope);
