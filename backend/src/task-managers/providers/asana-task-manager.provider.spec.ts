@@ -35,7 +35,6 @@ type AsanaMockState = {
   tasksApi: {
     getTasks: jest.Mock;
     getTasksForProject: jest.Mock;
-    searchTasksForWorkspace: jest.Mock;
   };
   reset: () => void;
 };
@@ -56,7 +55,6 @@ jest.mock('asana', () => {
   const tasksApi = {
     getTasks: jest.fn(),
     getTasksForProject: jest.fn(),
-    searchTasksForWorkspace: jest.fn(),
   };
 
   const ApiClient = jest.fn().mockImplementation(() => {
@@ -89,7 +87,6 @@ jest.mock('asana', () => {
     projectsApi.getProjectsForWorkspace.mockReset();
     tasksApi.getTasks.mockReset();
     tasksApi.getTasksForProject.mockReset();
-    tasksApi.searchTasksForWorkspace.mockReset();
   };
 
   const mockState: AsanaMockState = {
@@ -302,9 +299,7 @@ describe('AsanaTaskManagerProvider', () => {
         limit: 20,
       }),
     );
-    expect(
-      asanaMockState.tasksApi.searchTasksForWorkspace,
-    ).not.toHaveBeenCalled();
+    expect(asanaMockState.tasksApi.getTasksForProject).not.toHaveBeenCalled();
     expect(result).toEqual([
       {
         externalId: 'task-2',
@@ -361,7 +356,7 @@ describe('AsanaTaskManagerProvider', () => {
 
   it('fetches sync tasks for workspace scope with cursor support', async () => {
     const provider = createProvider();
-    asanaMockState.tasksApi.searchTasksForWorkspace.mockResolvedValue({
+    asanaMockState.tasksApi.getTasks.mockResolvedValue({
       data: [
         {
           gid: 'task-3',
@@ -385,11 +380,10 @@ describe('AsanaTaskManagerProvider', () => {
       'cursor-1',
     );
 
-    expect(
-      asanaMockState.tasksApi.searchTasksForWorkspace,
-    ).toHaveBeenCalledWith(
-      'ws-1',
+    expect(asanaMockState.tasksApi.getTasks).toHaveBeenCalledWith(
       expect.objectContaining({
+        workspace: 'ws-1',
+        assignee: 'me',
         limit: 50,
         offset: 'cursor-1',
       }),
