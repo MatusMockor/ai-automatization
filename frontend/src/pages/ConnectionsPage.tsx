@@ -17,6 +17,7 @@ import {
 import { api, getApiErrorMessage } from '@/lib/api';
 import { timeAgo } from '@/lib/time';
 import { useTick } from '@/lib/useTick';
+import { RepositoryDefaultsSection } from '@/components/connections/RepositoryDefaultsSection';
 import type { TaskManagerConnection, TaskManagerProvider, ConnectionPrefix } from '@/types';
 
 const providerInfo = {
@@ -438,6 +439,9 @@ export function ConnectionsPage() {
           imported from that connection.
         </p>
       </div>
+
+      {/* Repository Defaults */}
+      {!loading && <RepositoryDefaultsSection />}
     </div>
   );
 }

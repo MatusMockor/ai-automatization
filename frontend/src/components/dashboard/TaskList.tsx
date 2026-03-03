@@ -4,6 +4,7 @@ import { ActionButtons } from '@/components/shared/ActionButtons';
 import { TaskStatusDot } from '@/components/shared/StatusIcon';
 import { timeAgo } from '@/lib/time';
 import { cn } from '@/lib/utils';
+import { RefreshCw } from 'lucide-react';
 import type { TaskFeedItem, TaskPrefix, ExecutionAction } from '@/types';
 
 interface TaskListProps {
@@ -14,6 +15,9 @@ interface TaskListProps {
   onSelectTask: (task: TaskFeedItem) => void;
   onSelectPrefix: (prefix: TaskPrefix | null) => void;
   onAction: (action: ExecutionAction, task: TaskFeedItem) => void;
+  onSyncRequest?: () => void;
+  hasScopeFilter?: boolean;
+  isSyncing?: boolean;
 }
 
 export function TaskList({
@@ -24,6 +28,9 @@ export function TaskList({
   onSelectTask,
   onSelectPrefix,
   onAction,
+  onSyncRequest,
+  hasScopeFilter,
+  isSyncing,
 }: TaskListProps) {
   return (
     <div className="flex h-full flex-col">
@@ -42,8 +49,26 @@ export function TaskList({
       {/* List */}
       <div className="flex-1 overflow-y-auto">
         {tasks.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-muted-foreground">No tasks match your filters</p>
+          <div className="flex h-full flex-col items-center justify-center gap-3">
+            {!selectedPrefix && !hasScopeFilter && onSyncRequest ? (
+              <>
+                <RefreshCw className="h-8 w-8 text-muted-foreground/30" />
+                <p className="text-sm font-medium text-muted-foreground">No tasks yet</p>
+                <p className="text-xs text-muted-foreground/60">
+                  Run a sync to import tasks from your connections
+                </p>
+                <button
+                  onClick={onSyncRequest}
+                  disabled={isSyncing}
+                  className="mt-1 flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Run Sync
+                </button>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">No tasks match your filters</p>
+            )}
           </div>
         ) : (
           <div className="divide-y divide-border">

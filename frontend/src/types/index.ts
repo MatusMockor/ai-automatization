@@ -124,6 +124,9 @@ export interface TaskManagerConnection {
   projectKey: string | null;
   hasSecret: boolean;
   lastValidatedAt: string | null;
+  lastSyncedAt: string | null;
+  lastSyncStatus: string | null;
+  lastSyncError: string | null;
   createdAt: string;
   updatedAt: string;
   prefixes: ConnectionPrefix[];
@@ -143,6 +146,17 @@ export interface TaskFeedItem {
   assignee: string | null;
   source: TaskSource;
   matchedPrefix: string | null;
+  primaryScopeType: 'asana_workspace' | 'asana_project' | 'jira_project' | null;
+  primaryScopeId: string | null;
+  primaryScopeName: string | null;
+  hasMultipleScopes: boolean;
+  suggestedRepositoryId: string | null;
+  repositorySelectionSource:
+    | 'asana_project'
+    | 'asana_workspace'
+    | 'jira_project'
+    | 'provider_default'
+    | null;
   updatedAt: string;
 }
 
@@ -160,4 +174,82 @@ export interface TaskFeedResponse {
   total: number;
   items: TaskFeedItem[];
   errors: TaskFeedConnectionError[];
+}
+
+export type SyncRunStatus = 'queued' | 'running' | 'completed' | 'failed';
+
+export interface SyncRun {
+  id: string;
+  status: SyncRunStatus;
+  connectionsTotal: number;
+  connectionsDone: number;
+  tasksUpserted: number;
+  tasksDeleted: number;
+  errorMessage: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StartSyncResponse {
+  runId: string;
+  status: SyncRunStatus;
+}
+
+export interface AsanaWorkspaceScope {
+  id: string;
+  name: string;
+  taskCount: number;
+}
+
+export interface JiraProjectScope {
+  key: string;
+  name: string;
+  taskCount: number;
+}
+
+export interface AsanaProjectScope {
+  id: string;
+  name: string;
+  workspaceId: string;
+  workspaceName: string;
+  taskCount: number;
+}
+
+export interface TaskScopesResponse {
+  asanaWorkspaces: AsanaWorkspaceScope[];
+  asanaProjects: AsanaProjectScope[];
+  jiraProjects: JiraProjectScope[];
+}
+
+// Repository Defaults
+
+export type RepositoryDefaultScopeType = 'asana_project' | 'asana_workspace' | 'jira_project';
+
+export interface TaskRepositoryDefaultItem {
+  id: string;
+  provider: TaskManagerProvider;
+  scopeType: RepositoryDefaultScopeType | null;
+  scopeId: string | null;
+  repositoryId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskRepositoryDefaultsResponse {
+  items: TaskRepositoryDefaultItem[];
+}
+
+export interface UpsertRepositoryDefaultRequest {
+  provider: TaskManagerProvider;
+  repositoryId: string;
+  scopeType?: RepositoryDefaultScopeType;
+  scopeId?: string;
+}
+
+export interface DeleteRepositoryDefaultRequest {
+  provider: TaskManagerProvider;
+  scopeType?: RepositoryDefaultScopeType;
+  scopeId?: string;
 }
