@@ -192,9 +192,18 @@ describe('AsanaTaskManagerProvider', () => {
     );
   });
 
-  it('maps 401/403 SDK errors to TaskManagerProviderAuthError', async () => {
+  it('maps 401 SDK errors to TaskManagerProviderAuthError', async () => {
     const provider = createProvider();
     asanaMockState.usersApi.getUser.mockRejectedValue({ status: 401 });
+
+    await expect(
+      provider.validateConnection(buildAsanaConfig()),
+    ).rejects.toBeInstanceOf(TaskManagerProviderAuthError);
+  });
+
+  it('maps 403 SDK errors to TaskManagerProviderAuthError', async () => {
+    const provider = createProvider();
+    asanaMockState.usersApi.getUser.mockRejectedValue({ status: 403 });
 
     await expect(
       provider.validateConnection(buildAsanaConfig()),
@@ -259,6 +268,75 @@ describe('AsanaTaskManagerProvider', () => {
         assignee: 'Matus',
         updatedAt: '2026-03-03T12:30:00.000Z',
       },
+    ]);
+  });
+
+  it('fetches workspace-scoped tasks using getTasks workspace filter', async () => {
+    const provider = createProvider();
+    asanaMockState.tasksApi.getTasks.mockResolvedValue({
+      data: [
+        {
+          gid: 'task-2',
+          name: 'Fix login',
+          notes: 'Investigate auth flow',
+          permalink_url: 'https://app.asana.com/0/3/4',
+          completed: true,
+          assignee: { name: 'Jane' },
+          modified_at: '2026-03-02T08:00:00.000Z',
+        },
+      ],
+    });
+
+    const result = await provider.fetchTasks(
+      buildAsanaConfig({ workspaceId: 'ws-1' }),
+      20,
+    );
+
+    expect(asanaMockState.tasksApi.getTasks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace: 'ws-1',
+        assignee: 'me',
+        limit: 20,
+      }),
+    );
+    expect(
+      asanaMockState.tasksApi.searchTasksForWorkspace,
+    ).not.toHaveBeenCalled();
+    expect(result).toEqual([
+      {
+        externalId: 'task-2',
+        title: 'Fix login',
+        description: 'Investigate auth flow',
+        url: 'https://app.asana.com/0/3/4',
+        status: 'done',
+        assignee: 'Jane',
+        updatedAt: '2026-03-02T08:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('fetches projects for workspace via getProjectsForWorkspace', async () => {
+    const provider = createProvider();
+    asanaMockState.projectsApi.getProjectsForWorkspace.mockResolvedValue({
+      data: [
+        { gid: 'proj-1', name: 'Alpha' },
+        { gid: 'proj-2', name: 'Beta' },
+      ],
+    });
+
+    const result = await provider.fetchProjects(
+      buildAsanaConfig({ workspaceId: 'ws-1' }),
+    );
+
+    expect(
+      asanaMockState.projectsApi.getProjectsForWorkspace,
+    ).toHaveBeenCalledWith('ws-1', {
+      limit: 100,
+      opt_fields: ['gid', 'name'],
+    });
+    expect(result).toEqual([
+      { id: 'proj-1', name: 'Alpha' },
+      { id: 'proj-2', name: 'Beta' },
     ]);
   });
 

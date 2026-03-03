@@ -72,8 +72,6 @@ describe('TaskManagersService', () => {
     const dto = {
       provider: 'asana',
       personalAccessToken: 'asana-token',
-      workspaceId: null,
-      projectId: null,
     } as CreateTaskManagerConnectionDto;
 
     await expect(

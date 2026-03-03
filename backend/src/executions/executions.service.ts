@@ -67,7 +67,6 @@ export class ExecutionsService {
   ): Promise<{ execution: ExecutionSummaryResponseDto; reused: boolean }> {
     const idempotencyKey = this.normalizeIdempotencyKey(idempotencyKeyHeader);
     const requireCodeChanges = this.resolveRequireCodeChanges(dto);
-    await this.assertManualTaskOwnership(userId, dto);
     const requestHash = idempotencyKey
       ? this.computeRequestHash(dto, requireCodeChanges)
       : null;
@@ -93,6 +92,8 @@ export class ExecutionsService {
         };
       }
     }
+
+    await this.assertManualTaskOwnership(userId, dto);
 
     const repository = await this.getOwnedRepository(userId, dto.repositoryId);
     await this.assertRepositoryRunnable(repository);
@@ -609,6 +610,10 @@ export class ExecutionsService {
   }
 
   private resolveRequireCodeChanges(dto: CreateExecutionDto): boolean {
+    if (dto.action === 'plan') {
+      return false;
+    }
+
     if (dto.requireCodeChanges !== undefined) {
       return dto.requireCodeChanges;
     }
