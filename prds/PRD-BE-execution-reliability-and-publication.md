@@ -26,7 +26,8 @@ Ciel je dodat backend zlepsenia pre reliability, publication a observability exe
 ## Public APIs and interface changes
 1. POST /api/executions
 - Podpora headera `Idempotency-Key` (optional, odporucany).
-- Rovnaky key + rovnaky user + rovnaky payload hash v TTL okne vrati existujuci execution (200) namiesto noveho create (201).
+- Rovnaky key + rovnaky user + rovnaky payload hash v TTL okne (24 hodin, konfigurovatelne cez `EXECUTIONS_IDEMPOTENCY_TTL_HOURS`) vrati existujuci execution (200) namiesto noveho create (201).
+- Po expiracii TTL je key povazovany za novy request a create vracia 201.
 - Rovnaky key + iny payload hash vrati 409 Conflict s message `Idempotency key reuse with different payload`.
 
 2. GET /api/executions/:id
@@ -47,6 +48,7 @@ Ciel je dodat backend zlepsenia pre reliability, publication a observability exe
 - `(user_id, created_at desc)`.
 - Idempotency uniqueness s TTL vynucovat primarne runtime transakcne: `SELECT ... FOR UPDATE` + kontrola `idempotency_key`, `user_id`, `created_at`/TTL pred insertom.
 - DB-level varianta je mozna len s explicitnym expiry modelom (`expires_at` alebo `invalidated_at`) bez moving-time predikatov; nepouzivat index predicate s `now()`.
+- Cleanup idempotency zaznamov robit periodicky po TTL + grace periode (napr. 24h TTL + 6h grace) cez scheduled job.
 
 2. Execution events durability (required for deterministic SSE replay)
 - Nova tabulka `execution_events`:
@@ -65,7 +67,8 @@ Ciel je dodat backend zlepsenia pre reliability, publication a observability exe
 
 2. Restart recovery
 - Pri boote rehydrate stale `running/queued` executions.
-- Stare jobs nad threshold oznacit ako failed s dovodom `worker restart recovery timeout`.
+- `running` jobs starsie ako 15 minut (konfigurovatelne cez `EXECUTION_RESTART_RUNNING_TIMEOUT_MINUTES`) oznacit ako failed s dovodom `worker restart recovery timeout`.
+- `queued` jobs starsie ako 60 minut (konfigurovatelne cez `EXECUTION_RESTART_QUEUED_TIMEOUT_MINUTES`) requeue alebo fail podla retention policy.
 
 3. Retention defaults
 - Execution output: 30 dni.
@@ -130,5 +133,6 @@ Ciel je dodat backend zlepsenia pre reliability, publication a observability exe
 ## Assumptions and defaults
 1. Redis je dostupny pre queue orchestration.
 2. `publishPullRequest` default ostava true.
-3. Idempotency-Key generuje FE ako UUID v4.
-4. Scope PRD je BE-only.
+3. Idempotency-Key TTL default je 24 hodin (`EXECUTIONS_IDEMPOTENCY_TTL_HOURS`).
+4. Idempotency-Key generuje FE ako UUID v4.
+5. Scope PRD je BE-only.

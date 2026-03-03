@@ -79,9 +79,9 @@ describe('ChildProcessClaudeCliRunner', () => {
       );
       const modelArgIndex = spawnMock.mock.calls[0]?.[1].indexOf('--model');
       expect(modelArgIndex).toBeGreaterThanOrEqual(0);
-      expect(
-        spawnMock.mock.calls[0]?.[1][(modelArgIndex ?? 0) + 1],
-      ).toBeTruthy();
+      const modelValue = spawnMock.mock.calls[0]?.[1][(modelArgIndex ?? -1) + 1];
+      expect(modelValue).toBeDefined();
+      expect(modelValue?.startsWith('--')).toBe(false);
       expect(spawnMock.mock.calls[0]?.[2]?.env).toEqual(
         expect.objectContaining({
           CLAUDE_CODE_OAUTH_TOKEN: 'test-token',
