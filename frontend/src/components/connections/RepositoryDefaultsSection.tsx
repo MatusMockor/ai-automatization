@@ -130,6 +130,17 @@ export function RepositoryDefaultsSection() {
   const showAsana = hasAsana || hasAsanaDefaults;
   const showJira = hasJira || hasJiraDefaults;
 
+  // Find orphaned defaults (scope no longer returned by API)
+  const knownScopeKeys = new Set<string>();
+  scopes?.asanaWorkspaces.forEach((ws) => knownScopeKeys.add(`asana:asana_workspace:${ws.id}`));
+  scopes?.asanaProjects.forEach((p) => knownScopeKeys.add(`asana:asana_project:${p.id}`));
+  scopes?.jiraProjects.forEach((p) => knownScopeKeys.add(`jira:jira_project:${p.key}`));
+  const orphanedDefaults = defaults.filter(
+    (d) => d.scopeType && d.scopeId && !knownScopeKeys.has(`${d.provider}:${d.scopeType}:${d.scopeId}`),
+  );
+  const orphanedAsana = orphanedDefaults.filter((d) => d.provider === 'asana');
+  const orphanedJira = orphanedDefaults.filter((d) => d.provider === 'jira');
+
   if (!showAsana && !showJira) return null;
 
   return (
@@ -182,6 +193,19 @@ export function RepositoryDefaultsSection() {
               saving={savingKey === rowKey('asana', 'asana_project', proj.id)}
             />
           ))}
+
+          {orphanedAsana.map((d) => (
+            <DefaultRow
+              key={d.id}
+              label={`${d.scopeId}`}
+              sublabel={`Removed ${d.scopeType?.replace('asana_', '')} \u00b7 clear to remove`}
+              currentDefault={d}
+              repositories={repositories}
+              onSelect={(repoId) => handleSelect('asana', repoId, d.scopeType!, d.scopeId!)}
+              onClear={() => handleClear('asana', d.scopeType!, d.scopeId!)}
+              saving={savingKey === rowKey('asana', d.scopeType!, d.scopeId!)}
+            />
+          ))}
         </div>
       )}
 
@@ -209,6 +233,19 @@ export function RepositoryDefaultsSection() {
               onSelect={(repoId) => handleSelect('jira', repoId, 'jira_project', proj.key)}
               onClear={() => handleClear('jira', 'jira_project', proj.key)}
               saving={savingKey === rowKey('jira', 'jira_project', proj.key)}
+            />
+          ))}
+
+          {orphanedJira.map((d) => (
+            <DefaultRow
+              key={d.id}
+              label={`${d.scopeId}`}
+              sublabel="Removed project \u00b7 clear to remove"
+              currentDefault={d}
+              repositories={repositories}
+              onSelect={(repoId) => handleSelect('jira', repoId, d.scopeType!, d.scopeId!)}
+              onClear={() => handleClear('jira', d.scopeType!, d.scopeId!)}
+              saving={savingKey === rowKey('jira', d.scopeType!, d.scopeId!)}
             />
           ))}
         </div>
