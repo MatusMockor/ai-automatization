@@ -459,6 +459,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     if (!activeExecution) {
       return;
     }
+    const activeExecutionRef = activeExecution;
 
     if (activeExecution.timeoutId) {
       clearTimeout(activeExecution.timeoutId);
@@ -655,7 +656,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       );
     }
 
-    this.activeExecutions.delete(executionId);
+    if (this.activeExecutions.get(executionId) === activeExecutionRef) {
+      this.activeExecutions.delete(executionId);
+    }
   }
 
   private publish(event: ExecutionStreamEventDto, terminal = false): void {

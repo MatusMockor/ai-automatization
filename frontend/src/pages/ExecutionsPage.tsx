@@ -147,7 +147,7 @@ export function ExecutionsPage() {
       );
     }
     if (event.type === 'publication') {
-      const errorMsg = event.automationStatus === 'failed' ? (event.message ?? null) : null;
+      const errorMsg = event.automationStatus === 'failed' || event.automationStatus === 'no_changes' ? (event.message ?? null) : null;
       setExecutions((prev) =>
         prev.map((e) =>
           e.id === event.executionId
@@ -266,6 +266,9 @@ export function ExecutionsPage() {
                       {exec.automationStatus === 'publishing' && (
                         <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-blue-500/10 text-blue-400">Publishing...</span>
                       )}
+                      {exec.automationStatus === 'no_changes' && (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-500">No Changes</span>
+                      )}
                       {exec.automationStatus === 'failed' && exec.publishPullRequest && (
                         <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-500/10 text-red-400">PR Failed</span>
                       )}
@@ -352,9 +355,9 @@ export function ExecutionsPage() {
                     {detail.errorMessage}
                   </div>
                 )}
-                {detail.automationStatus === 'failed' && detail.automationErrorMessage && (
+                {(detail.automationStatus === 'failed' || detail.automationStatus === 'no_changes') && detail.automationErrorMessage && (
                   <div className="mb-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-500 ring-1 ring-amber-500/20">
-                    <span className="font-medium">Publication failed:</span> {detail.automationErrorMessage}
+                    <span className="font-medium">{detail.automationStatus === 'no_changes' ? 'No changes detected:' : 'Publication failed:'}</span> {detail.automationErrorMessage}
                   </div>
                 )}
                 <pre className="whitespace-pre-wrap dark:text-emerald-300/80 text-emerald-700">{detail.output}</pre>

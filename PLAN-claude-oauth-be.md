@@ -9,7 +9,7 @@ Kontrakt je breaking a OAuth-only:
 
 ## Deliverables (BE-only)
 1. Plán súbor v root:
-   - `/Users/matusmockor/Developer/ai-automatization/PLAN-claude-oauth-be.md`
+   - `PLAN-claude-oauth-be.md`
 2. Implementované BE zmeny:
    - settings kontrakt + service + entity + migrácie
    - executions runtime auth flow
@@ -36,12 +36,12 @@ Kontrakt je breaking a OAuth-only:
 
 ## DB model + migrácie (historické migrácie sa môžu upraviť)
 1. Upraviť historickú migráciu:
-- `/Users/matusmockor/Developer/ai-automatization/backend/src/database/migrations/1740657600000-create-user-settings-table.ts`
+- `backend/src/database/migrations/1740657600000-create-user-settings-table.ts`
 - column rename v create:
   - `claude_api_key` -> `claude_oauth_token`
 
 2. Entity:
-- `/Users/matusmockor/Developer/ai-automatization/backend/src/settings/entities/user-settings.entity.ts`
+- `backend/src/settings/entities/user-settings.entity.ts`
 - property: `claudeOauthTokenEncrypted`
 - column: `claude_oauth_token`
 
@@ -50,21 +50,21 @@ Kontrakt je breaking a OAuth-only:
 
 ## Implementačné kroky (konkrétne súbory)
 1. Settings DTO + service
-- `/Users/matusmockor/Developer/ai-automatization/backend/src/settings/dto/update-settings.dto.ts`
-- `/Users/matusmockor/Developer/ai-automatization/backend/src/settings/dto/settings-response.dto.ts`
-- `/Users/matusmockor/Developer/ai-automatization/backend/src/settings/settings.service.ts`
+- `backend/src/settings/dto/update-settings.dto.ts`
+- `backend/src/settings/dto/settings-response.dto.ts`
+- `backend/src/settings/settings.service.ts`
 - rename API/field flow:
   - `claudeApiKey` -> `claudeOauthToken`
   - `getClaudeApiKeyForUserOrNull` -> `getClaudeOauthTokenForUserOrNull`
 
 2. Executions service + runner interface
-- `/Users/matusmockor/Developer/ai-automatization/backend/src/executions/executions.service.ts`
-- `/Users/matusmockor/Developer/ai-automatization/backend/src/executions/interfaces/claude-cli-runner.interface.ts`
+- `backend/src/executions/executions.service.ts`
+- `backend/src/executions/interfaces/claude-cli-runner.interface.ts`
 - rename runtime input:
   - `anthropicApiKey` -> `anthropicAuthToken`
 
 3. Claude CLI runner auth env
-- `/Users/matusmockor/Developer/ai-automatization/backend/src/executions/adapters/child-process-claude-cli.runner.ts`
+- `backend/src/executions/adapters/child-process-claude-cli.runner.ts`
 - spawn env:
   - set `ANTHROPIC_AUTH_TOKEN=<token>`
   - set `CLAUDE_CODE_OAUTH_TOKEN=<token>`
@@ -72,28 +72,28 @@ Kontrakt je breaking a OAuth-only:
 - ponechať fix so `stdin.end()` a bezpečný settle flow
 
 4. Factory/Test typing update
-- `/Users/matusmockor/Developer/ai-automatization/backend/test/factories/user-settings.factory.ts`
+- `backend/test/factories/user-settings.factory.ts`
 - rename factory input/output:
   - `claudeApiKey` -> `claudeOauthToken`
 
 5. Settings e2e update
-- `/Users/matusmockor/Developer/ai-automatization/backend/test/settings.e2e-spec.ts`
+- `backend/test/settings.e2e-spec.ts`
 - premenovať payload/expectations na `claudeOauthToken`
 - ponechať šifrovanie + maskovanie + null reset scenáre
 
 6. Executions e2e update
-- `/Users/matusmockor/Developer/ai-automatization/backend/test/executions.e2e-spec.ts`
+- `backend/test/executions.e2e-spec.ts`
 - update setup payloadov a error assertions na OAuth terminológiu
 
 7. Runner unit test update
-- `/Users/matusmockor/Developer/ai-automatization/backend/src/executions/adapters/child-process-claude-cli.runner.spec.ts`
+- `backend/src/executions/adapters/child-process-claude-cli.runner.spec.ts`
 - assertion na env tokeny:
   - obsahuje `ANTHROPIC_AUTH_TOKEN` / `CLAUDE_CODE_OAUTH_TOKEN`
   - neobsahuje `ANTHROPIC_API_KEY`
 
 8. Dokumentácia
-- `/Users/matusmockor/Developer/ai-automatization/.env.example`
-- `/Users/matusmockor/Developer/ai-automatization/backend/README.md`
+- `.env.example`
+- `backend/README.md`
 - doplniť sekciu:
   - user si vytvorí token cez `claude setup-token`
   - token vkladá do Settings (`claudeOauthToken`)

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTick } from '@/lib/useTick';
 import { toast } from 'sonner';
 import {
@@ -50,6 +50,18 @@ export function ManualTasksPage() {
   const [runningActions, setRunningActions] = useState<Set<string>>(new Set());
   const [publishPullRequest, setPublishPullRequest] = useState(true);
   const [requireCodeChanges, setRequireCodeChanges] = useState(true);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!runOpenId) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setRunOpenId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [runOpenId]);
 
   const fetchTasks = async () => {
     try {
@@ -330,7 +342,7 @@ export function ManualTasksPage() {
 
                   <div className="flex items-center gap-1">
                     {/* Run dropdown */}
-                    <div className="relative">
+                    <div className="relative" ref={runOpenId === task.id ? dropdownRef : undefined}>
                       <button
                         type="button"
                         onClick={() => {
@@ -348,8 +360,8 @@ export function ManualTasksPage() {
                         <ChevronDown className="h-3 w-3" />
                       </button>
                       {runOpenId === task.id && (
-                        <div className="absolute right-0 top-full z-10 mt-1 min-w-[120px] rounded-lg border border-border bg-card p-1 shadow-lg">
-                          <label className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-muted-foreground cursor-pointer select-none transition-colors hover:bg-foreground/10 hover:text-foreground">
+                        <div className="absolute right-0 top-full z-10 mt-1 min-w-[160px] rounded-lg border border-border bg-card p-1.5 shadow-lg">
+                          <label className="flex items-center gap-2.5 rounded-md px-3 py-2 text-xs text-muted-foreground cursor-pointer select-none transition-colors hover:bg-foreground/10 hover:text-foreground">
                             <input
                               type="checkbox"
                               checked={publishPullRequest}
@@ -358,7 +370,7 @@ export function ManualTasksPage() {
                             />
                             Publish PR
                           </label>
-                          <label className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-muted-foreground cursor-pointer select-none transition-colors hover:bg-foreground/10 hover:text-foreground">
+                          <label className="flex items-center gap-2.5 rounded-md px-3 py-2 text-xs text-muted-foreground cursor-pointer select-none transition-colors hover:bg-foreground/10 hover:text-foreground">
                             <input
                               type="checkbox"
                               checked={requireCodeChanges}
@@ -367,7 +379,7 @@ export function ManualTasksPage() {
                             />
                             Require changes
                           </label>
-                          <div className="my-1 border-t border-border" />
+                          <div className="my-1.5 border-t border-border" />
                           {RUN_ACTIONS.map(({ action, label }) => {
                             const key = `${task.id}-${action}`;
                             return (
@@ -376,19 +388,19 @@ export function ManualTasksPage() {
                                 type="button"
                                 disabled={runningActions.has(key) || !selectedRepo}
                                 onClick={() => handleRun(task, action)}
-                                className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors hover:bg-foreground/10 disabled:opacity-50"
+                                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-foreground/10 disabled:opacity-50"
                               >
                                 {runningActions.has(key) ? (
-                                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-foreground border-t-transparent" />
+                                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-foreground border-t-transparent" />
                                 ) : (
-                                  <Play className="h-3 w-3" />
+                                  <Play className="h-3.5 w-3.5" />
                                 )}
                                 {label}
                               </button>
                             );
                           })}
                           {!selectedRepo && (
-                            <p className="px-3 py-1.5 text-[10px] text-muted-foreground">
+                            <p className="px-3 py-2 text-[10px] text-muted-foreground">
                               Select a repo first
                             </p>
                           )}

@@ -180,6 +180,7 @@ export class ExecutionPublicationService {
       );
       if (!hasChanges) {
         if (this.isStrictCodeChangesMode(execution)) {
+          await this.cleanupBranch(execution, githubToken, branchName);
           return this.handleStrictNoDiff(execution, branchName);
         }
 
