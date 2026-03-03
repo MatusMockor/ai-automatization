@@ -3,6 +3,8 @@ export type TaskPrefix = 'fix' | 'feature' | 'chore' | 'plan' | 'refactor';
 export type TaskStatus = 'open' | 'in_progress' | 'done' | 'closed';
 export type ExecutionAction = 'fix' | 'feature' | 'plan';
 export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type ExecutionOrchestrationState = 'queued' | 'running' | 'finalizing' | 'done' | 'failed';
+export type AutomationStatus = 'not_applicable' | 'pending' | 'publishing' | 'no_changes' | 'published' | 'failed';
 
 export interface Task {
   id: string;
@@ -34,6 +36,17 @@ export interface Execution {
   startedAt: string | null;
   finishedAt: string | null;
   publishPullRequest: boolean;
+  orchestrationState: ExecutionOrchestrationState;
+  automationStatus: AutomationStatus;
+  automationErrorMessage: string | null;
+  automationAttempts: number;
+  branchName: string | null;
+  commitSha: string | null;
+  pullRequestNumber: number | null;
+  pullRequestUrl: string | null;
+  pullRequestTitle: string | null;
+  automationCompletedAt: string | null;
+  idempotencyKey: string | null;
 }
 
 export interface CreateExecutionRequest {
@@ -48,10 +61,11 @@ export interface CreateExecutionRequest {
 }
 
 export type ExecutionStreamEvent =
-  | { type: 'snapshot'; executionId: string; status: ExecutionStatus; output: string; outputTruncated: boolean }
-  | { type: 'stdout' | 'stderr'; executionId: string; chunk: string }
-  | { type: 'status'; executionId: string; status: ExecutionStatus; errorMessage?: string }
-  | { type: 'completed' | 'error'; executionId: string; status: ExecutionStatus; exitCode: number | null; errorMessage?: string };
+  | { type: 'snapshot'; executionId: string; status: ExecutionStatus; automationStatus?: AutomationStatus; output: string; outputTruncated: boolean; lastSequence?: number; sequence?: number; sentAt?: string }
+  | { type: 'stdout' | 'stderr'; executionId: string; chunk: string; sequence?: number; sentAt?: string }
+  | { type: 'status'; executionId: string; status: ExecutionStatus; errorMessage?: string; sequence?: number; sentAt?: string }
+  | { type: 'publication'; executionId: string; automationStatus: AutomationStatus; branchName?: string; pullRequestUrl?: string; message?: string; sequence?: number; sentAt?: string }
+  | { type: 'completed' | 'error'; executionId: string; status: ExecutionStatus; exitCode: number | null; errorMessage?: string; sequence?: number; sentAt?: string };
 
 export interface Repository {
   id: string;

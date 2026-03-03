@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { ExecutionStatusIcon } from "@/components/shared/StatusIcon";
 import { cn } from "@/lib/utils";
 import type { Execution } from "@/types";
-import { ChevronDown, ChevronUp, Square, Copy } from "lucide-react";
+import { ChevronDown, ChevronUp, Square, Copy, ExternalLink } from "lucide-react";
 
 interface TerminalPanelProps {
   execution: Execution;
@@ -10,6 +10,14 @@ interface TerminalPanelProps {
   onToggle: () => void;
   onCancel?: () => void;
 }
+
+const automationBadgeConfig: Record<string, { label: string; className: string }> = {
+  pending: { label: 'PR Pending', className: 'bg-amber-500/10 text-amber-500' },
+  publishing: { label: 'Publishing...', className: 'bg-blue-500/10 text-blue-400' },
+  no_changes: { label: 'No Changes', className: 'bg-muted-foreground/10 text-muted-foreground' },
+  published: { label: 'PR Published', className: 'bg-emerald-500/10 text-emerald-400' },
+  failed: { label: 'PR Failed', className: 'bg-red-500/10 text-red-400' },
+};
 
 const MIN_HEIGHT = 100;
 const MAX_HEIGHT_RATIO = 0.85;
@@ -106,9 +114,25 @@ export function TerminalPanel({
             {execution.taskExternalId}
           </span>
           <span className="text-muted-foreground">{execution.action}</span>
+          {execution.automationStatus && execution.automationStatus !== 'not_applicable' && automationBadgeConfig[execution.automationStatus] && (
+            <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', automationBadgeConfig[execution.automationStatus].className)}>
+              {automationBadgeConfig[execution.automationStatus].label}
+            </span>
+          )}
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {execution.pullRequestUrl && (
+            <a
+              href={execution.pullRequestUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-emerald-400 transition-colors hover:bg-emerald-500/10"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Open PR
+            </a>
+          )}
           {execution.status === "running" && (
             <button
               type="button"
@@ -154,6 +178,11 @@ export function TerminalPanel({
           {execution.errorMessage && (execution.status === 'failed' || execution.status === 'cancelled') && (
             <div className="mb-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400 ring-1 ring-red-500/20">
               {execution.errorMessage}
+            </div>
+          )}
+          {execution.automationStatus === 'failed' && execution.automationErrorMessage && (
+            <div className="mb-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-500 ring-1 ring-amber-500/20">
+              <span className="font-medium">Publication failed:</span> {execution.automationErrorMessage}
             </div>
           )}
           <pre className="whitespace-pre-wrap dark:text-emerald-300/80 text-emerald-700">

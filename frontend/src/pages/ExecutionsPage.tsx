@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { toast } from 'sonner';
 import type { Execution, ExecutionStreamEvent } from '@/types';
-import { Square, Copy, X } from 'lucide-react';
+import { Square, Copy, X, ExternalLink } from 'lucide-react';
 import { useExecutionStream } from '@/lib/useExecutionStream';
 
 const actionColors: Record<string, string> = {
@@ -75,9 +75,28 @@ export function ExecutionsPage() {
           : prev,
       );
     }
+    if (event.type === 'publication') {
+      setExecutions((prev) =>
+        prev.map((e) =>
+          e.id === event.executionId
+            ? { ...e, automationStatus: event.automationStatus, pullRequestUrl: event.pullRequestUrl ?? e.pullRequestUrl }
+            : e,
+        ),
+      );
+      setSelected((prev) =>
+        prev?.id === event.executionId
+          ? { ...prev, automationStatus: event.automationStatus, pullRequestUrl: event.pullRequestUrl ?? prev.pullRequestUrl }
+          : prev,
+      );
+      setSelectedDetail((prev) =>
+        prev?.id === event.executionId
+          ? { ...prev, automationStatus: event.automationStatus, pullRequestUrl: event.pullRequestUrl ?? prev.pullRequestUrl }
+          : prev,
+      );
+    }
   }, []);
 
-  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage } = useExecutionStream({
+  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage, automationStatus: streamAutomationStatus } = useExecutionStream({
     executionId: selected?.id ?? null,
     onEvent: handleStreamEvent,
   });
@@ -90,8 +109,9 @@ export function ExecutionsPage() {
       output: streamOutput || base.output,
       status: streamStatus ?? base.status,
       errorMessage: streamErrorMessage ?? base.errorMessage,
+      automationStatus: streamAutomationStatus ?? base.automationStatus,
     };
-  }, [selected, selectedDetail, streamOutput, streamStatus, streamErrorMessage]);
+  }, [selected, selectedDetail, streamOutput, streamStatus, streamErrorMessage, streamAutomationStatus]);
 
   return (
     <div className="flex h-full">
@@ -146,6 +166,19 @@ export function ExecutionsPage() {
                       )}>
                         {exec.status}
                       </span>
+                      {exec.automationStatus === 'published' && exec.pullRequestUrl && (
+                        <a href={exec.pullRequestUrl} target="_blank" rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20">
+                          PR
+                        </a>
+                      )}
+                      {exec.automationStatus === 'publishing' && (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-blue-500/10 text-blue-400">Publishing...</span>
+                      )}
+                      {exec.automationStatus === 'failed' && exec.publishPullRequest && (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-500/10 text-red-400">PR Failed</span>
+                      )}
                     </div>
                     <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
                       Started {timeAgo(exec.createdAt)}
@@ -169,6 +202,12 @@ export function ExecutionsPage() {
               <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase', actionColors[detail.action])}>
                 {detail.action}
               </span>
+              {detail.pullRequestUrl && (
+                <a href={detail.pullRequestUrl} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs text-emerald-400 hover:bg-emerald-500/10">
+                  <ExternalLink className="h-3 w-3" /> Open PR
+                </a>
+              )}
             </div>
             <div className="flex items-center gap-1">
               {detail.status === 'running' && (
@@ -200,6 +239,11 @@ export function ExecutionsPage() {
                 {detail.errorMessage && (detail.status === 'failed' || detail.status === 'cancelled') && (
                   <div className="mb-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400 ring-1 ring-red-500/20">
                     {detail.errorMessage}
+                  </div>
+                )}
+                {detail.automationStatus === 'failed' && detail.automationErrorMessage && (
+                  <div className="mb-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-500 ring-1 ring-amber-500/20">
+                    <span className="font-medium">Publication failed:</span> {detail.automationErrorMessage}
                   </div>
                 )}
                 <pre className="whitespace-pre-wrap dark:text-emerald-300/80 text-emerald-700">{detail.output}</pre>

@@ -153,6 +153,8 @@ export function ManualTasksPage() {
         taskDescription: task.description,
         taskSource: 'manual',
         publishPullRequest,
+      }, {
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
       });
       setRunOpenId(null);
       toast.success(`${action.charAt(0).toUpperCase() + action.slice(1)} execution started`);
