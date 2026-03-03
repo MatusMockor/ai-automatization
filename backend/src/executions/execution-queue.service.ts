@@ -26,6 +26,7 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly redisUrl: string;
   private readonly maxAttempts: number;
   private readonly consumeErrorBackoffMs: number;
+  private readonly processingRecoveryEnabled: boolean;
   private producerClient: RedisClient | null = null;
   private consumerClient: RedisClient | null = null;
   private producerClientPromise: Promise<RedisClient> | null = null;
@@ -59,10 +60,23 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
       ),
       250,
     );
+    const workerEnabledFlag = (
+      this.configService.get<string>('EXECUTION_WORKER_ENABLED', 'false') ??
+      'false'
+    )
+      .trim()
+      .toLowerCase();
+    this.processingRecoveryEnabled = ['1', 'true', 'yes', 'on'].includes(
+      workerEnabledFlag,
+    );
   }
 
   async onModuleInit(): Promise<void> {
     if (!this.isRedisDriver()) {
+      return;
+    }
+
+    if (!this.processingRecoveryEnabled) {
       return;
     }
 
@@ -130,7 +144,15 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
           this.logger.warn(
             `Malformed execution queue payload moved to dead-letter queue: ${item.slice(0, 512)}`,
           );
-          await this.handleMalformedPayload(client, item);
+          try {
+            await this.handleMalformedPayload(client, item);
+          } catch (error) {
+            this.logger.error(
+              'Failed to dead-letter malformed execution queue payload, returning to queue',
+              error instanceof Error ? error.stack : String(error),
+            );
+            await this.returnLastProcessingItemToQueue(client);
+          }
           continue;
         }
 
@@ -138,7 +160,17 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
           await onExecution(payload.executionId);
           await this.acknowledgeProcessingItem(client, item);
         } catch (error) {
-          await this.handleJobFailure(client, payload, error, item);
+          try {
+            await this.handleJobFailure(client, payload, error, item);
+          } catch (failureError) {
+            this.logger.error(
+              `Failed to requeue/dead-letter execution queue payload for ${payload.executionId}, returning to queue`,
+              failureError instanceof Error
+                ? failureError.stack
+                : String(failureError),
+            );
+            await this.returnLastProcessingItemToQueue(client);
+          }
         }
       } catch (error) {
         this.logger.error(
@@ -296,11 +328,23 @@ export class ExecutionQueueService implements OnModuleInit, OnModuleDestroy {
     client: RedisClient,
     rawPayload: string,
   ): Promise<void> {
-    await client.sendCommand([
+    await client.sendCommand<number>([
       'LREM',
       this.processingQueueName,
       '1',
       rawPayload,
+    ]);
+  }
+
+  private async returnLastProcessingItemToQueue(
+    client: RedisClient,
+  ): Promise<void> {
+    await client.sendCommand<string | null>([
+      'LMOVE',
+      this.processingQueueName,
+      this.queueName,
+      'RIGHT',
+      'LEFT',
     ]);
   }
 
