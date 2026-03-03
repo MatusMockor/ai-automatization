@@ -20,6 +20,10 @@ export class TaskFeedItemDto {
   assignee!: string | null;
   source!: TaskManagerProviderType;
   matchedPrefix!: string | null;
+  primaryScopeType!: 'asana_workspace' | 'jira_project' | null;
+  primaryScopeId!: string | null;
+  primaryScopeName!: string | null;
+  hasMultipleScopes!: boolean;
   updatedAt!: string;
 }
 

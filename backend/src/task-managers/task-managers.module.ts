@@ -34,6 +34,10 @@ import { TaskPrefixService } from './task-prefix.service';
       inject: [AsanaTaskManagerProvider, JiraTaskManagerProvider],
     },
   ],
-  exports: [TaskManagersService],
+  exports: [
+    TaskManagersService,
+    TaskManagerProviderRegistry,
+    TaskFilterService,
+  ],
 })
 export class TaskManagersModule {}

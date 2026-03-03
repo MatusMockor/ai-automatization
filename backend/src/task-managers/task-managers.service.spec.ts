@@ -67,6 +67,8 @@ describe('TaskManagersService', () => {
         .mockRejectedValue(new Error('Unexpected Asana SDK failure')),
       fetchTasks: jest.fn(),
       fetchProjects: jest.fn(),
+      listSyncScopes: jest.fn(),
+      fetchTasksForScope: jest.fn(),
     });
 
     const dto = {

@@ -282,6 +282,9 @@ export class TaskManagersService {
       projectKey: connection.projectKey,
       hasSecret: Boolean(connection.secretEncrypted),
       lastValidatedAt: connection.lastValidatedAt,
+      lastSyncedAt: connection.lastSyncedAt,
+      lastSyncStatus: connection.lastSyncStatus,
+      lastSyncError: connection.lastSyncError,
       createdAt: connection.createdAt,
       updatedAt: connection.updatedAt,
       prefixes: (connection.prefixes ?? []).map((prefix) =>

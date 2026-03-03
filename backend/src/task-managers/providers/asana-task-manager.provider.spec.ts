@@ -26,6 +26,7 @@ type AsanaMockState = {
   };
   workspacesApi: {
     getWorkspace: jest.Mock;
+    getWorkspaces: jest.Mock;
   };
   projectsApi: {
     getProject: jest.Mock;
@@ -46,6 +47,7 @@ jest.mock('asana', () => {
   };
   const workspacesApi = {
     getWorkspace: jest.fn(),
+    getWorkspaces: jest.fn(),
   };
   const projectsApi = {
     getProject: jest.fn(),
@@ -82,6 +84,7 @@ jest.mock('asana', () => {
     TasksApi.mockClear();
     usersApi.getUser.mockReset();
     workspacesApi.getWorkspace.mockReset();
+    workspacesApi.getWorkspaces.mockReset();
     projectsApi.getProject.mockReset();
     projectsApi.getProjectsForWorkspace.mockReset();
     tasksApi.getTasks.mockReset();
@@ -313,6 +316,87 @@ describe('AsanaTaskManagerProvider', () => {
         updatedAt: '2026-03-02T08:00:00.000Z',
       },
     ]);
+  });
+
+  it('lists sync scopes using getWorkspaces', async () => {
+    const provider = createProvider();
+    asanaMockState.workspacesApi.getWorkspaces.mockResolvedValue({
+      data: [
+        { gid: 'ws-1', name: 'Workspace 1' },
+        { gid: 'ws-2', name: 'Workspace 2' },
+      ],
+    });
+
+    const scopes = await provider.listSyncScopes(buildAsanaConfig());
+
+    expect(asanaMockState.workspacesApi.getWorkspaces).toHaveBeenCalledWith({
+      limit: 100,
+      opt_fields: ['gid', 'name'],
+    });
+    expect(scopes).toEqual([
+      { type: 'asana_workspace', id: 'ws-1', name: 'Workspace 1' },
+      { type: 'asana_workspace', id: 'ws-2', name: 'Workspace 2' },
+    ]);
+  });
+
+  it('lists only configured workspace sync scope when workspaceId is provided', async () => {
+    const provider = createProvider();
+    asanaMockState.workspacesApi.getWorkspace.mockResolvedValue({
+      data: { gid: 'ws-42', name: 'Workspace 42' },
+    });
+
+    const scopes = await provider.listSyncScopes(
+      buildAsanaConfig({ workspaceId: 'ws-42' }),
+    );
+
+    expect(asanaMockState.workspacesApi.getWorkspace).toHaveBeenCalledWith(
+      'ws-42',
+      { opt_fields: ['gid', 'name'] },
+    );
+    expect(asanaMockState.workspacesApi.getWorkspaces).not.toHaveBeenCalled();
+    expect(scopes).toEqual([
+      { type: 'asana_workspace', id: 'ws-42', name: 'Workspace 42' },
+    ]);
+  });
+
+  it('fetches sync tasks for workspace scope with cursor support', async () => {
+    const provider = createProvider();
+    asanaMockState.tasksApi.searchTasksForWorkspace.mockResolvedValue({
+      data: [
+        {
+          gid: 'task-3',
+          name: 'Sync task',
+          notes: 'scope sync',
+          permalink_url: 'https://app.asana.com/0/5/6',
+          completed: false,
+          assignee: { name: 'Matus' },
+          modified_at: '2026-03-03T12:00:00.000Z',
+        },
+      ],
+      next_page: {
+        offset: 'cursor-2',
+      },
+    });
+
+    const result = await provider.fetchTasksForScope(
+      buildAsanaConfig(),
+      { type: 'asana_workspace', id: 'ws-1', name: 'Workspace 1' },
+      50,
+      'cursor-1',
+    );
+
+    expect(
+      asanaMockState.tasksApi.searchTasksForWorkspace,
+    ).toHaveBeenCalledWith(
+      'ws-1',
+      expect.objectContaining({
+        limit: 50,
+        offset: 'cursor-1',
+      }),
+    );
+    expect(result.nextCursor).toBe('cursor-2');
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0]?.externalId).toBe('task-3');
   });
 
   it('fetches projects for workspace via getProjectsForWorkspace', async () => {

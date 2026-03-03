@@ -12,6 +12,8 @@ import {
   JiraBasicTaskManagerConnectionConfig,
   JiraBearerTaskManagerConnectionConfig,
   ProviderProject,
+  ProviderScopeTaskPage,
+  ProviderSyncScope,
   ProviderTask,
   TaskItemStatus,
   TaskManagerConnectionConfig,
@@ -145,7 +147,7 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
 
         return [
           {
-            id: project.id ?? project.key,
+            id: project.key ?? project.id ?? '',
             name: project.name,
           },
         ];
@@ -166,16 +168,141 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
 
       const values = Array.isArray(response.values) ? response.values : [];
       return values
-        .filter((project): project is { id: string; name: string } =>
-          Boolean(project.id && project.name),
+        .filter(
+          (project): project is { id?: string; key?: string; name: string } =>
+            Boolean((project.key ?? project.id) && project.name),
         )
         .map((project) => ({
-          id: project.id,
+          id: project.key ?? project.id ?? '',
           name: project.name,
         }));
     } catch (error) {
       this.throwMappedJiraError(error, 'Unable to fetch Jira projects');
     }
+  }
+
+  async listSyncScopes(
+    config: TaskManagerConnectionConfig,
+  ): Promise<ProviderSyncScope[]> {
+    const jiraConfig = this.assertJiraConfig(config);
+    const client = this.createClient(jiraConfig);
+
+    if (jiraConfig.projectKey) {
+      try {
+        const project = (await this.withTimeout(
+          client.projects.getProject({
+            projectIdOrKey: jiraConfig.projectKey,
+          }),
+          'Jira project listing request timed out before completion',
+        )) as { id?: string; key?: string; name?: string };
+
+        const projectKey = project.key ?? jiraConfig.projectKey;
+        const projectName = project.name ?? projectKey;
+
+        return [
+          {
+            type: 'jira_project',
+            id: projectKey,
+            name: projectName,
+          },
+        ];
+      } catch (error) {
+        this.throwMappedJiraError(
+          error,
+          `Unable to load Jira project ${jiraConfig.projectKey}`,
+        );
+      }
+    }
+
+    try {
+      const response = (await this.withTimeout(
+        client.projects.searchProjects({
+          maxResults: 100,
+        }),
+        'Jira projects listing request timed out before completion',
+      )) as {
+        values?: Array<{ id?: string; key?: string; name?: string }>;
+      };
+
+      const values = Array.isArray(response.values) ? response.values : [];
+      const scopes = values
+        .filter(
+          (project): project is { key?: string; id?: string; name: string } =>
+            Boolean((project.key ?? project.id) && project.name),
+        )
+        .map((project) => ({
+          type: 'jira_project' as const,
+          id: project.key ?? project.id ?? '',
+          name: project.name,
+        }));
+
+      if (scopes.length > 0) {
+        return scopes;
+      }
+
+      return [];
+    } catch (error) {
+      this.throwMappedJiraError(error, 'Unable to list Jira projects');
+    }
+  }
+
+  async fetchTasksForScope(
+    config: TaskManagerConnectionConfig,
+    scope: ProviderSyncScope,
+    limit: number,
+    cursor?: string,
+  ): Promise<ProviderScopeTaskPage> {
+    const jiraConfig = this.assertJiraConfig(config);
+    if (scope.type !== 'jira_project') {
+      throw new TaskManagerProviderConfigurationError(
+        'Jira provider received unsupported sync scope type',
+      );
+    }
+
+    const client = this.createClient(jiraConfig);
+    const startAt = this.parseCursor(cursor);
+    const jql = `project = "${this.escapeJqlValue(scope.id)}" ORDER BY updated DESC`;
+
+    let response: { issues?: JiraIssue[]; total?: number };
+    try {
+      response = (await this.withTimeout(
+        client.issueSearch.searchForIssuesUsingJqlPost({
+          jql,
+          startAt,
+          maxResults: limit,
+          fields: ['summary', 'description', 'status', 'assignee', 'updated'],
+        }),
+        'Jira scoped task fetch request timed out before completion',
+      )) as { issues?: JiraIssue[]; total?: number };
+    } catch (error) {
+      this.throwMappedJiraError(
+        error,
+        `Unable to fetch Jira tasks for project ${scope.id}`,
+      );
+    }
+
+    const issues = Array.isArray(response.issues) ? response.issues : [];
+    const tasks = issues
+      .filter((issue): issue is JiraIssue => Boolean(issue.key && issue.fields))
+      .map((issue) => ({
+        externalId: issue.key ?? issue.id ?? '',
+        title: issue.fields?.summary ?? '',
+        description: this.stringifyDescription(issue.fields?.description),
+        url: this.buildIssueUrl(jiraConfig.baseUrl, issue.key),
+        status: this.mapStatus(issue.fields?.status?.name),
+        assignee: issue.fields?.assignee?.displayName ?? null,
+        updatedAt: this.normalizeTimestamp(issue.fields?.updated),
+      }));
+
+    const total = response.total ?? tasks.length;
+    const nextStartAt = startAt + issues.length;
+    const nextCursor =
+      issues.length > 0 && nextStartAt < total ? String(nextStartAt) : null;
+
+    return {
+      tasks,
+      nextCursor,
+    };
   }
 
   private createClient(
@@ -333,6 +460,19 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
     }
 
     return timestamp.toISOString();
+  }
+
+  private parseCursor(cursor: string | undefined): number {
+    if (!cursor) {
+      return 0;
+    }
+
+    const parsedCursor = Number.parseInt(cursor, 10);
+    if (!Number.isFinite(parsedCursor) || parsedCursor < 0) {
+      return 0;
+    }
+
+    return parsedCursor;
   }
 
   private async withTimeout<T>(
