@@ -130,14 +130,17 @@ export function RepositoryDefaultsSection() {
   const showAsana = hasAsana || hasAsanaDefaults;
   const showJira = hasJira || hasJiraDefaults;
 
-  // Find orphaned defaults (scope no longer returned by API)
-  const knownScopeKeys = new Set<string>();
-  scopes?.asanaWorkspaces.forEach((ws) => knownScopeKeys.add(`asana:asana_workspace:${ws.id}`));
-  scopes?.asanaProjects.forEach((p) => knownScopeKeys.add(`asana:asana_project:${p.id}`));
-  scopes?.jiraProjects.forEach((p) => knownScopeKeys.add(`jira:jira_project:${p.key}`));
-  const orphanedDefaults = defaults.filter(
-    (d) => d.scopeType && d.scopeId && !knownScopeKeys.has(`${d.provider}:${d.scopeType}:${d.scopeId}`),
-  );
+  // Find orphaned defaults (scope no longer returned by API) — only when scopes are loaded
+  const orphanedDefaults = (() => {
+    if (!scopes) return [];
+    const knownKeys = new Set<string>();
+    for (const ws of scopes.asanaWorkspaces) knownKeys.add(`asana:asana_workspace:${ws.id}`);
+    for (const p of scopes.asanaProjects) knownKeys.add(`asana:asana_project:${p.id}`);
+    for (const p of scopes.jiraProjects) knownKeys.add(`jira:jira_project:${p.key}`);
+    return defaults.filter(
+      (d) => d.scopeType && d.scopeId && !knownKeys.has(`${d.provider}:${d.scopeType}:${d.scopeId}`),
+    );
+  })();
   const orphanedAsana = orphanedDefaults.filter((d) => d.provider === 'asana');
   const orphanedJira = orphanedDefaults.filter((d) => d.provider === 'jira');
 
