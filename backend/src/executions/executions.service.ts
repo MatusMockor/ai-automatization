@@ -183,6 +183,30 @@ export class ExecutionsService {
           };
         }
       }
+
+      if (
+        idempotencyKey &&
+        requestHash &&
+        this.isConcurrentExecutionLimitConflict(error)
+      ) {
+        const existingExecution = await this.tryReuseIdempotentExecution(
+          this.executionsRepository,
+          userId,
+          idempotencyKey,
+          requestHash,
+          idempotencyCutoff,
+        );
+        if (existingExecution) {
+          const reusedExecution = await this.getOwnedExecution(
+            existingExecution.id,
+            userId,
+          );
+          return {
+            execution: this.toSummaryResponse(reusedExecution),
+            reused: true,
+          };
+        }
+      }
       throw error;
     }
 
@@ -596,5 +620,27 @@ export class ExecutionsService {
       (message.includes('executions.user_id') &&
         message.includes('executions.idempotency_key'))
     );
+  }
+
+  private isConcurrentExecutionLimitConflict(error: unknown): boolean {
+    if (!(error instanceof ConflictException)) {
+      return false;
+    }
+
+    const response = error.getResponse();
+    if (typeof response === 'string') {
+      return response.startsWith('Maximum ');
+    }
+
+    if (
+      typeof response === 'object' &&
+      response !== null &&
+      'message' in response &&
+      typeof response.message === 'string'
+    ) {
+      return response.message.startsWith('Maximum ');
+    }
+
+    return false;
   }
 }
