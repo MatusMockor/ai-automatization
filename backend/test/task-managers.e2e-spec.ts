@@ -12,6 +12,7 @@ import {
 import { TASK_MANAGER_PROVIDERS } from '../src/task-managers/constants/task-managers.tokens';
 import {
   ProviderTask,
+  ProviderSyncScope,
   TaskManagerConnectionConfig,
   TaskManagerProvider,
 } from '../src/task-managers/interfaces/task-manager-provider.interface';
@@ -78,6 +79,27 @@ class FakeAsanaTaskManagerProvider implements TaskManagerProvider {
 
   async fetchProjects(): Promise<Array<{ id: string; name: string }>> {
     return [];
+  }
+
+  async listSyncScopes(): Promise<
+    Array<{ type: 'asana_workspace'; id: string; name: string }>
+  > {
+    return [];
+  }
+
+  async fetchTasksForScope(
+    _config: TaskManagerConnectionConfig,
+    _scope: ProviderSyncScope,
+    _limit: number,
+    _cursor?: string,
+  ): Promise<{
+    tasks: ProviderTask[];
+    nextCursor: string | null;
+  }> {
+    return {
+      tasks: [],
+      nextCursor: null,
+    };
   }
 
   private buildScopeKey(
@@ -154,6 +176,27 @@ class FakeJiraTaskManagerProvider implements TaskManagerProvider {
 
   async fetchProjects(): Promise<Array<{ id: string; name: string }>> {
     return [];
+  }
+
+  async listSyncScopes(): Promise<
+    Array<{ type: 'jira_project'; id: string; name: string }>
+  > {
+    return [];
+  }
+
+  async fetchTasksForScope(
+    _config: TaskManagerConnectionConfig,
+    _scope: ProviderSyncScope,
+    _limit: number,
+    _cursor?: string,
+  ): Promise<{
+    tasks: ProviderTask[];
+    nextCursor: string | null;
+  }> {
+    return {
+      tasks: [],
+      nextCursor: null,
+    };
   }
 
   private buildScopeKey(baseUrl: string, projectKey: string | null): string {

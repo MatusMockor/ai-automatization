@@ -1,0 +1,623 @@
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Not, Repository } from 'typeorm';
+import { EncryptionService } from '../common/encryption/encryption.service';
+import { parsePositiveInteger } from '../common/utils/parse.utils';
+import { TaskManagerConnection } from '../task-managers/entities/task-manager-connection.entity';
+import {
+  TaskManagerConnectionConfig,
+  TaskManagerProvider,
+  TaskManagerProviderType,
+  ProviderSyncScope,
+  ProviderSyncScopeType,
+  ProviderTask,
+} from '../task-managers/interfaces/task-manager-provider.interface';
+import { TaskManagerProviderRegistry } from '../task-managers/task-manager-provider.registry';
+import { StartTaskSyncResponseDto } from './dto/start-task-sync-response.dto';
+import { TaskScopesResponseDto } from './dto/task-scopes-response.dto';
+import { TaskSyncRunResponseDto } from './dto/task-sync-run-response.dto';
+import {
+  SyncedTaskScope,
+  SyncedTaskScopeType,
+} from './entities/synced-task-scope.entity';
+import { SyncedTask } from './entities/synced-task.entity';
+import { TaskSyncRun } from './entities/task-sync-run.entity';
+
+type AggregatedTask = {
+  task: ProviderTask;
+  scopes: Map<string, { type: SyncedTaskScopeType; id: string; name: string }>;
+};
+
+@Injectable()
+export class TaskSyncService {
+  private readonly logger = new Logger(TaskSyncService.name);
+  private readonly pageLimit: number;
+  private readonly maxPagesPerScope: number;
+
+  constructor(
+    @InjectRepository(TaskManagerConnection)
+    private readonly connectionRepository: Repository<TaskManagerConnection>,
+    @InjectRepository(SyncedTask)
+    private readonly syncedTaskRepository: Repository<SyncedTask>,
+    @InjectRepository(SyncedTaskScope)
+    private readonly syncedTaskScopeRepository: Repository<SyncedTaskScope>,
+    @InjectRepository(TaskSyncRun)
+    private readonly taskSyncRunRepository: Repository<TaskSyncRun>,
+    private readonly encryptionService: EncryptionService,
+    private readonly providerRegistry: TaskManagerProviderRegistry,
+    private readonly configService: ConfigService,
+  ) {
+    this.pageLimit = parsePositiveInteger(
+      this.configService.get<string>('TASK_SYNC_PAGE_LIMIT', '100'),
+      100,
+    );
+    this.maxPagesPerScope = parsePositiveInteger(
+      this.configService.get<string>('TASK_SYNC_MAX_PAGES_PER_SCOPE', '100'),
+      100,
+    );
+  }
+
+  async startUserSync(userId: string): Promise<StartTaskSyncResponseDto> {
+    const run = await this.taskSyncRunRepository.save(
+      this.taskSyncRunRepository.create({
+        userId,
+        status: 'queued',
+        connectionsTotal: 0,
+        connectionsDone: 0,
+        tasksUpserted: 0,
+        tasksDeleted: 0,
+        errorMessage: null,
+        startedAt: null,
+        finishedAt: null,
+      }),
+    );
+
+    setImmediate(() => {
+      void this.executeRun(run.id).catch((error) => {
+        this.logger.error(
+          `Task sync run ${run.id} crashed unexpectedly`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      });
+    });
+
+    return {
+      runId: run.id,
+      status: 'queued',
+    };
+  }
+
+  async getSyncRunForUser(
+    userId: string,
+    runId: string,
+  ): Promise<TaskSyncRunResponseDto> {
+    const run = await this.taskSyncRunRepository.findOne({
+      where: { id: runId, userId },
+    });
+
+    if (!run) {
+      throw new NotFoundException('Task sync run not found');
+    }
+
+    return this.mapRun(run);
+  }
+
+  async listScopesForUser(userId: string): Promise<TaskScopesResponseDto> {
+    const rawScopes = await this.syncedTaskScopeRepository
+      .createQueryBuilder('scope')
+      .innerJoin('scope.task', 'task')
+      .select('scope.scopeType', 'scopeType')
+      .addSelect('scope.scopeId', 'scopeId')
+      .addSelect('scope.scopeName', 'scopeName')
+      .addSelect('COUNT(DISTINCT task.id)', 'taskCount')
+      .where('task.userId = :userId', { userId })
+      .groupBy('scope.scopeType')
+      .addGroupBy('scope.scopeId')
+      .addGroupBy('scope.scopeName')
+      .getRawMany<{
+        scopeType: SyncedTaskScopeType;
+        scopeId: string;
+        scopeName: string;
+        taskCount: string;
+      }>();
+
+    const asanaWorkspaces = rawScopes
+      .filter((scope) => scope.scopeType === 'asana_workspace')
+      .map((scope) => ({
+        id: scope.scopeId,
+        name: scope.scopeName,
+        taskCount: Number.parseInt(scope.taskCount, 10) || 0,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const jiraProjects = rawScopes
+      .filter((scope) => scope.scopeType === 'jira_project')
+      .map((scope) => ({
+        key: scope.scopeId,
+        name: scope.scopeName,
+        taskCount: Number.parseInt(scope.taskCount, 10) || 0,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return {
+      asanaWorkspaces,
+      jiraProjects,
+    };
+  }
+
+  private async executeRun(runId: string): Promise<void> {
+    const run = await this.taskSyncRunRepository.findOne({
+      where: { id: runId },
+    });
+    if (!run) {
+      return;
+    }
+
+    await this.taskSyncRunRepository.update(
+      { id: run.id },
+      {
+        status: 'running',
+        startedAt: new Date(),
+        finishedAt: null,
+        errorMessage: null,
+      },
+    );
+
+    try {
+      const connections = await this.connectionRepository.find({
+        where: { userId: run.userId },
+        order: { createdAt: 'ASC' },
+      });
+
+      await this.taskSyncRunRepository.update(
+        { id: run.id },
+        {
+          connectionsTotal: connections.length,
+        },
+      );
+
+      if (connections.length === 0) {
+        await this.taskSyncRunRepository.update(
+          { id: run.id },
+          {
+            status: 'completed',
+            finishedAt: new Date(),
+          },
+        );
+        return;
+      }
+
+      let tasksUpserted = 0;
+      let tasksDeleted = 0;
+      let connectionsDone = 0;
+      const connectionErrors: string[] = [];
+
+      for (const connection of connections) {
+        try {
+          const synced = await this.syncConnection(connection);
+          tasksUpserted += synced.tasksUpserted;
+          tasksDeleted += synced.tasksDeleted;
+
+          await this.connectionRepository.update(
+            { id: connection.id },
+            {
+              lastSyncedAt: new Date(),
+              lastSyncStatus: 'completed',
+              lastSyncError: null,
+            },
+          );
+        } catch (error) {
+          const connectionError = this.describeError(error);
+          connectionErrors.push(
+            `[${connection.provider}:${connection.id}] ${connectionError}`,
+          );
+
+          await this.connectionRepository.update(
+            { id: connection.id },
+            {
+              lastSyncedAt: new Date(),
+              lastSyncStatus: 'failed',
+              lastSyncError: connectionError,
+            },
+          );
+        } finally {
+          connectionsDone += 1;
+          await this.taskSyncRunRepository.update(
+            { id: run.id },
+            {
+              connectionsDone,
+              tasksUpserted,
+              tasksDeleted,
+            },
+          );
+        }
+      }
+
+      await this.taskSyncRunRepository.update(
+        { id: run.id },
+        {
+          status: connectionErrors.length > 0 ? 'failed' : 'completed',
+          errorMessage:
+            connectionErrors.length > 0
+              ? connectionErrors.join('\n').slice(0, 4000)
+              : null,
+          finishedAt: new Date(),
+          connectionsDone,
+          tasksUpserted,
+          tasksDeleted,
+        },
+      );
+    } catch (error) {
+      await this.taskSyncRunRepository.update(
+        { id: run.id },
+        {
+          status: 'failed',
+          errorMessage: this.describeError(error),
+          finishedAt: new Date(),
+        },
+      );
+    }
+  }
+
+  private async syncConnection(
+    connection: TaskManagerConnection,
+  ): Promise<{ tasksUpserted: number; tasksDeleted: number }> {
+    const config = this.toConnectionConfig(connection);
+    const providerType = this.toProviderType(connection.provider);
+    const provider = this.providerRegistry.getProvider(providerType);
+
+    const scopes = await provider.listSyncScopes(config);
+    const tasksByExternalId = await this.collectTasksAcrossScopes(
+      provider,
+      config,
+      scopes,
+    );
+
+    if (tasksByExternalId.size === 0) {
+      const deleted = await this.syncedTaskRepository.delete({
+        connectionId: connection.id,
+      });
+
+      return {
+        tasksUpserted: 0,
+        tasksDeleted: deleted.affected ?? 0,
+      };
+    }
+
+    const now = new Date();
+    const upsertRows = Array.from(tasksByExternalId.entries()).map(
+      ([externalId, aggregate]) => ({
+        userId: connection.userId,
+        connectionId: connection.id,
+        provider: providerType,
+        externalId,
+        title: aggregate.task.title,
+        description: aggregate.task.description || null,
+        url: aggregate.task.url || null,
+        status: aggregate.task.status,
+        assignee: aggregate.task.assignee,
+        sourceUpdatedAt: this.parseTimestamp(aggregate.task.updatedAt),
+        lastSyncedAt: now,
+      }),
+    );
+
+    await this.bulkUpsertSyncedTasks(upsertRows);
+
+    const externalIds = upsertRows.map((row) => row.externalId);
+    const persistedTasks = await this.findPersistedTasks(
+      connection.id,
+      externalIds,
+    );
+
+    await this.replaceTaskScopes(persistedTasks, tasksByExternalId);
+
+    const deleted = await this.deleteStaleTasks(connection.id, externalIds);
+
+    return {
+      tasksUpserted: upsertRows.length,
+      tasksDeleted: deleted,
+    };
+  }
+
+  private async collectTasksAcrossScopes(
+    provider: TaskManagerProvider,
+    config: TaskManagerConnectionConfig,
+    scopes: ProviderSyncScope[],
+  ): Promise<Map<string, AggregatedTask>> {
+    const tasksByExternalId = new Map<string, AggregatedTask>();
+
+    for (const scope of scopes) {
+      let cursor: string | undefined;
+      let pageCount = 0;
+
+      while (pageCount < this.maxPagesPerScope) {
+        const page = await provider.fetchTasksForScope(
+          config,
+          scope,
+          this.pageLimit,
+          cursor,
+        );
+
+        for (const task of page.tasks) {
+          this.mergeAggregatedTask(tasksByExternalId, task, scope);
+        }
+
+        if (!page.nextCursor) {
+          break;
+        }
+
+        cursor = page.nextCursor;
+        pageCount += 1;
+      }
+
+      if (pageCount >= this.maxPagesPerScope && cursor) {
+        throw new Error(
+          `Scope ${scope.type}:${scope.id} exceeded page limit ${this.maxPagesPerScope}`,
+        );
+      }
+    }
+
+    return tasksByExternalId;
+  }
+
+  private mergeAggregatedTask(
+    tasksByExternalId: Map<string, AggregatedTask>,
+    task: ProviderTask,
+    scope: ProviderSyncScope,
+  ): void {
+    if (!task.externalId) {
+      return;
+    }
+
+    const normalizedScope = this.toSyncedScope(scope);
+    const scopeKey = `${normalizedScope.type}:${normalizedScope.id}`;
+    const existing = tasksByExternalId.get(task.externalId);
+
+    if (!existing) {
+      tasksByExternalId.set(task.externalId, {
+        task,
+        scopes: new Map([[scopeKey, normalizedScope]]),
+      });
+      return;
+    }
+
+    const existingTimestamp = Date.parse(existing.task.updatedAt);
+    const nextTimestamp = Date.parse(task.updatedAt);
+    if (
+      Number.isFinite(nextTimestamp) &&
+      (!Number.isFinite(existingTimestamp) || nextTimestamp > existingTimestamp)
+    ) {
+      existing.task = task;
+    }
+
+    existing.scopes.set(scopeKey, normalizedScope);
+  }
+
+  private async bulkUpsertSyncedTasks(
+    rows: Array<
+      Pick<
+        SyncedTask,
+        | 'userId'
+        | 'connectionId'
+        | 'provider'
+        | 'externalId'
+        | 'title'
+        | 'description'
+        | 'url'
+        | 'status'
+        | 'assignee'
+        | 'sourceUpdatedAt'
+        | 'lastSyncedAt'
+      >
+    >,
+  ): Promise<void> {
+    const chunkSize = 250;
+
+    for (let index = 0; index < rows.length; index += chunkSize) {
+      const chunk = rows.slice(index, index + chunkSize);
+      await this.syncedTaskRepository.upsert(chunk, [
+        'connectionId',
+        'externalId',
+      ]);
+    }
+  }
+
+  private async findPersistedTasks(
+    connectionId: string,
+    externalIds: string[],
+  ): Promise<Array<Pick<SyncedTask, 'id' | 'externalId'>>> {
+    const chunkSize = 200;
+    const tasks: Array<Pick<SyncedTask, 'id' | 'externalId'>> = [];
+
+    for (let index = 0; index < externalIds.length; index += chunkSize) {
+      const chunk = externalIds.slice(index, index + chunkSize);
+      const found = await this.syncedTaskRepository.find({
+        where: {
+          connectionId,
+          externalId: In(chunk),
+        },
+        select: {
+          id: true,
+          externalId: true,
+        },
+      });
+      tasks.push(...found);
+    }
+
+    return tasks;
+  }
+
+  private async replaceTaskScopes(
+    persistedTasks: Array<Pick<SyncedTask, 'id' | 'externalId'>>,
+    tasksByExternalId: Map<string, AggregatedTask>,
+  ): Promise<void> {
+    if (persistedTasks.length === 0) {
+      return;
+    }
+
+    const taskIds = persistedTasks.map((task) => task.id);
+    await this.syncedTaskScopeRepository.delete({ taskId: In(taskIds) });
+
+    const scopeRows: Array<
+      Pick<
+        SyncedTaskScope,
+        'taskId' | 'scopeType' | 'scopeId' | 'scopeName' | 'isPrimary'
+      >
+    > = [];
+
+    for (const persistedTask of persistedTasks) {
+      const aggregate = tasksByExternalId.get(persistedTask.externalId);
+      if (!aggregate) {
+        continue;
+      }
+
+      const scopes = Array.from(aggregate.scopes.values()).sort((a, b) =>
+        `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`),
+      );
+
+      scopes.forEach((scope, index) => {
+        scopeRows.push({
+          taskId: persistedTask.id,
+          scopeType: scope.type,
+          scopeId: scope.id,
+          scopeName: scope.name,
+          isPrimary: index === 0,
+        });
+      });
+    }
+
+    if (scopeRows.length === 0) {
+      return;
+    }
+
+    const chunkSize = 500;
+    for (let index = 0; index < scopeRows.length; index += chunkSize) {
+      await this.syncedTaskScopeRepository.insert(
+        scopeRows.slice(index, index + chunkSize),
+      );
+    }
+  }
+
+  private async deleteStaleTasks(
+    connectionId: string,
+    currentExternalIds: string[],
+  ): Promise<number> {
+    if (currentExternalIds.length === 0) {
+      const result = await this.syncedTaskRepository.delete({ connectionId });
+      return result.affected ?? 0;
+    }
+
+    const result = await this.syncedTaskRepository.delete({
+      connectionId,
+      externalId: Not(In(currentExternalIds)),
+    });
+
+    return result.affected ?? 0;
+  }
+
+  private toConnectionConfig(
+    connection: TaskManagerConnection,
+  ): TaskManagerConnectionConfig {
+    const provider = this.toProviderType(connection.provider);
+    const secret = this.encryptionService.decrypt(connection.secretEncrypted);
+
+    if (provider === 'asana') {
+      return {
+        provider: 'asana',
+        personalAccessToken: secret,
+        workspaceId: connection.workspaceId,
+        projectId: connection.projectId,
+      };
+    }
+
+    if (connection.authMode === 'basic') {
+      if (!connection.baseUrl || !connection.emailEncrypted) {
+        throw new Error('Stored Jira connection is invalid and cannot be used');
+      }
+
+      return {
+        provider: 'jira',
+        baseUrl: connection.baseUrl,
+        projectKey: connection.projectKey,
+        authMode: 'basic',
+        email: this.encryptionService.decrypt(connection.emailEncrypted),
+        apiToken: secret,
+      };
+    }
+
+    if (connection.authMode === 'bearer') {
+      if (!connection.baseUrl) {
+        throw new Error('Stored Jira connection is invalid and cannot be used');
+      }
+
+      return {
+        provider: 'jira',
+        baseUrl: connection.baseUrl,
+        projectKey: connection.projectKey,
+        authMode: 'bearer',
+        accessToken: secret,
+      };
+    }
+
+    throw new Error('Stored Jira connection authentication mode is invalid');
+  }
+
+  private toProviderType(provider: string): TaskManagerProviderType {
+    if (provider === 'asana' || provider === 'jira') {
+      return provider;
+    }
+
+    throw new Error(`Unsupported task manager provider: ${provider}`);
+  }
+
+  private toSyncedScope(scope: ProviderSyncScope): {
+    type: SyncedTaskScopeType;
+    id: string;
+    name: string;
+  } {
+    const scopeTypeMap: Record<ProviderSyncScopeType, SyncedTaskScopeType> = {
+      asana_workspace: 'asana_workspace',
+      jira_project: 'jira_project',
+    };
+
+    return {
+      type: scopeTypeMap[scope.type],
+      id: scope.id,
+      name: scope.name,
+    };
+  }
+
+  private parseTimestamp(value: string): Date | null {
+    const timestamp = new Date(value);
+    if (Number.isNaN(timestamp.getTime())) {
+      return null;
+    }
+
+    return timestamp;
+  }
+
+  private describeError(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    return 'Task sync failed due to an unknown error';
+  }
+
+  private mapRun(run: TaskSyncRun): TaskSyncRunResponseDto {
+    return {
+      id: run.id,
+      status: run.status,
+      connectionsTotal: run.connectionsTotal,
+      connectionsDone: run.connectionsDone,
+      tasksUpserted: run.tasksUpserted,
+      tasksDeleted: run.tasksDeleted,
+      errorMessage: run.errorMessage,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+    };
+  }
+}

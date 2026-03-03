@@ -15,6 +15,9 @@ export class TaskManagerConnectionResponseDto {
   projectKey!: string | null;
   hasSecret!: boolean;
   lastValidatedAt!: Date | null;
+  lastSyncedAt!: Date | null;
+  lastSyncStatus!: string | null;
+  lastSyncError!: string | null;
   createdAt!: Date;
   updatedAt!: Date;
   prefixes!: TaskPrefixResponseDto[];
