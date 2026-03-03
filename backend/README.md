@@ -56,7 +56,8 @@ Execution publication settings control automatic `branch -> commit -> push -> PR
 - `EXECUTION_WORKER_RECOVERY_TIMEOUT_MS` default: `900000`
 - `EXECUTION_MIN_TIMEOUT_MS` default: `60000`
 - `EXECUTION_MAX_TIMEOUT_MS` default: `7200000`
-- `EXECUTION_RETENTION_ENABLED` default: `true` (set `false` on worker replicas to avoid duplicate schedulers)
+- `EXECUTION_RETENTION_ENABLED` default: `true` (runtime flag consumed by backend process)
+- Compose mapping defaults: `EXECUTION_RETENTION_ENABLED_API=true`, `EXECUTION_RETENTION_ENABLED_WORKER=false`
 - `EXECUTION_RETENTION_TIMEZONE` default: `UTC`
 - `ENABLE_METRICS` default: `false`
 - `EXECUTION_OUTPUT_RETENTION_DAYS` default: `30`
