@@ -610,12 +610,12 @@ export class ExecutionsService {
   }
 
   private resolveRequireCodeChanges(dto: CreateExecutionDto): boolean {
-    if (dto.action === 'plan') {
-      return false;
-    }
-
     if (dto.requireCodeChanges !== undefined) {
       return dto.requireCodeChanges;
+    }
+
+    if (dto.action === 'plan') {
+      return false;
     }
 
     return dto.action === 'feature' || dto.action === 'fix';
