@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -49,6 +50,11 @@ export class GetTasksQueryDto {
   @IsInt()
   @Min(1)
   limit?: number;
+
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalString(value))
+  @IsOptional()
+  @IsIn(['asana', 'jira'])
+  provider?: 'asana' | 'jira';
 
   @Transform(({ value }: { value: unknown }) => normalizeOptionalString(value))
   @IsOptional()

@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { parsePositiveInteger } from '../common/utils/parse.utils';
 import { RepositoriesService } from '../repositories/repositories.service';
 import { TaskManagersService } from '../task-managers/task-managers.service';
+import type { TaskManagerProviderType } from '../task-managers/interfaces/task-manager-provider.interface';
 import { GetTasksQueryDto } from './dto/get-tasks-query.dto';
 import { StartTaskSyncResponseDto } from './dto/start-task-sync-response.dto';
 import {
@@ -25,6 +26,7 @@ import { TaskSyncService } from './task-sync.service';
 import { UpsertTaskRepositoryDefaultDto } from './dto/upsert-task-repository-default.dto';
 
 type ScopeFilter = {
+  provider?: TaskManagerProviderType;
   asanaWorkspaceId?: string;
   asanaProjectId?: string;
   jiraProjectKey?: string;
@@ -58,6 +60,8 @@ export class TasksService {
     userId: string,
     query: GetTasksQueryDto,
   ): Promise<TaskFeedResponseDto> {
+    this.assertProviderScopeCompatibility(query);
+
     if (query.repoId) {
       await this.repositoriesService.assertOwnedRepository(
         userId,
@@ -67,9 +71,14 @@ export class TasksService {
 
     const connections =
       await this.taskManagersService.listConnectionsForUser(userId);
+    const filteredConnections = query.provider
+      ? connections.filter(
+          (connection) => connection.provider === query.provider,
+        )
+      : connections;
 
     const limit = this.resolveLimit(query.limit);
-    if (connections.length === 0) {
+    if (filteredConnections.length === 0) {
       return {
         repositoryId: query.repoId ?? null,
         total: 0,
@@ -79,11 +88,11 @@ export class TasksService {
     }
 
     const connectionById = new Map(
-      connections.map((connection) => [connection.id, connection]),
+      filteredConnections.map((connection) => [connection.id, connection]),
     );
 
     const persistedTasks = await this.syncedTaskRepository.find({
-      where: { userId },
+      where: query.provider ? { userId, provider: query.provider } : { userId },
       relations: { scopes: true },
       order: {
         sourceUpdatedAt: 'DESC',
@@ -92,6 +101,7 @@ export class TasksService {
     });
 
     const scopeFilteredTasks = this.filterByScope(persistedTasks, {
+      provider: query.provider,
       asanaWorkspaceId: query.asanaWorkspaceId,
       asanaProjectId: query.asanaProjectId,
       jiraProjectKey: query.jiraProjectKey,
@@ -117,8 +127,11 @@ export class TasksService {
     };
   }
 
-  startSyncForUser(userId: string): Promise<StartTaskSyncResponseDto> {
-    return this.taskSyncService.startUserSync(userId);
+  startSyncForUser(
+    userId: string,
+    provider: TaskManagerProviderType,
+  ): Promise<StartTaskSyncResponseDto> {
+    return this.taskSyncService.startUserSync(userId, provider);
   }
 
   getSyncRunForUser(
@@ -161,16 +174,21 @@ export class TasksService {
     tasks: SyncedTask[],
     filter: ScopeFilter,
   ): SyncedTask[] {
-    const { asanaWorkspaceId, asanaProjectId, jiraProjectKey } = filter;
+    const { asanaWorkspaceId, asanaProjectId, jiraProjectKey, provider } =
+      filter;
 
-    if (!asanaWorkspaceId && !asanaProjectId && !jiraProjectKey) {
+    if (!provider && !asanaWorkspaceId && !asanaProjectId && !jiraProjectKey) {
       return tasks;
     }
 
-    return tasks.filter((task) => {
+    const providerFilteredTasks = provider
+      ? tasks.filter((task) => task.provider === provider)
+      : tasks;
+
+    return providerFilteredTasks.filter((task) => {
       if (task.provider === 'asana') {
         if (!asanaWorkspaceId && !asanaProjectId) {
-          return false;
+          return provider === 'asana';
         }
 
         const workspaceMatches = !asanaWorkspaceId
@@ -197,7 +215,7 @@ export class TasksService {
 
       if (task.provider === 'jira') {
         if (!jiraProjectKey) {
-          return false;
+          return provider === 'jira';
         }
 
         return task.scopes.some(
@@ -209,6 +227,24 @@ export class TasksService {
 
       return false;
     });
+  }
+
+  private assertProviderScopeCompatibility(query: GetTasksQueryDto): void {
+    if (
+      query.provider === 'jira' &&
+      (query.asanaWorkspaceId !== undefined ||
+        query.asanaProjectId !== undefined)
+    ) {
+      throw new BadRequestException(
+        'Asana scope filters cannot be used with Jira provider filter',
+      );
+    }
+
+    if (query.provider === 'asana' && query.jiraProjectKey !== undefined) {
+      throw new BadRequestException(
+        'Jira project filter cannot be used with Asana provider filter',
+      );
+    }
   }
 
   private buildFeedItems(
