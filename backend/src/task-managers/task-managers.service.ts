@@ -11,11 +11,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { parsePositiveInteger } from '../common/utils/parse.utils';
-import { AddTaskPrefixDto } from './dto/add-task-prefix.dto';
 import { ConnectionTasksResponseDto } from './dto/connection-tasks-response.dto';
 import { CreateTaskManagerConnectionDto } from './dto/create-task-manager-connection.dto';
 import { TaskManagerConnectionResponseDto } from './dto/task-manager-connection-response.dto';
-import { TaskPrefixResponseDto } from './dto/task-prefix-response.dto';
 import { TaskManagerConnection } from './entities/task-manager-connection.entity';
 import {
   TaskManagerProviderAuthError,
@@ -27,9 +25,7 @@ import {
   TaskManagerConnectionConfig,
   TaskManagerProviderType,
 } from './interfaces/task-manager-provider.interface';
-import { TaskFilterService } from './task-filter.service';
 import { TaskManagerProviderRegistry } from './task-manager-provider.registry';
-import { TaskPrefixService } from './task-prefix.service';
 
 type DatabaseError = {
   code?: string;
@@ -52,8 +48,6 @@ export class TaskManagersService {
     private readonly connectionRepository: Repository<TaskManagerConnection>,
     private readonly encryptionService: EncryptionService,
     private readonly providerRegistry: TaskManagerProviderRegistry,
-    private readonly taskPrefixService: TaskPrefixService,
-    private readonly taskFilterService: TaskFilterService,
     private readonly configService: ConfigService,
   ) {
     this.defaultTaskLimit = parsePositiveInteger(
@@ -71,10 +65,8 @@ export class TaskManagersService {
   ): Promise<TaskManagerConnectionResponseDto[]> {
     const connections = await this.connectionRepository.find({
       where: { userId },
-      relations: { prefixes: true },
       order: {
         createdAt: 'DESC',
-        prefixes: { createdAt: 'ASC' },
       },
     });
 
@@ -132,16 +124,15 @@ export class TaskManagersService {
 
     try {
       const savedConnection = await this.connectionRepository.save(connection);
-      const withPrefixes = await this.connectionRepository.findOne({
+      const saved = await this.connectionRepository.findOne({
         where: { id: savedConnection.id, userId },
-        relations: { prefixes: true },
       });
 
-      if (!withPrefixes) {
+      if (!saved) {
         throw new NotFoundException('Task manager connection not found');
       }
 
-      return this.mapConnectionToResponse(withPrefixes);
+      return this.mapConnectionToResponse(saved);
     } catch (error) {
       if (this.isUniqueViolation(error)) {
         throw new ConflictException(
@@ -169,31 +160,6 @@ export class TaskManagersService {
     }
   }
 
-  async addPrefixForConnection(
-    userId: string,
-    connectionId: string,
-    dto: AddTaskPrefixDto,
-  ): Promise<TaskPrefixResponseDto> {
-    await this.getOwnedConnection(connectionId, userId);
-    return this.taskPrefixService.addPrefix(connectionId, dto);
-  }
-
-  async deletePrefixForConnection(
-    userId: string,
-    connectionId: string,
-    prefixId: string,
-  ): Promise<void> {
-    await this.getOwnedConnection(connectionId, userId);
-    const deleted = await this.taskPrefixService.deletePrefix(
-      connectionId,
-      prefixId,
-    );
-
-    if (!deleted) {
-      throw new NotFoundException('Task prefix not found');
-    }
-  }
-
   async fetchTasksForConnection(
     userId: string,
     connectionId: string,
@@ -213,12 +179,7 @@ export class TaskManagersService {
       this.throwMappedProviderError(error);
     }
 
-    const filteredTasks = this.taskFilterService.filterTasks(
-      providerTasks,
-      connection.prefixes,
-    );
-
-    const items = filteredTasks
+    const items = providerTasks
       .map((task) => ({
         id: `${providerType}:${task.externalId}`,
         externalId: task.externalId,
@@ -228,7 +189,6 @@ export class TaskManagersService {
         status: task.status,
         assignee: task.assignee,
         source: providerType,
-        matchedPrefix: task.matchedPrefix,
         updatedAt: task.updatedAt,
       }))
       .sort((a, b) => {
@@ -253,12 +213,6 @@ export class TaskManagersService {
   ): Promise<TaskManagerConnection> {
     const connection = await this.connectionRepository.findOne({
       where: { id: connectionId, userId },
-      relations: { prefixes: true },
-      order: {
-        prefixes: {
-          createdAt: 'ASC',
-        },
-      },
     });
 
     if (!connection) {
@@ -287,9 +241,6 @@ export class TaskManagersService {
       lastSyncError: this.toPublicSyncError(connection.lastSyncError),
       createdAt: connection.createdAt,
       updatedAt: connection.updatedAt,
-      prefixes: (connection.prefixes ?? []).map((prefix) =>
-        this.taskPrefixService.mapToResponse(prefix),
-      ),
     };
   }
 

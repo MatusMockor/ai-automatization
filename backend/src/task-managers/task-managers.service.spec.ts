@@ -4,10 +4,8 @@ import { Repository } from 'typeorm';
 import { CreateTaskManagerConnectionDto } from './dto/create-task-manager-connection.dto';
 import { TaskManagerConnection } from './entities/task-manager-connection.entity';
 import { TaskManagerConnectionConfig } from './interfaces/task-manager-provider.interface';
-import { TaskFilterService } from './task-filter.service';
 import { TaskManagerProviderRegistry } from './task-manager-provider.registry';
 import { TaskManagersService } from './task-managers.service';
-import { TaskPrefixService } from './task-prefix.service';
 
 describe('TaskManagersService', () => {
   const createService = () => {
@@ -28,16 +26,6 @@ describe('TaskManagersService', () => {
       getProvider: jest.fn(),
     } as unknown as jest.Mocked<TaskManagerProviderRegistry>;
 
-    const taskPrefixService = {
-      addPrefix: jest.fn(),
-      deletePrefix: jest.fn(),
-      mapToResponse: jest.fn(),
-    } as unknown as jest.Mocked<TaskPrefixService>;
-
-    const taskFilterService = {
-      filterTasks: jest.fn(),
-    } as unknown as jest.Mocked<TaskFilterService>;
-
     const configService = {
       get: jest.fn((_: string, defaultValue?: string) => defaultValue),
     } as unknown as jest.Mocked<ConfigService>;
@@ -46,8 +34,6 @@ describe('TaskManagersService', () => {
       connectionRepository,
       encryptionService as never,
       providerRegistry,
-      taskPrefixService,
-      taskFilterService,
       configService,
     );
 
@@ -121,7 +107,6 @@ describe('TaskManagersService', () => {
       lastSyncError: 'Asana token invalid: bearer abc123',
       createdAt: new Date(),
       updatedAt: new Date(),
-      prefixes: [],
       userId: 'user-1',
       user: {} as never,
     } as TaskManagerConnection);

@@ -5,14 +5,12 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
-  OneToMany,
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import type { ConnectionStatus } from '../interfaces/task-manager-provider.interface';
 import { User } from '../../users/entities/user.entity';
-import { TaskPrefix } from './task-prefix.entity';
 import { getTimestampColumnType } from '../../common/utils/database-column.utils';
 
 const LAST_VALIDATED_AT_COLUMN_TYPE = getTimestampColumnType();
@@ -97,11 +95,6 @@ export class TaskManagerConnection {
 
   @Column({ name: 'last_sync_error', type: 'text', nullable: true })
   lastSyncError!: string | null;
-
-  @OneToMany(() => TaskPrefix, (prefix) => prefix.connection, {
-    cascade: false,
-  })
-  prefixes!: TaskPrefix[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

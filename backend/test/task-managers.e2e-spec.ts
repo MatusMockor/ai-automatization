@@ -3,7 +3,6 @@ import { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DataSource } from 'typeorm';
 import { EncryptionService } from '../src/common/encryption/encryption.service';
 import { TaskManagerConnection } from '../src/task-managers/entities/task-manager-connection.entity';
-import { TaskPrefix } from '../src/task-managers/entities/task-prefix.entity';
 import {
   TaskManagerProviderAuthError,
   TaskManagerProviderNotFoundError,
@@ -17,7 +16,6 @@ import {
   TaskManagerProvider,
 } from '../src/task-managers/interfaces/task-manager-provider.interface';
 import { TaskManagerConnectionFactory } from './factories/task-manager-connection.factory';
-import { TaskPrefixFactory } from './factories/task-prefix.factory';
 import { UserFactory } from './factories/user.factory';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -219,7 +217,6 @@ describe('TaskManagers (e2e)', () => {
   let dataSource: DataSource;
   let userFactory: UserFactory;
   let connectionFactory: TaskManagerConnectionFactory;
-  let prefixFactory: TaskPrefixFactory;
   let fakeAsanaProvider: FakeAsanaTaskManagerProvider;
   let fakeJiraProvider: FakeJiraTaskManagerProvider;
 
@@ -248,7 +245,6 @@ describe('TaskManagers (e2e)', () => {
       dataSource,
       app.get(EncryptionService),
     );
-    prefixFactory = new TaskPrefixFactory(dataSource);
   });
 
   beforeEach(async () => {
@@ -279,10 +275,6 @@ describe('TaskManagers (e2e)', () => {
       provider: 'asana',
       scopeKey: `asana:${faker.string.numeric(6)}:${faker.string.numeric(6)}`,
     });
-    await prefixFactory.create({
-      connectionId: ownerConnection.id,
-      value: 'fix/',
-    });
 
     await connectionFactory.create({
       userId: otherSession.userId,
@@ -302,14 +294,10 @@ describe('TaskManagers (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const body =
-      response.json<
-        Array<{ id: string; prefixes: Array<{ value: string }> }>
-      >();
+    const body = response.json<Array<{ id: string }>>();
 
     expect(body).toHaveLength(1);
     expect(body[0]?.id).toBe(ownerConnection.id);
-    expect(body[0]?.prefixes.map((prefix) => prefix.value)).toEqual(['fix/']);
   });
 
   it('POST /api/task-managers/connections should create Asana connection', async () => {
@@ -339,14 +327,12 @@ describe('TaskManagers (e2e)', () => {
       workspaceId: string | null;
       projectId: string | null;
       hasSecret: boolean;
-      prefixes: Array<{ id: string }>;
     }>();
 
     expect(body.provider).toBe('asana');
     expect(body.workspaceId).toBe(workspaceId);
     expect(body.projectId).toBe(projectId);
     expect(body.hasSecret).toBe(true);
-    expect(body.prefixes).toEqual([]);
 
     const storedConnection = await dataSource
       .getRepository(TaskManagerConnection)
@@ -519,80 +505,7 @@ describe('TaskManagers (e2e)', () => {
     expect(deleteResponse.statusCode).toBe(404);
   });
 
-  it('POST /api/task-managers/connections/:id/prefixes should add prefix and reject duplicates', async () => {
-    const session = await createLoginSession();
-
-    const createResponse = await app.inject({
-      method: 'POST',
-      url: '/api/task-managers/connections',
-      headers: {
-        authorization: `Bearer ${session.accessToken}`,
-      },
-      payload: {
-        provider: 'asana',
-        personalAccessToken: `asana-${faker.string.alphanumeric(24)}`,
-      },
-    });
-    expect(createResponse.statusCode).toBe(201);
-
-    const connectionId = createResponse.json<{ id: string }>().id;
-
-    const addResponse = await app.inject({
-      method: 'POST',
-      url: `/api/task-managers/connections/${connectionId}/prefixes`,
-      headers: {
-        authorization: `Bearer ${session.accessToken}`,
-      },
-      payload: {
-        value: 'fix/',
-      },
-    });
-
-    expect(addResponse.statusCode).toBe(201);
-    expect(
-      addResponse.json<{ normalizedValue: string }>().normalizedValue,
-    ).toBe('fix/');
-
-    const duplicateResponse = await app.inject({
-      method: 'POST',
-      url: `/api/task-managers/connections/${connectionId}/prefixes`,
-      headers: {
-        authorization: `Bearer ${session.accessToken}`,
-      },
-      payload: {
-        value: ' FIX/ ',
-      },
-    });
-
-    expect(duplicateResponse.statusCode).toBe(409);
-  });
-
-  it('DELETE /api/task-managers/connections/:id/prefixes/:prefixId should return 404 for foreign ownership', async () => {
-    const ownerSession = await createLoginSession();
-    const attackerSession = await createLoginSession();
-
-    const connection = await connectionFactory.create({
-      userId: ownerSession.userId,
-      provider: 'asana',
-      secret: `asana-${faker.string.alphanumeric(24)}`,
-    });
-    const prefix = await prefixFactory.create({
-      connectionId: connection.id,
-      value: 'fix/',
-    });
-
-    const response = await app.inject({
-      method: 'DELETE',
-      url: `/api/task-managers/connections/${connection.id}/prefixes/${prefix.id}`,
-      headers: {
-        authorization: `Bearer ${attackerSession.accessToken}`,
-      },
-    });
-
-    expect(response.statusCode).toBe(404);
-  });
-
-  it('GET /api/task-managers/connections/:id/tasks should return all tasks when no prefixes configured', async () => {
+  it('GET /api/task-managers/connections/:id/tasks should return provider tasks without prefix filtering', async () => {
     const session = await createLoginSession();
     const workspaceId = faker.string.numeric(8);
     const projectId = faker.string.numeric(8);
@@ -638,94 +551,11 @@ describe('TaskManagers (e2e)', () => {
     expect(tasksResponse.statusCode).toBe(200);
     const body = tasksResponse.json<{
       total: number;
-      items: Array<{ externalId: string; matchedPrefix: string | null }>;
+      items: Array<{ externalId: string }>;
     }>();
 
     expect(body.total).toBe(2);
     expect(body.items.map((task) => task.externalId)).toEqual(['A-1', 'A-2']);
-    expect(body.items.map((task) => task.matchedPrefix)).toEqual([null, null]);
-  });
-
-  it('GET /api/task-managers/connections/:id/tasks should filter by user-defined prefixes with startsWith case-insensitive', async () => {
-    const session = await createLoginSession();
-    const workspaceId = faker.string.numeric(8);
-    const projectId = faker.string.numeric(8);
-
-    fakeAsanaProvider.seedTasks(workspaceId, projectId, [
-      buildProviderTask({
-        externalId: 'TASK-1',
-        title: 'fix/ improve auth checks',
-        updatedAt: '2026-02-12T10:00:00.000Z',
-      }),
-      buildProviderTask({
-        externalId: 'TASK-2',
-        title: '   /FEATURE support jira provider',
-        updatedAt: '2026-02-12T09:59:00.000Z',
-      }),
-      buildProviderTask({
-        externalId: 'TASK-3',
-        title: 'chore cleanup tests',
-        updatedAt: '2026-02-12T09:58:00.000Z',
-      }),
-    ]);
-
-    const createResponse = await app.inject({
-      method: 'POST',
-      url: '/api/task-managers/connections',
-      headers: {
-        authorization: `Bearer ${session.accessToken}`,
-      },
-      payload: {
-        provider: 'asana',
-        personalAccessToken: `asana-${faker.string.alphanumeric(24)}`,
-        workspaceId,
-        projectId,
-      },
-    });
-    expect(createResponse.statusCode).toBe(201);
-
-    const connectionId = createResponse.json<{ id: string }>().id;
-
-    await app.inject({
-      method: 'POST',
-      url: `/api/task-managers/connections/${connectionId}/prefixes`,
-      headers: {
-        authorization: `Bearer ${session.accessToken}`,
-      },
-      payload: { value: 'fix/' },
-    });
-    await app.inject({
-      method: 'POST',
-      url: `/api/task-managers/connections/${connectionId}/prefixes`,
-      headers: {
-        authorization: `Bearer ${session.accessToken}`,
-      },
-      payload: { value: '/feature' },
-    });
-
-    const tasksResponse = await app.inject({
-      method: 'GET',
-      url: `/api/task-managers/connections/${connectionId}/tasks`,
-      headers: {
-        authorization: `Bearer ${session.accessToken}`,
-      },
-    });
-
-    expect(tasksResponse.statusCode).toBe(200);
-    const body = tasksResponse.json<{
-      total: number;
-      items: Array<{ externalId: string; matchedPrefix: string | null }>;
-    }>();
-
-    expect(body.total).toBe(2);
-    expect(body.items.map((task) => task.externalId)).toEqual([
-      'TASK-1',
-      'TASK-2',
-    ]);
-    expect(body.items.map((task) => task.matchedPrefix)).toEqual([
-      'fix/',
-      '/feature',
-    ]);
   });
 
   it('GET /api/task-managers/connections/:id/tasks should respect limit query and stable ordering', async () => {

@@ -16,7 +16,6 @@ import {
 } from '../src/task-managers/interfaces/task-manager-provider.interface';
 import { RepositoryFactory } from './factories/repository.factory';
 import { TaskManagerConnectionFactory } from './factories/task-manager-connection.factory';
-import { TaskPrefixFactory } from './factories/task-prefix.factory';
 import { UserFactory } from './factories/user.factory';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -465,7 +464,6 @@ describe('Tasks (e2e)', () => {
   let dataSource: DataSource;
   let userFactory: UserFactory;
   let connectionFactory: TaskManagerConnectionFactory;
-  let prefixFactory: TaskPrefixFactory;
   let repositoryFactory: RepositoryFactory;
   let fakeAsanaProvider: FakeAsanaTaskManagerProvider;
   let fakeJiraProvider: FakeJiraTaskManagerProvider;
@@ -495,7 +493,6 @@ describe('Tasks (e2e)', () => {
       dataSource,
       app.get(EncryptionService),
     );
-    prefixFactory = new TaskPrefixFactory(dataSource);
     repositoryFactory = new RepositoryFactory(
       dataSource,
       process.env.REPOSITORIES_BASE_PATH ??
@@ -537,14 +534,12 @@ describe('Tasks (e2e)', () => {
     expect(
       response.json<{
         repositoryId: string | null;
-        appliedPrefixes: string[];
         total: number;
         items: unknown[];
         errors: unknown[];
       }>(),
     ).toEqual({
       repositoryId: null,
-      appliedPrefixes: [],
       total: 0,
       items: [],
       errors: [],
@@ -566,10 +561,6 @@ describe('Tasks (e2e)', () => {
       projectId: asanaProjectId,
       scopeKey: `asana:${asanaWorkspaceId}:${asanaProjectId}`,
     });
-    await prefixFactory.create({
-      connectionId: asanaConnection.id,
-      value: 'fix/',
-    });
 
     const jiraConnection = await connectionFactory.create({
       userId: session.userId,
@@ -578,10 +569,6 @@ describe('Tasks (e2e)', () => {
       projectKey: jiraProjectKey,
       scopeKey: `jira:${jiraBaseUrl.toLowerCase()}:${jiraProjectKey}`,
       authMode: 'bearer',
-    });
-    await prefixFactory.create({
-      connectionId: jiraConnection.id,
-      value: 'feature/',
     });
 
     fakeAsanaProvider.seedTasks(asanaWorkspaceId, asanaProjectId, [
@@ -597,7 +584,7 @@ describe('Tasks (e2e)', () => {
       }),
       buildProviderTask({
         externalId: 'A-3',
-        title: 'chore/ should be filtered by connection prefix',
+        title: 'chore/ included without prefix filtering',
         updatedAt: '2026-03-11T10:00:00.000Z',
       }),
     ]);
@@ -637,8 +624,9 @@ describe('Tasks (e2e)', () => {
       errors: unknown[];
     }>();
 
-    expect(body.total).toBe(4);
+    expect(body.total).toBe(5);
     expect(body.items.map((item) => item.externalId)).toEqual([
+      'A-3',
       'A-1',
       'J-1',
       'A-2',
@@ -687,61 +675,6 @@ describe('Tasks (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(404);
-  });
-
-  it('GET /api/tasks should apply additional query prefixes case-insensitively', async () => {
-    const session = await createLoginSession();
-    const asanaWorkspaceId = faker.string.numeric(8);
-    const asanaProjectId = faker.string.numeric(8);
-
-    await connectionFactory.create({
-      userId: session.userId,
-      provider: 'asana',
-      workspaceId: asanaWorkspaceId,
-      projectId: asanaProjectId,
-      scopeKey: `asana:${asanaWorkspaceId}:${asanaProjectId}`,
-    });
-
-    fakeAsanaProvider.seedTasks(asanaWorkspaceId, asanaProjectId, [
-      buildProviderTask({
-        externalId: 'P-1',
-        title: 'fix/ improve auth flow',
-        updatedAt: '2026-03-12T10:00:00.000Z',
-      }),
-      buildProviderTask({
-        externalId: 'P-2',
-        title: 'FEATURE/ add audit logs',
-        updatedAt: '2026-03-12T09:00:00.000Z',
-      }),
-      buildProviderTask({
-        externalId: 'P-3',
-        title: 'chore/ cleanup seeds',
-        updatedAt: '2026-03-12T08:00:00.000Z',
-      }),
-    ]);
-
-    const syncRun = await startAndAwaitSync(session);
-    expect(syncRun.status).toBe('completed');
-
-    const prefixes = encodeURIComponent('  FIX/ , feature/ ');
-    const response = await app.inject({
-      method: 'GET',
-      url: `/api/tasks?prefixes=${prefixes}`,
-      headers: {
-        authorization: `Bearer ${session.accessToken}`,
-      },
-    });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json<{
-      appliedPrefixes: string[];
-      total: number;
-      items: Array<{ externalId: string }>;
-    }>();
-
-    expect(body.appliedPrefixes).toEqual(['fix/', 'feature/']);
-    expect(body.total).toBe(2);
-    expect(body.items.map((item) => item.externalId)).toEqual(['P-1', 'P-2']);
   });
 
   it('GET /api/tasks should return synced tasks even when one connection sync fails', async () => {

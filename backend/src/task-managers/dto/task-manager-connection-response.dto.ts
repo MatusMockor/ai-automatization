@@ -2,7 +2,6 @@ import type {
   ConnectionStatus,
   TaskManagerProviderType,
 } from '../interfaces/task-manager-provider.interface';
-import { TaskPrefixResponseDto } from './task-prefix-response.dto';
 
 export class TaskManagerConnectionResponseDto {
   id!: string;
@@ -20,5 +19,4 @@ export class TaskManagerConnectionResponseDto {
   lastSyncError!: string | null;
   createdAt!: Date;
   updatedAt!: Date;
-  prefixes!: TaskPrefixResponseDto[];
 }

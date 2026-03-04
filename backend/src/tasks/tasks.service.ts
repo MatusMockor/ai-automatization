@@ -4,8 +4,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { parsePositiveInteger } from '../common/utils/parse.utils';
 import { RepositoriesService } from '../repositories/repositories.service';
-import { TaskPrefix } from '../task-managers/entities/task-prefix.entity';
-import { TaskFilterService } from '../task-managers/task-filter.service';
 import { TaskManagersService } from '../task-managers/task-managers.service';
 import { GetTasksQueryDto } from './dto/get-tasks-query.dto';
 import { StartTaskSyncResponseDto } from './dto/start-task-sync-response.dto';
@@ -22,10 +20,7 @@ import {
 } from './dto/task-repository-defaults-response.dto';
 import { SyncedTaskScope } from './entities/synced-task-scope.entity';
 import { SyncedTask } from './entities/synced-task.entity';
-import {
-  RepositorySelectionSource,
-  TaskRepositoryDefaultsService,
-} from './task-repository-defaults.service';
+import { TaskRepositoryDefaultsService } from './task-repository-defaults.service';
 import { TaskSyncService } from './task-sync.service';
 import { UpsertTaskRepositoryDefaultDto } from './dto/upsert-task-repository-default.dto';
 
@@ -44,7 +39,6 @@ export class TasksService {
     @InjectRepository(SyncedTask)
     private readonly syncedTaskRepository: Repository<SyncedTask>,
     private readonly taskManagersService: TaskManagersService,
-    private readonly taskFilterService: TaskFilterService,
     private readonly taskSyncService: TaskSyncService,
     private readonly taskRepositoryDefaultsService: TaskRepositoryDefaultsService,
     private readonly repositoriesService: RepositoriesService,
@@ -78,7 +72,6 @@ export class TasksService {
     if (connections.length === 0) {
       return {
         repositoryId: query.repoId ?? null,
-        appliedPrefixes: query.prefixes ?? [],
         total: 0,
         items: [],
         errors: [],
@@ -107,28 +100,17 @@ export class TasksService {
     const repositoryDefaultsLookup =
       await this.taskRepositoryDefaultsService.buildLookupForUser(userId);
 
-    const prefixFilteredItems = this.applyConnectionPrefixes(
+    const feedItems = this.buildFeedItems(
       scopeFilteredTasks,
       connectionById,
       repositoryDefaultsLookup,
     );
 
-    const additionalPrefixFilteredItems =
-      (query.prefixes?.length ?? 0) > 0
-        ? this.filterByAdditionalPrefixes(
-            prefixFilteredItems,
-            query.prefixes ?? [],
-          )
-        : prefixFilteredItems;
-
-    const sortedItems = additionalPrefixFilteredItems.sort((a, b) =>
-      this.compareItems(a, b),
-    );
+    const sortedItems = feedItems.sort((a, b) => this.compareItems(a, b));
     const items = sortedItems.slice(0, limit);
 
     return {
       repositoryId: query.repoId ?? null,
-      appliedPrefixes: query.prefixes ?? [],
       total: items.length,
       items,
       errors: [],
@@ -229,20 +211,9 @@ export class TasksService {
     });
   }
 
-  private applyConnectionPrefixes(
+  private buildFeedItems(
     tasks: SyncedTask[],
-    connectionById: Map<
-      string,
-      {
-        id: string;
-        prefixes: Array<{
-          id: string;
-          value: string;
-          normalizedValue: string;
-          createdAt: Date;
-        }>;
-      }
-    >,
+    connectionById: Map<string, { id: string }>,
     repositoryDefaultsLookup: Awaited<
       ReturnType<TaskRepositoryDefaultsService['buildLookupForUser']>
     >,
@@ -265,45 +236,11 @@ export class TasksService {
       connectionId,
       connectionTasks,
     ] of groupedByConnection.entries()) {
-      const connection = connectionById.get(connectionId);
-      if (!connection) {
+      if (!connectionById.has(connectionId)) {
         continue;
       }
 
-      const taskByExternalId = new Map(
-        connectionTasks.map((task) => [task.externalId, task]),
-      );
-
-      const connectionPrefixes: TaskPrefix[] = connection.prefixes.map(
-        (prefix) =>
-          ({
-            id: prefix.id,
-            connectionId,
-            value: prefix.value,
-            normalizedValue: prefix.normalizedValue,
-            createdAt: new Date(prefix.createdAt),
-          }) as TaskPrefix,
-      );
-
-      const filteredTasks = this.taskFilterService.filterTasks(
-        connectionTasks.map((task) => ({
-          externalId: task.externalId,
-          title: task.title,
-          description: task.description ?? '',
-          url: task.url ?? '',
-          status: task.status,
-          assignee: task.assignee,
-          updatedAt: this.taskUpdatedAt(task),
-        })),
-        connectionPrefixes,
-      );
-
-      for (const filteredTask of filteredTasks) {
-        const persistedTask = taskByExternalId.get(filteredTask.externalId);
-        if (!persistedTask) {
-          continue;
-        }
-
+      for (const persistedTask of connectionTasks) {
         const primaryScope = this.resolvePrimaryScope(persistedTask.scopes);
         const suggestedRepository =
           this.taskRepositoryDefaultsService.resolveSuggestedRepository(
@@ -321,7 +258,6 @@ export class TasksService {
           status: persistedTask.status,
           assignee: persistedTask.assignee,
           source: persistedTask.provider,
-          matchedPrefix: filteredTask.matchedPrefix,
           primaryScopeType: primaryScope?.scopeType ?? null,
           primaryScopeId: primaryScope?.scopeId ?? null,
           primaryScopeName: primaryScope?.scopeName ?? null,
@@ -353,16 +289,6 @@ export class TasksService {
         `${b.scopeType}:${b.scopeId}`,
       ),
     )[0];
-  }
-
-  private filterByAdditionalPrefixes(
-    items: TaskFeedItemDto[],
-    prefixes: string[],
-  ): TaskFeedItemDto[] {
-    return items.filter((item) => {
-      const normalizedTitle = item.title.trimStart().toLowerCase();
-      return prefixes.some((prefix) => normalizedTitle.startsWith(prefix));
-    });
   }
 
   private taskUpdatedAt(
