@@ -9,7 +9,6 @@ import {
   Eye,
   EyeOff,
   X,
-  Tag,
   Link2,
   Clock,
   Loader2,
@@ -18,7 +17,7 @@ import { api, getApiErrorMessage } from '@/lib/api';
 import { timeAgo } from '@/lib/time';
 import { useTick } from '@/lib/useTick';
 import { RepositoryDefaultsSection } from '@/components/connections/RepositoryDefaultsSection';
-import type { TaskManagerConnection, TaskManagerProvider, ConnectionPrefix } from '@/types';
+import type { TaskManagerConnection, TaskManagerProvider } from '@/types';
 
 const providerInfo = {
   jira: {
@@ -49,14 +48,10 @@ export function ConnectionsPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deletingInFlight, setDeletingInFlight] = useState(false);
-  const [prefixInput, setPrefixInput] = useState<Record<string, string>>({});
-  const [addingPrefix, setAddingPrefix] = useState<Set<string>>(new Set());
-  const [deletingPrefix, setDeletingPrefix] = useState<Set<string>>(new Set());
-
   const fetchConnections = async () => {
     try {
       const { data } = await api.get<TaskManagerConnection[]>('/task-managers/connections');
-      setConnections(data.map((c) => ({ ...c, prefixes: Array.isArray(c.prefixes) ? c.prefixes : [] })));
+      setConnections(data);
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Failed to load connections'));
     } finally {
@@ -91,7 +86,7 @@ export function ConnectionsPage() {
       }
 
       const { data } = await api.post<TaskManagerConnection>('/task-managers/connections', body);
-      setConnections((prev) => [{ ...data, prefixes: Array.isArray(data.prefixes) ? data.prefixes : [] }, ...prev]);
+      setConnections((prev) => [data, ...prev]);
       setAddingProvider(null);
       setFormData({});
       setShowSecrets({});
@@ -116,58 +111,6 @@ export function ConnectionsPage() {
       setDeleting(null);
     } finally {
       setDeletingInFlight(false);
-    }
-  };
-
-  const handleAddPrefix = async (connectionId: string) => {
-    const value = prefixInput[connectionId]?.trim();
-    if (!value || addingPrefix.has(connectionId)) return;
-
-    setAddingPrefix((prev) => new Set(prev).add(connectionId));
-    try {
-      const { data } = await api.post<ConnectionPrefix>(
-        `/task-managers/connections/${connectionId}/prefixes`,
-        { value },
-      );
-      setConnections((prev) =>
-        prev.map((c) =>
-          c.id === connectionId ? { ...c, prefixes: [...c.prefixes, data] } : c,
-        ),
-      );
-      setPrefixInput((prev) => ({ ...prev, [connectionId]: '' }));
-    } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Failed to add prefix'));
-    } finally {
-      setAddingPrefix((prev) => {
-        const next = new Set(prev);
-        next.delete(connectionId);
-        return next;
-      });
-    }
-  };
-
-  const handleDeletePrefix = async (connectionId: string, prefixId: string) => {
-    const deleteKey = `${connectionId}:${prefixId}`;
-    if (deletingPrefix.has(deleteKey)) return;
-
-    setDeletingPrefix((prev) => new Set(prev).add(deleteKey));
-    try {
-      await api.delete(`/task-managers/connections/${connectionId}/prefixes/${prefixId}`);
-      setConnections((prev) =>
-        prev.map((c) =>
-          c.id === connectionId
-            ? { ...c, prefixes: c.prefixes.filter((p) => p.id !== prefixId) }
-            : c,
-        ),
-      );
-    } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Failed to remove prefix'));
-    } finally {
-      setDeletingPrefix((prev) => {
-        const next = new Set(prev);
-        next.delete(deleteKey);
-        return next;
-      });
     }
   };
 
@@ -259,59 +202,6 @@ export function ConnectionsPage() {
                   </div>
                 </div>
 
-                {/* Prefixes section */}
-                <div className="mt-3 border-t border-border pt-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Tag className="h-3.5 w-3.5 text-muted-foreground" />
-                    {conn.prefixes.map((prefix) => (
-                      <span
-                        key={prefix.id}
-                        className="inline-flex items-center gap-1 rounded-md bg-foreground/5 px-2 py-0.5 text-xs font-medium ring-1 ring-foreground/10"
-                      >
-                        {prefix.value}
-                        <button
-                          type="button"
-                          onClick={() => handleDeletePrefix(conn.id, prefix.id)}
-                          disabled={deletingPrefix.has(`${conn.id}:${prefix.id}`)}
-                          aria-label={`Remove prefix ${prefix.value}`}
-                          className="ml-0.5 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    ))}
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        handleAddPrefix(conn.id);
-                      }}
-                      className="inline-flex items-center gap-1"
-                    >
-                      <input
-                        type="text"
-                        aria-label={`Add prefix for ${conn.name ?? info.name}`}
-                        value={prefixInput[conn.id] ?? ''}
-                        onChange={(e) =>
-                          setPrefixInput((prev) => ({ ...prev, [conn.id]: e.target.value }))
-                        }
-                        placeholder="Add prefix..."
-                        className="h-6 w-24 rounded-md border border-border bg-background px-2 text-xs outline-none placeholder:text-muted-foreground/50 focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
-                      />
-                      <button
-                        type="submit"
-                        disabled={addingPrefix.has(conn.id) || !prefixInput[conn.id]?.trim()}
-                        aria-label="Add prefix"
-                        className="rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-50"
-                      >
-                        {addingPrefix.has(conn.id) ? (
-                          <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                        ) : (
-                          <Plus className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                    </form>
-                  </div>
-                </div>
               </div>
             );
           })}
@@ -428,17 +318,6 @@ export function ConnectionsPage() {
           </div>
         </form>
       )}
-
-      {/* Prefixes config hint */}
-      <div className="rounded-xl border border-border bg-card/50 p-4">
-        <h3 className="mb-1 text-xs font-semibold text-muted-foreground">Task Prefixes</h3>
-        <p className="text-xs text-muted-foreground">
-          Each connection can have its own set of prefixes. Tasks with titles starting with a matching prefix
-          (e.g. <code className="rounded bg-foreground/5 px-1">fix:</code>,{' '}
-          <code className="rounded bg-foreground/5 px-1">feature:</code>) will be automatically
-          imported from that connection.
-        </p>
-      </div>
 
       {/* Repository Defaults */}
       {!loading && <RepositoryDefaultsSection />}

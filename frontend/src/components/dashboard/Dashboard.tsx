@@ -14,8 +14,7 @@ import { api, getApiErrorMessage } from '@/lib/api';
 import { useRepo } from '@/context/RepoContext';
 import { useExecutionStream } from '@/lib/useExecutionStream';
 import { toast } from 'sonner';
-import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, TaskPrefix, ExecutionAction, Execution, CreateExecutionRequest } from '@/types';
-import { ALL_PREFIXES } from '@/types';
+import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, ExecutionAction, Execution, CreateExecutionRequest } from '@/types';
 import { Search, AlertTriangle } from 'lucide-react';
 
 const createIdempotencyKey = (): string => {
@@ -30,7 +29,6 @@ export function Dashboard() {
   useTick();
   const { selectedRepo, repositories } = useRepo();
 
-  const [selectedPrefix, setSelectedPrefix] = useState<TaskPrefix | null>(null);
   const [selectedTask, setSelectedTask] = useState<TaskFeedItem | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [terminalOpen, setTerminalOpen] = useState(true);
@@ -169,30 +167,15 @@ export function Dashboard() {
   const openTasks = tasks.filter((t) => t.status === 'open').length;
 
   const filteredTasks = useMemo(() => {
-    let filtered = tasks;
-    if (selectedPrefix) filtered = filtered.filter((t) => t.matchedPrefix === selectedPrefix);
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (t) =>
-          t.title.toLowerCase().includes(q) ||
-          t.externalId.toLowerCase().includes(q) ||
-          (t.assignee ?? '').toLowerCase().includes(q),
-      );
-    }
-    return filtered;
-  }, [tasks, selectedPrefix, searchQuery]);
-
-  const prefixCounts = useMemo(() => {
-    const counts: Partial<Record<TaskPrefix, number>> = {};
-    for (const t of tasks) {
-      if (t.matchedPrefix && (ALL_PREFIXES as readonly string[]).includes(t.matchedPrefix)) {
-        const key = t.matchedPrefix as TaskPrefix;
-        counts[key] = (counts[key] ?? 0) + 1;
-      }
-    }
-    return counts;
-  }, [tasks]);
+    if (!searchQuery) return tasks;
+    const q = searchQuery.toLowerCase();
+    return tasks.filter(
+      (t) =>
+        t.title.toLowerCase().includes(q) ||
+        t.externalId.toLowerCase().includes(q) ||
+        (t.assignee ?? '').toLowerCase().includes(q),
+    );
+  }, [tasks, searchQuery]);
 
   const taskExecutions = useMemo(
     () => (selectedTask ? executions.filter((e) => e.taskId === selectedTask.id) : []),
@@ -345,10 +328,7 @@ export function Dashboard() {
             <TaskList
               tasks={filteredTasks}
               selectedTask={selectedTask}
-              selectedPrefix={selectedPrefix}
-              prefixCounts={prefixCounts}
               onSelectTask={setSelectedTask}
-              onSelectPrefix={setSelectedPrefix}
               onAction={handleAction}
               onSyncRequest={triggerSync}
               hasScopeFilter={selectedWorkspaceId !== null || selectedProjectId !== null || selectedProjectKey !== null}

@@ -3,10 +3,8 @@ import { SourceBadge } from '@/components/shared/SourceBadge';
 import { ActionButtons } from '@/components/shared/ActionButtons';
 import { ExecutionHistory } from '@/components/shared/ExecutionHistory';
 import { TaskStatusDot } from '@/components/shared/StatusIcon';
-import { prefixConfig } from '@/components/shared/PrefixFilter';
 import { timeAgo } from '@/lib/time';
-import { cn } from '@/lib/utils';
-import type { TaskFeedItem, TaskPrefix, Execution, ExecutionAction, Repository } from '@/types';
+import type { TaskFeedItem, Execution, ExecutionAction, Repository } from '@/types';
 import { X, ExternalLink, GitBranch } from 'lucide-react';
 
 interface TaskDetailProps {
@@ -41,10 +39,6 @@ export function TaskDetail({ task, executions, onClose, onAction, publishPullReq
     }
   };
 
-  const prefix = task.matchedPrefix
-    ? (prefixConfig[task.matchedPrefix as TaskPrefix] ?? { activeColor: 'text-muted-foreground bg-foreground/5' })
-    : null;
-
   return (
     <div className="flex w-[420px] shrink-0 flex-col border-l border-border bg-card/50">
       {/* Header */}
@@ -78,11 +72,6 @@ export function TaskDetail({ task, executions, onClose, onAction, publishPullReq
         <div className="p-5">
           {/* Title */}
           <div className="mb-4">
-            {prefix && task.matchedPrefix && (
-              <span className={cn('mb-2 inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide', prefix.activeColor)}>
-                {task.matchedPrefix}
-              </span>
-            )}
             <h2 className="text-lg font-semibold leading-snug">{task.title}</h2>
           </div>
 
