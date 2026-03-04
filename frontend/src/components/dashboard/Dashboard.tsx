@@ -10,11 +10,12 @@ import { TerminalPanel } from './TerminalPanel';
 import { SyncBanner } from './SyncBanner';
 import { SyncButton } from '@/components/shared/SyncButton';
 import { ScopeFilter } from '@/components/shared/ScopeFilter';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { useRepo } from '@/context/RepoContext';
 import { useExecutionStream } from '@/lib/useExecutionStream';
 import { toast } from 'sonner';
-import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, ExecutionAction, Execution, CreateExecutionRequest } from '@/types';
+import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, ExecutionAction, Execution, CreateExecutionRequest, TaskManagerProvider } from '@/types';
 import { Search, AlertTriangle } from 'lucide-react';
 
 const createIdempotencyKey = (): string => {
@@ -49,13 +50,41 @@ export function Dashboard() {
   const [executionRepoId, setExecutionRepoId] = useState<string | null>(null);
   const latestTasksRequestRef = useRef(0);
 
-  // Fetch tasks (re-runs when scope filters change)
+  // Scopes + sync
+  const { scopes, refreshScopes } = useTaskScopes();
+
+  // Provider derivation
+  const defaultProvider = useMemo(() => {
+    if (!scopes) return null;
+    const hasAsana = scopes.asanaWorkspaces.length > 0 || scopes.asanaProjects.length > 0;
+    if (hasAsana) return 'asana' as TaskManagerProvider;
+    if (scopes.jiraProjects.length > 0) return 'jira' as TaskManagerProvider;
+    return null;
+  }, [scopes]);
+
+  const [selectedProvider, setSelectedProvider] = useState<TaskManagerProvider | null>(null);
+  const provider = selectedProvider ?? defaultProvider;
+
+  // Reset scope filters when provider changes
+  const prevProviderRef = useRef<TaskManagerProvider | null>(null);
+  useEffect(() => {
+    if (provider && prevProviderRef.current && provider !== prevProviderRef.current) {
+      setSelectedWorkspaceId(null);
+      setSelectedProjectId(null);
+      setSelectedProjectKey(null);
+      setSelectedTask(null);
+    }
+    prevProviderRef.current = provider;
+  }, [provider]);
+
+  // Fetch tasks (re-runs when scope filters or provider change)
   const fetchTasks = useCallback(async () => {
     const requestId = ++latestTasksRequestRef.current;
     setLoading(true);
     try {
       setLoadError(null);
       const params: Record<string, string> = {};
+      if (provider) params.provider = provider;
       if (selectedWorkspaceId) params.asanaWorkspaceId = selectedWorkspaceId;
       if (selectedProjectId) params.asanaProjectId = selectedProjectId;
       if (selectedProjectKey) params.jiraProjectKey = selectedProjectKey;
@@ -73,20 +102,21 @@ export function Dashboard() {
     } finally {
       if (requestId === latestTasksRequestRef.current) setLoading(false);
     }
-  }, [selectedWorkspaceId, selectedProjectId, selectedProjectKey]);
+  }, [provider, selectedWorkspaceId, selectedProjectId, selectedProjectKey]);
 
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
-
-  // Scopes + sync
-  const { scopes, refreshScopes } = useTaskScopes();
 
   const handleSyncComplete = useCallback(async () => {
     await Promise.all([fetchTasks(), refreshScopes()]);
   }, [fetchTasks, refreshScopes]);
 
   const { syncState, progress, triggerSync } = useSyncRun({ onComplete: handleSyncComplete });
+
+  const handleSync = useCallback(() => {
+    if (provider) triggerSync(provider);
+  }, [provider, triggerSync]);
 
   useEffect(() => {
     setPublishPullRequest(true);
@@ -257,9 +287,23 @@ export function Dashboard() {
           </kbd>
         </div>
 
-        {scopes && (
+        {scopes && defaultProvider && (
+          <Tabs value={provider ?? undefined} onValueChange={(v) => setSelectedProvider(v as TaskManagerProvider)}>
+            <TabsList className="h-8">
+              {(scopes.asanaWorkspaces.length > 0 || scopes.asanaProjects.length > 0) && (
+                <TabsTrigger value="asana" disabled={syncState !== 'idle'} className="text-xs px-3">Asana</TabsTrigger>
+              )}
+              {scopes.jiraProjects.length > 0 && (
+                <TabsTrigger value="jira" disabled={syncState !== 'idle'} className="text-xs px-3">Jira</TabsTrigger>
+              )}
+            </TabsList>
+          </Tabs>
+        )}
+
+        {scopes && provider && (
           <ScopeFilter
             scopes={scopes}
+            provider={provider}
             selectedWorkspaceId={selectedWorkspaceId}
             selectedProjectId={selectedProjectId}
             selectedProjectKey={selectedProjectKey}
@@ -280,7 +324,7 @@ export function Dashboard() {
               <span className="text-[11px] font-medium text-blue-400">{runningCount} running</span>
             </div>
           )}
-          <SyncButton syncState={syncState} onClick={triggerSync} />
+          <SyncButton syncState={syncState} onClick={handleSync} />
         </div>
       </div>
 
@@ -330,7 +374,7 @@ export function Dashboard() {
               selectedTask={selectedTask}
               onSelectTask={setSelectedTask}
               onAction={handleAction}
-              onSyncRequest={triggerSync}
+              onSyncRequest={handleSync}
               hasScopeFilter={selectedWorkspaceId !== null || selectedProjectId !== null || selectedProjectKey !== null}
               isSyncing={syncState === 'starting' || syncState === 'polling'}
             />

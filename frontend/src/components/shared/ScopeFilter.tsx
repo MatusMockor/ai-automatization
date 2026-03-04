@@ -1,7 +1,8 @@
-import type { TaskScopesResponse } from '@/types';
+import type { TaskManagerProvider, TaskScopesResponse } from '@/types';
 
 interface ScopeFilterProps {
   scopes: TaskScopesResponse;
+  provider: TaskManagerProvider;
   selectedWorkspaceId: string | null;
   selectedProjectId: string | null;
   selectedProjectKey: string | null;
@@ -16,6 +17,7 @@ const selectClassName =
 
 export function ScopeFilter({
   scopes,
+  provider,
   selectedWorkspaceId,
   selectedProjectId,
   selectedProjectKey,
@@ -24,9 +26,9 @@ export function ScopeFilter({
   onProjectChange,
   disabled,
 }: ScopeFilterProps) {
-  const hasWorkspaces = scopes.asanaWorkspaces.length > 0;
-  const hasAsanaProjects = scopes.asanaProjects.length > 0;
-  const hasProjects = scopes.jiraProjects.length > 0;
+  const hasWorkspaces = provider === 'asana' && scopes.asanaWorkspaces.length > 0;
+  const hasAsanaProjects = provider === 'asana' && scopes.asanaProjects.length > 0;
+  const hasProjects = provider === 'jira' && scopes.jiraProjects.length > 0;
 
   if (!hasWorkspaces && !hasAsanaProjects && !hasProjects) return null;
 
