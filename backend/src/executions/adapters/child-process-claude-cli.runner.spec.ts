@@ -41,6 +41,9 @@ describe('ChildProcessClaudeCliRunner', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    delete process.env.EXECUTION_CLAUDE_MODEL;
+    delete process.env.EXECUTION_CLAUDE_PERMISSION_MODE;
+    delete process.env.EXECUTION_CLAUDE_ALLOWED_TOOLS;
   });
 
   it('should close stdin after spawn and include plan permission mode for plan action', async () => {
@@ -48,6 +51,7 @@ describe('ChildProcessClaudeCliRunner', () => {
     const fake = createFakeChildProcess();
     spawnMock.mockReturnValue(fake.process);
     process.env.TEST_EXECUTION_SECRET = 'super-secret-value';
+    process.env.EXECUTION_CLAUDE_MODEL = '';
 
     try {
       const startedProcessPromise = runner.start({
@@ -65,8 +69,19 @@ describe('ChildProcessClaudeCliRunner', () => {
       expect(spawnMock).toHaveBeenCalledTimes(1);
       expect(spawnMock.mock.calls[0]?.[0]).toBe('claude');
       expect(spawnMock.mock.calls[0]?.[1]).toEqual(
-        expect.arrayContaining(['--permission-mode', 'plan']),
+        expect.arrayContaining([
+          '--model',
+          '--allowedTools',
+          'Bash,Read,Edit,Write,Glob,Grep',
+          '--permission-mode',
+          'plan',
+        ]),
       );
+      const modelArgIndex = spawnMock.mock.calls[0]?.[1].indexOf('--model');
+      expect(modelArgIndex).toBeGreaterThanOrEqual(0);
+      const modelValue =
+        spawnMock.mock.calls[0]?.[1][(modelArgIndex ?? -1) + 1];
+      expect(modelValue).toBe('claude-opus-4-6');
       expect(spawnMock.mock.calls[0]?.[2]?.env).toEqual(
         expect.objectContaining({
           CLAUDE_CODE_OAUTH_TOKEN: 'test-token',
@@ -83,6 +98,62 @@ describe('ChildProcessClaudeCliRunner', () => {
       );
     } finally {
       delete process.env.TEST_EXECUTION_SECRET;
+      delete process.env.EXECUTION_CLAUDE_MODEL;
+    }
+  });
+
+  it('should include implementation permission mode for feature action and allow env overrides', async () => {
+    const runner = new ChildProcessClaudeCliRunner();
+    const fake = createFakeChildProcess();
+    spawnMock.mockReturnValue(fake.process);
+    const previousModel = process.env.EXECUTION_CLAUDE_MODEL;
+    const previousPermissionMode = process.env.EXECUTION_CLAUDE_PERMISSION_MODE;
+    const previousAllowedTools = process.env.EXECUTION_CLAUDE_ALLOWED_TOOLS;
+    process.env.EXECUTION_CLAUDE_MODEL = 'claude-opus-4-6-custom';
+    process.env.EXECUTION_CLAUDE_PERMISSION_MODE = 'override-permission';
+    process.env.EXECUTION_CLAUDE_ALLOWED_TOOLS = 'Read,Edit,Write';
+
+    try {
+      const startedProcessPromise = runner.start({
+        prompt: 'Implement a fix',
+        action: 'feature',
+        cwd: '/tmp/repo',
+        anthropicAuthToken: 'test-token',
+      });
+
+      fake.process.emit('spawn');
+      await startedProcessPromise;
+
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      expect(spawnMock.mock.calls[0]?.[1]).toEqual(
+        expect.arrayContaining([
+          '--model',
+          'claude-opus-4-6-custom',
+          '--allowedTools',
+          'Read,Edit,Write',
+          '--permission-mode',
+          'override-permission',
+        ]),
+      );
+      expect(spawnMock.mock.calls[0]?.[1]).not.toEqual(
+        expect.arrayContaining(['--permission-mode', 'plan']),
+      );
+    } finally {
+      if (previousModel === undefined) {
+        delete process.env.EXECUTION_CLAUDE_MODEL;
+      } else {
+        process.env.EXECUTION_CLAUDE_MODEL = previousModel;
+      }
+      if (previousPermissionMode === undefined) {
+        delete process.env.EXECUTION_CLAUDE_PERMISSION_MODE;
+      } else {
+        process.env.EXECUTION_CLAUDE_PERMISSION_MODE = previousPermissionMode;
+      }
+      if (previousAllowedTools === undefined) {
+        delete process.env.EXECUTION_CLAUDE_ALLOWED_TOOLS;
+      } else {
+        process.env.EXECUTION_CLAUDE_ALLOWED_TOOLS = previousAllowedTools;
+      }
     }
   });
 

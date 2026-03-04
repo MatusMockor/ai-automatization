@@ -1,10 +1,15 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useTick } from '@/lib/useTick';
+import { useSyncRun } from '@/lib/useSyncRun';
+import { useTaskScopes } from '@/lib/useTaskScopes';
 import { StatsBar } from './StatsBar';
 import { TaskList } from './TaskList';
 import { TaskDetail } from './TaskDetail';
 import { ActivityPanel } from './ActivityPanel';
 import { TerminalPanel } from './TerminalPanel';
+import { SyncBanner } from './SyncBanner';
+import { SyncButton } from '@/components/shared/SyncButton';
+import { ScopeFilter } from '@/components/shared/ScopeFilter';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { useRepo } from '@/context/RepoContext';
 import { useExecutionStream } from '@/lib/useExecutionStream';
@@ -13,14 +18,26 @@ import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, TaskPrefi
 import { ALL_PREFIXES } from '@/types';
 import { Search, AlertTriangle } from 'lucide-react';
 
+const createIdempotencyKey = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `dashboard-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
 export function Dashboard() {
   useTick();
-  const { selectedRepo } = useRepo();
+  const { selectedRepo, repositories } = useRepo();
 
   const [selectedPrefix, setSelectedPrefix] = useState<TaskPrefix | null>(null);
   const [selectedTask, setSelectedTask] = useState<TaskFeedItem | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [terminalOpen, setTerminalOpen] = useState(true);
+
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
 
   const [tasks, setTasks] = useState<TaskFeedItem[]>([]);
   const [feedErrors, setFeedErrors] = useState<TaskFeedConnectionError[]>([]);
@@ -31,32 +48,53 @@ export function Dashboard() {
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
   const [publishPullRequest, setPublishPullRequest] = useState(true);
   const [requireCodeChanges, setRequireCodeChanges] = useState(true);
+  const [executionRepoId, setExecutionRepoId] = useState<string | null>(null);
+  const latestTasksRequestRef = useRef(0);
 
-  // Fetch tasks
+  // Fetch tasks (re-runs when scope filters change)
+  const fetchTasks = useCallback(async () => {
+    const requestId = ++latestTasksRequestRef.current;
+    setLoading(true);
+    try {
+      setLoadError(null);
+      const params: Record<string, string> = {};
+      if (selectedWorkspaceId) params.asanaWorkspaceId = selectedWorkspaceId;
+      if (selectedProjectId) params.asanaProjectId = selectedProjectId;
+      if (selectedProjectKey) params.jiraProjectKey = selectedProjectKey;
+      const { data } = await api.get<TaskFeedResponse>('/tasks', { params });
+      if (requestId !== latestTasksRequestRef.current) return;
+      setTasks(data.items);
+      setFeedErrors(data.errors);
+    } catch (err) {
+      if (requestId !== latestTasksRequestRef.current) return;
+      const message = getApiErrorMessage(err, 'Failed to load tasks');
+      setLoadError(message);
+      setTasks([]);
+      setFeedErrors([]);
+      toast.error(message);
+    } finally {
+      if (requestId === latestTasksRequestRef.current) setLoading(false);
+    }
+  }, [selectedWorkspaceId, selectedProjectId, selectedProjectKey]);
+
   useEffect(() => {
-    const fetchTasks = async () => {
-      try {
-        setLoadError(null);
-        const { data } = await api.get<TaskFeedResponse>('/tasks');
-        setTasks(data.items);
-        setFeedErrors(data.errors);
-      } catch (err) {
-        const message = getApiErrorMessage(err, 'Failed to load tasks');
-        setLoadError(message);
-        setTasks([]);
-        setFeedErrors([]);
-        toast.error(message);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchTasks();
-  }, []);
+  }, [fetchTasks]);
+
+  // Scopes + sync
+  const { scopes, refreshScopes } = useTaskScopes();
+
+  const handleSyncComplete = useCallback(async () => {
+    await Promise.all([fetchTasks(), refreshScopes()]);
+  }, [fetchTasks, refreshScopes]);
+
+  const { syncState, progress, triggerSync } = useSyncRun({ onComplete: handleSyncComplete });
 
   useEffect(() => {
     setPublishPullRequest(true);
     setRequireCodeChanges(true);
-  }, [selectedTask?.id]);
+    setExecutionRepoId(selectedTask?.suggestedRepositoryId ?? null);
+  }, [selectedTask?.id, selectedTask?.suggestedRepositoryId]);
 
   // Fetch executions
   useEffect(() => {
@@ -77,7 +115,12 @@ export function Dashboard() {
       setExecutions((prev) =>
         prev.map((e) =>
           e.id === event.executionId
-            ? { ...e, status: event.status, errorMessage: event.errorMessage ?? e.errorMessage }
+            ? {
+                ...e,
+                status: event.status,
+                errorMessage: event.errorMessage ?? e.errorMessage,
+                ...(event.status === 'pending' ? { output: '', errorMessage: null, automationStatus: 'pending' as const, automationErrorMessage: null } : {}),
+              }
             : e,
         ),
       );
@@ -91,7 +134,7 @@ export function Dashboard() {
                 automationStatus: event.automationStatus,
                 pullRequestUrl: event.pullRequestUrl ?? e.pullRequestUrl,
                 automationErrorMessage:
-                  event.automationStatus === 'failed'
+                  event.automationStatus === 'failed' || event.automationStatus === 'no_changes'
                     ? (event.message ?? e.automationErrorMessage)
                     : null,
               }
@@ -157,13 +200,25 @@ export function Dashboard() {
   );
 
   const handleAction = async (action: ExecutionAction, task: TaskFeedItem) => {
-    if (!selectedRepo) {
-      toast.error('Select a repository first');
+    const isSelectedTask = selectedTask?.id === task.id;
+    const repoExists = (id: string | null | undefined) => id && repositories.some((r) => r.id === id);
+    const preferredRepoId =
+      (isSelectedTask ? executionRepoId : null) ??
+      task.suggestedRepositoryId ??
+      selectedRepo?.id ??
+      null;
+    const repoId = repoExists(preferredRepoId)
+      ? preferredRepoId
+      : repoExists(selectedRepo?.id)
+        ? selectedRepo!.id
+        : null;
+    if (!repoId) {
+      toast.error('Select a valid repository first');
       return;
     }
     try {
       const body: CreateExecutionRequest = {
-        repositoryId: selectedRepo.id,
+        repositoryId: repoId,
         action,
         taskId: task.id,
         taskExternalId: task.externalId,
@@ -174,7 +229,7 @@ export function Dashboard() {
         requireCodeChanges,
       };
       const { data } = await api.post<Execution>('/executions', body, {
-        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        headers: { 'Idempotency-Key': createIdempotencyKey() },
       });
       setExecutions((prev) => [data, ...prev]);
       setActiveExecutionId(data.id);
@@ -219,16 +274,35 @@ export function Dashboard() {
           </kbd>
         </div>
 
-        {runningCount > 0 && (
-          <div className="ml-auto flex items-center gap-2 rounded-lg bg-blue-500/10 px-2.5 py-1 ring-1 ring-blue-500/20">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" />
-            </span>
-            <span className="text-[11px] font-medium text-blue-400">{runningCount} running</span>
-          </div>
+        {scopes && (
+          <ScopeFilter
+            scopes={scopes}
+            selectedWorkspaceId={selectedWorkspaceId}
+            selectedProjectId={selectedProjectId}
+            selectedProjectKey={selectedProjectKey}
+            onWorkspaceChange={setSelectedWorkspaceId}
+            onProjectIdChange={setSelectedProjectId}
+            onProjectChange={setSelectedProjectKey}
+            disabled={syncState === 'starting' || syncState === 'polling'}
+          />
         )}
+
+        <div className="ml-auto flex items-center gap-3">
+          {runningCount > 0 && (
+            <div className="flex items-center gap-2 rounded-lg bg-blue-500/10 px-2.5 py-1 ring-1 ring-blue-500/20">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" />
+              </span>
+              <span className="text-[11px] font-medium text-blue-400">{runningCount} running</span>
+            </div>
+          )}
+          <SyncButton syncState={syncState} onClick={triggerSync} />
+        </div>
       </div>
+
+      {/* Sync progress */}
+      {syncState !== 'idle' && <SyncBanner syncState={syncState} progress={progress} />}
 
       {/* Stats */}
       <StatsBar stats={stats} />
@@ -276,6 +350,9 @@ export function Dashboard() {
               onSelectTask={setSelectedTask}
               onSelectPrefix={setSelectedPrefix}
               onAction={handleAction}
+              onSyncRequest={triggerSync}
+              hasScopeFilter={selectedWorkspaceId !== null || selectedProjectId !== null || selectedProjectKey !== null}
+              isSyncing={syncState === 'starting' || syncState === 'polling'}
             />
           </div>
 
@@ -289,6 +366,10 @@ export function Dashboard() {
               onPublishPullRequestChange={setPublishPullRequest}
               requireCodeChanges={requireCodeChanges}
               onRequireCodeChangesChange={setRequireCodeChanges}
+              executionRepoId={executionRepoId}
+              onExecutionRepoIdChange={setExecutionRepoId}
+              repositories={repositories}
+              selectedRepo={selectedRepo}
             />
           ) : (
             <ActivityPanel />

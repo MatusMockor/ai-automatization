@@ -1,13 +1,12 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: ai_automation_postgres
     environment:
       POSTGRES_USER: ai_automation
       POSTGRES_PASSWORD: ai_automation_secret
       POSTGRES_DB: ai_automation_db
     ports:
-      - "5433:5432"
+      - "${POSTGRES_HOST_PORT:-15433}:5432"
     volumes:
       - ai_automation_pg_data:/var/lib/postgresql/data
     networks:
@@ -20,9 +19,8 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: ai_automation_redis
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-16379}:6379"
     networks:
       - ai-automation-net
     healthcheck:
@@ -35,7 +33,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: ai_automation_backend
     environment:
       DB_HOST: ${DB_HOST:-postgres}
       DB_PORT: ${DB_PORT:-5432}
@@ -84,7 +81,7 @@ services:
       EXECUTION_RETENTION_TIMEZONE: ${EXECUTION_RETENTION_TIMEZONE:-UTC}
       ENABLE_METRICS: ${ENABLE_METRICS:-true}
     ports:
-      - "3001:3001"
+      - "${BACKEND_HOST_PORT:-13001}:3001"
     volumes:
       - ./backend/src:/app/src
       - repos_data:/app/repos
@@ -101,7 +98,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: ai_automation_backend_worker
     command: npm run start:worker:dev
     environment:
       DB_HOST: ${DB_HOST:-postgres}
@@ -168,4 +164,3 @@ volumes:
 
 networks:
   ai-automation-net:
-    name: ai-automation-net

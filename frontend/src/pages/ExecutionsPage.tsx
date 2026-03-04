@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTick } from '@/lib/useTick';
 import { ExecutionStatusIcon } from '@/components/shared/StatusIcon';
 import { timeAgo } from '@/lib/time';
@@ -21,6 +21,64 @@ export function ExecutionsPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Execution | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<Execution | null>(null);
+
+  // Detail panel horizontal resize
+  const DEFAULT_PANEL_WIDTH = 480;
+  const MIN_PANEL_WIDTH = 320;
+  const MAX_PANEL_WIDTH_RATIO = 0.75;
+  const STORAGE_KEY = 'executions-panel-width';
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const n = Number(stored);
+      if (n >= MIN_PANEL_WIDTH && n <= window.innerWidth * MAX_PANEL_WIDTH_RATIO) return n;
+    }
+    return DEFAULT_PANEL_WIDTH;
+  });
+  const [isDragging, setIsDragging] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const dragState = useRef({ startX: 0, startWidth: 0 });
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const maxWidth = window.innerWidth * MAX_PANEL_WIDTH_RATIO;
+      const delta = dragState.current.startX - e.clientX;
+      const next = Math.min(Math.max(dragState.current.startWidth + delta, MIN_PANEL_WIDTH), maxWidth);
+      if (panelRef.current) {
+        panelRef.current.style.width = `${next}px`;
+      }
+      requestAnimationFrame(() => setPanelWidth(next));
+    };
+
+    const onMouseUp = () => {
+      setIsDragging(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      if (panelRef.current) {
+        localStorage.setItem(STORAGE_KEY, String(Math.round(panelRef.current.offsetWidth)));
+      }
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isDragging]);
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragState.current = { startX: e.clientX, startWidth: panelWidth };
+    setIsDragging(true);
+  };
 
   useEffect(() => {
     const fetchExecutions = async () => {
@@ -64,19 +122,32 @@ export function ExecutionsPage() {
   const handleStreamEvent = useCallback((event: ExecutionStreamEvent) => {
     if (event.type === 'status' || event.type === 'completed' || event.type === 'error') {
       setExecutions((prev) =>
-        prev.map((e) => (e.id === event.executionId ? { ...e, status: event.status } : e)),
+        prev.map((e) =>
+          e.id === event.executionId
+            ? {
+                ...e,
+                status: event.status,
+                ...(event.status === 'pending' ? { output: '', errorMessage: null, automationStatus: 'pending' as const, automationErrorMessage: null } : {}),
+              }
+            : e,
+        ),
       );
       setSelected((prev) =>
         prev?.id === event.executionId ? { ...prev, status: event.status } : prev,
       );
       setSelectedDetail((prev) =>
         prev?.id === event.executionId
-          ? { ...prev, status: event.status, errorMessage: event.errorMessage ?? prev.errorMessage }
+          ? {
+              ...prev,
+              status: event.status,
+              errorMessage: event.errorMessage ?? prev.errorMessage,
+              ...(event.status === 'pending' ? { output: '', errorMessage: null, automationStatus: 'pending' as const, automationErrorMessage: null } : {}),
+            }
           : prev,
       );
     }
     if (event.type === 'publication') {
-      const errorMsg = event.automationStatus === 'failed' ? (event.message ?? null) : null;
+      const errorMsg = event.automationStatus === 'failed' || event.automationStatus === 'no_changes' ? (event.message ?? null) : null;
       setExecutions((prev) =>
         prev.map((e) =>
           e.id === event.executionId
@@ -84,7 +155,7 @@ export function ExecutionsPage() {
                 ...e,
                 automationStatus: event.automationStatus,
                 pullRequestUrl: event.pullRequestUrl ?? e.pullRequestUrl,
-                automationErrorMessage: errorMsg ?? e.automationErrorMessage,
+                automationErrorMessage: errorMsg,
               }
             : e,
         ),
@@ -95,7 +166,7 @@ export function ExecutionsPage() {
               ...prev,
               automationStatus: event.automationStatus,
               pullRequestUrl: event.pullRequestUrl ?? prev.pullRequestUrl,
-              automationErrorMessage: errorMsg ?? prev.automationErrorMessage,
+              automationErrorMessage: errorMsg,
             }
           : prev,
       );
@@ -105,7 +176,7 @@ export function ExecutionsPage() {
               ...prev,
               automationStatus: event.automationStatus,
               pullRequestUrl: event.pullRequestUrl ?? prev.pullRequestUrl,
-              automationErrorMessage: errorMsg ?? prev.automationErrorMessage,
+              automationErrorMessage: errorMsg,
             }
           : prev,
       );
@@ -195,6 +266,9 @@ export function ExecutionsPage() {
                       {exec.automationStatus === 'publishing' && (
                         <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-blue-500/10 text-blue-400">Publishing...</span>
                       )}
+                      {exec.automationStatus === 'no_changes' && (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-500">No Changes</span>
+                      )}
                       {exec.automationStatus === 'failed' && exec.publishPullRequest && (
                         <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-500/10 text-red-400">PR Failed</span>
                       )}
@@ -213,7 +287,23 @@ export function ExecutionsPage() {
 
       {/* Output panel */}
       {detail && (
-        <div className="flex w-[480px] shrink-0 flex-col border-l border-border dark:bg-[#141922] bg-[#f4f5f7]">
+        <div
+          ref={panelRef}
+          className="relative flex shrink-0 flex-col border-l border-border dark:bg-[#141922] bg-[#f4f5f7]"
+          style={{ width: panelWidth }}
+        >
+          {/* Horizontal drag handle */}
+          <div
+            onMouseDown={handleDragStart}
+            className="group absolute inset-y-0 left-0 z-10 flex w-2 cursor-col-resize items-center justify-center"
+          >
+            <div
+              className={cn(
+                'absolute inset-y-0 left-0 w-px transition-colors',
+                isDragging ? 'bg-primary/50' : 'bg-transparent group-hover:bg-foreground/10',
+              )}
+            />
+          </div>
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <div className="flex items-center gap-2 text-xs">
               <ExecutionStatusIcon status={detail.status} />
@@ -221,6 +311,11 @@ export function ExecutionsPage() {
               <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase', actionColors[detail.action])}>
                 {detail.action}
               </span>
+              {detail.implementationAttempts > 1 && (
+                <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-orange-500/10 text-orange-400">
+                  Attempt {detail.implementationAttempts}/3
+                </span>
+              )}
               {detail.pullRequestUrl && (
                 <a href={detail.pullRequestUrl} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-1 rounded px-2 py-1 text-xs text-emerald-400 hover:bg-emerald-500/10">
@@ -260,9 +355,9 @@ export function ExecutionsPage() {
                     {detail.errorMessage}
                   </div>
                 )}
-                {detail.automationStatus === 'failed' && detail.automationErrorMessage && (
+                {(detail.automationStatus === 'failed' || detail.automationStatus === 'no_changes') && detail.automationErrorMessage && (
                   <div className="mb-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-500 ring-1 ring-amber-500/20">
-                    <span className="font-medium">Publication failed:</span> {detail.automationErrorMessage}
+                    <span className="font-medium">{detail.automationStatus === 'no_changes' ? 'No changes detected:' : 'Publication failed:'}</span> {detail.automationErrorMessage}
                   </div>
                 )}
                 <pre className="whitespace-pre-wrap dark:text-emerald-300/80 text-emerald-700">{detail.output}</pre>

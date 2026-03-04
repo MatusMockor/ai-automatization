@@ -125,7 +125,16 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
             break;
           case 'status':
             setStatus(event.status);
-            setErrorMessage((prev) => event.errorMessage ?? prev);
+            if (event.status === 'pending') {
+              setOutput('');
+              setErrorMessage(null);
+              setAutomationStatus('pending');
+            } else {
+              setErrorMessage((prev) => event.errorMessage ?? prev);
+            }
+            break;
+          case 'publication':
+            setAutomationStatus(event.automationStatus);
             break;
           case 'publication':
             setAutomationStatus(event.automationStatus);

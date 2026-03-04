@@ -80,6 +80,24 @@ export class TaskManagerConnection {
   })
   lastValidatedAt!: Date | null;
 
+  @Column({
+    name: 'last_synced_at',
+    type: LAST_VALIDATED_AT_COLUMN_TYPE,
+    nullable: true,
+  })
+  lastSyncedAt!: Date | null;
+
+  @Column({
+    name: 'last_sync_status',
+    type: 'varchar',
+    length: 16,
+    nullable: true,
+  })
+  lastSyncStatus!: string | null;
+
+  @Column({ name: 'last_sync_error', type: 'text', nullable: true })
+  lastSyncError!: string | null;
+
   @OneToMany(() => TaskPrefix, (prefix) => prefix.connection, {
     cascade: false,
   })

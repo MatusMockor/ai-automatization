@@ -282,6 +282,9 @@ export class TaskManagersService {
       projectKey: connection.projectKey,
       hasSecret: Boolean(connection.secretEncrypted),
       lastValidatedAt: connection.lastValidatedAt,
+      lastSyncedAt: connection.lastSyncedAt,
+      lastSyncStatus: connection.lastSyncStatus,
+      lastSyncError: this.toPublicSyncError(connection.lastSyncError),
       createdAt: connection.createdAt,
       updatedAt: connection.updatedAt,
       prefixes: (connection.prefixes ?? []).map((prefix) =>
@@ -451,7 +454,8 @@ export class TaskManagersService {
       throw new BadGatewayException('Task manager provider request failed');
     }
 
-    throw error;
+    this.logProviderError(error, 'Task manager provider request failed');
+    throw new BadGatewayException('Task manager provider request failed');
   }
 
   private resolveTaskLimit(requestedLimit: number | undefined): number {
@@ -481,6 +485,14 @@ export class TaskManagersService {
     }
 
     this.logger.error(`${message}: ${details}`);
+  }
+
+  private toPublicSyncError(error: string | null): string | null {
+    if (!error) {
+      return null;
+    }
+
+    return 'Task sync failed. Please retry or reconnect.';
   }
 
   private isUniqueViolation(error: unknown): boolean {

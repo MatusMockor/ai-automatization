@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ModuleRef } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RedactionService } from '../common/security/redaction.service';
@@ -16,6 +17,7 @@ import {
   GithubPullRequestError,
 } from './errors/execution-publication.errors';
 import { Execution } from './entities/execution.entity';
+import { ExecutionDispatchService } from './execution-dispatch.service';
 import { ExecutionStreamHub } from './execution-stream.hub';
 import type { GitPublicationClient } from './interfaces/git-publication-client.interface';
 import type { GithubPullRequestsGateway } from './interfaces/github-pull-requests-gateway.interface';
@@ -24,9 +26,17 @@ import { ExecutionReportArtifactService } from './publication/execution-report-a
 import { PublicationContentResolver } from './publication/publication-content.resolver';
 import { PullRequestTemplateResolver } from './publication/pull-request-template.resolver';
 
+export type CompletedPublicationResult =
+  | { outcome: 'published' }
+  | { outcome: 'not_applicable' }
+  | { outcome: 'failed' }
+  | { outcome: 'requeued' }
+  | { outcome: 'failed_no_changes' };
+
 @Injectable()
 export class ExecutionPublicationService {
   private readonly logger = new Logger(ExecutionPublicationService.name);
+  private static readonly MAX_IMPLEMENTATION_ATTEMPTS = 3;
   private readonly retryCount: number;
   private readonly retryBackoffMs: number;
   private readonly branchPrefix: string;
@@ -50,6 +60,7 @@ export class ExecutionPublicationService {
     private readonly redactionService: RedactionService,
     private readonly metricsService: MetricsService,
     private readonly configService: ConfigService,
+    private readonly moduleRef: ModuleRef,
   ) {
     this.retryCount = Math.min(
       10,
@@ -85,7 +96,9 @@ export class ExecutionPublicationService {
       ) ?? 'automation@local';
   }
 
-  async handleCompletedExecution(executionId: string): Promise<void> {
+  async handleCompletedExecution(
+    executionId: string,
+  ): Promise<CompletedPublicationResult> {
     const execution = await this.executionRepository.findOne({
       where: { id: executionId },
       relations: {
@@ -94,7 +107,7 @@ export class ExecutionPublicationService {
     });
 
     if (!execution) {
-      return;
+      return { outcome: 'failed' };
     }
 
     if (!execution.publishPullRequest) {
@@ -108,7 +121,7 @@ export class ExecutionPublicationService {
         automationStatus: 'not_applicable',
         message: 'Pull request publication disabled for this execution',
       });
-      return;
+      return { outcome: 'not_applicable' };
     }
 
     if (!execution.repository) {
@@ -116,7 +129,7 @@ export class ExecutionPublicationService {
         execution.id,
         'Execution repository is missing',
       );
-      return;
+      return { outcome: 'failed' };
     }
 
     const githubToken = await this.settingsService.getGithubTokenForUserOrNull(
@@ -124,7 +137,7 @@ export class ExecutionPublicationService {
     );
     if (!githubToken) {
       await this.failAutomation(execution.id, 'GitHub token missing');
-      return;
+      return { outcome: 'failed' };
     }
 
     await this.updateAutomationState(execution.id, {
@@ -140,6 +153,7 @@ export class ExecutionPublicationService {
     let branchName: string | null = null;
     let reportArtifactPath: string | null = null;
     let reportOnlyPublication = false;
+    let branchCleanupHandled = false;
 
     try {
       branchName = await this.resolveAvailableBranchName(
@@ -166,6 +180,12 @@ export class ExecutionPublicationService {
         execution.repository.localPath,
       );
       if (!hasChanges) {
+        if (this.isStrictCodeChangesMode(execution)) {
+          await this.cleanupBranch(execution, githubToken, branchName);
+          branchCleanupHandled = true;
+          return await this.handleStrictNoDiff(execution);
+        }
+
         if (!reportArtifactPath) {
           reportArtifactPath =
             await this.executionReportArtifactService.writeReport(execution);
@@ -230,6 +250,7 @@ export class ExecutionPublicationService {
         pullRequestUrl: publishedResult.url,
         message: 'Pull request created successfully',
       });
+      return { outcome: 'published' };
     } catch (error) {
       this.logger.error(
         `Execution publication failed for execution ${execution.id}`,
@@ -237,9 +258,137 @@ export class ExecutionPublicationService {
       );
       const message = this.resolveErrorMessage(error);
       await this.failAutomation(execution.id, message, branchName);
+      return { outcome: 'failed' };
     } finally {
-      await this.cleanupBranch(execution, githubToken, branchName);
+      if (!branchCleanupHandled) {
+        await this.cleanupBranch(execution, githubToken, branchName);
+      }
     }
+  }
+
+  private isStrictCodeChangesMode(execution: Execution): boolean {
+    if (!execution.requireCodeChanges) {
+      return false;
+    }
+
+    return execution.action === 'feature' || execution.action === 'fix';
+  }
+
+  private async handleStrictNoDiff(
+    execution: Execution,
+  ): Promise<CompletedPublicationResult> {
+    if (
+      execution.implementationAttempts <
+      ExecutionPublicationService.MAX_IMPLEMENTATION_ATTEMPTS
+    ) {
+      const nextAttempt = execution.implementationAttempts + 1;
+      const maxAttempts =
+        ExecutionPublicationService.MAX_IMPLEMENTATION_ATTEMPTS;
+      await this.executionRepository.update(
+        { id: execution.id },
+        {
+          implementationAttempts: nextAttempt,
+          prompt: this.buildRetryPrompt(execution, nextAttempt, maxAttempts),
+          status: 'pending',
+          orchestrationState: 'queued',
+          automationStatus: 'pending',
+          automationAttempts: 0,
+          branchName: null,
+          commitSha: null,
+          pullRequestNumber: null,
+          pullRequestUrl: null,
+          pullRequestTitle: null,
+          automationErrorMessage: null,
+          automationCompletedAt: null,
+          output: '',
+          outputTruncated: false,
+          pid: null,
+          startedAt: null,
+          finishedAt: null,
+          exitCode: null,
+          errorMessage: null,
+        },
+      );
+      this.publishAutomationEvent(execution.id, {
+        automationStatus: 'pending',
+        message: `No code diff detected, retrying implementation attempt ${nextAttempt}/${maxAttempts}`,
+      });
+
+      try {
+        const dispatchService = this.moduleRef.get(ExecutionDispatchService, {
+          strict: false,
+        });
+        if (!dispatchService) {
+          throw new ExecutionPublicationError(
+            'Execution dispatch service is not available',
+          );
+        }
+        await dispatchService.dispatch(execution.id);
+      } catch (error) {
+        const message = this.resolveErrorMessage(error);
+        await this.failAutomation(
+          execution.id,
+          `Failed to requeue execution: ${message}`,
+          null,
+        );
+        return { outcome: 'failed' };
+      }
+
+      return { outcome: 'requeued' };
+    }
+
+    const maxAttempts = ExecutionPublicationService.MAX_IMPLEMENTATION_ATTEMPTS;
+    const failureMessage = `No code changes produced after ${maxAttempts} attempts`;
+    this.metricsService.incrementExecutionPublicationFailed();
+    await this.executionRepository.update(
+      { id: execution.id },
+      {
+        status: 'failed',
+        orchestrationState: 'failed',
+        automationStatus: 'no_changes',
+        automationCompletedAt: new Date(),
+        automationErrorMessage: failureMessage,
+        branchName: null,
+        commitSha: null,
+        pullRequestNumber: null,
+        pullRequestUrl: null,
+        pullRequestTitle: null,
+        errorMessage: failureMessage,
+      },
+    );
+    this.publishAutomationEvent(execution.id, {
+      automationStatus: 'no_changes',
+      message: `No code diff detected after ${maxAttempts} attempts; execution failed`,
+    });
+    return { outcome: 'failed_no_changes' };
+  }
+
+  private buildRetryPrompt(
+    execution: Execution,
+    nextAttempt: number,
+    maxAttempts: number,
+  ): string {
+    const descriptionBlock = execution.taskDescription?.trim().length
+      ? `Task description:\n${execution.taskDescription.trim()}\n`
+      : '';
+
+    return [
+      execution.action === 'fix'
+        ? 'Resolve the reported issue with a minimal safe fix.'
+        : 'Implement the requested feature using maintainable backend architecture and tests.',
+      `Task source: ${execution.taskSource}`,
+      `Task external ID: ${execution.taskExternalId}`,
+      `Task title: ${execution.taskTitle}`,
+      `${descriptionBlock}`.trimEnd(),
+      '',
+      `Previous attempt produced no code diff. This is retry attempt ${nextAttempt}/${maxAttempts}.`,
+      'Hard requirement: modify repository files and produce a real git diff.',
+      'Do not output only analysis/report text.',
+      'Implement concrete code changes and tests now.',
+      'Provide a concise summary of what was implemented.',
+    ]
+      .filter((line) => line.length > 0)
+      .join('\n');
   }
 
   private async resolveAvailableBranchName(
@@ -380,6 +529,7 @@ export class ExecutionPublicationService {
     executionId: string,
     payload: {
       automationStatus:
+        | 'pending'
         | 'not_applicable'
         | 'publishing'
         | 'no_changes'

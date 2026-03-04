@@ -20,6 +20,21 @@ export class TaskFeedItemDto {
   assignee!: string | null;
   source!: TaskManagerProviderType;
   matchedPrefix!: string | null;
+  primaryScopeType!:
+    | 'asana_workspace'
+    | 'asana_project'
+    | 'jira_project'
+    | null;
+  primaryScopeId!: string | null;
+  primaryScopeName!: string | null;
+  suggestedRepositoryId!: string | null;
+  repositorySelectionSource!:
+    | 'asana_project'
+    | 'asana_workspace'
+    | 'jira_project'
+    | 'provider_default'
+    | null;
+  hasMultipleScopes!: boolean;
   updatedAt!: string;
 }
 

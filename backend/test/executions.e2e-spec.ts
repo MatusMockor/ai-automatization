@@ -33,6 +33,7 @@ import type {
 import { ManagedRepository } from '../src/repositories/entities/repository.entity';
 import { EncryptionService } from '../src/common/encryption/encryption.service';
 import { ExecutionFactory } from './factories/execution.factory';
+import { ManualTaskFactory } from './factories/manual-task.factory';
 import { RepositoryFactory } from './factories/repository.factory';
 import { UserFactory } from './factories/user.factory';
 import { UserSettingsFactory } from './factories/user-settings.factory';
@@ -368,6 +369,7 @@ describe('Executions (e2e)', () => {
   let userSettingsFactory: UserSettingsFactory;
   let repositoryFactory: RepositoryFactory;
   let executionFactory: ExecutionFactory;
+  let manualTaskFactory: ManualTaskFactory;
   let fakeRunner: FakeClaudeCliRunner;
   let fakeGitPublicationClient: FakeGitPublicationClient;
   let fakeGithubPullRequestsGateway: FakeGithubPullRequestsGateway;
@@ -418,6 +420,7 @@ describe('Executions (e2e)', () => {
       TEST_REPOSITORIES_BASE_PATH,
     );
     executionFactory = new ExecutionFactory(dataSource);
+    manualTaskFactory = new ManualTaskFactory(dataSource);
   });
 
   beforeEach(async () => {
@@ -467,9 +470,13 @@ describe('Executions (e2e)', () => {
       id: string;
       status: string;
       publishPullRequest: boolean;
+      requireCodeChanges: boolean;
+      implementationAttempts: number;
     }>();
     expect(['running', 'pending', 'completed']).toContain(created.status);
     expect(created.publishPullRequest).toBe(true);
+    expect(created.requireCodeChanges).toBe(true);
+    expect(created.implementationAttempts).toBe(1);
 
     const execution = await waitForExecution(
       created.id,
@@ -478,6 +485,8 @@ describe('Executions (e2e)', () => {
         current.automationStatus === 'published',
     );
     expect(execution.publishPullRequest).toBe(true);
+    expect(execution.requireCodeChanges).toBe(true);
+    expect(execution.implementationAttempts).toBe(1);
     expect(execution.branchName).toBe('feature/ai/task-0001');
     expect(execution.commitSha).toBe('abc123def456');
     expect(execution.pullRequestUrl).toContain('/pull/');
@@ -494,6 +503,11 @@ describe('Executions (e2e)', () => {
     const session = await createLoginSession();
     await userSettingsFactory.create(session.userId);
     const repository = await createRunnableRepository(session.userId);
+    const manualTask = await manualTaskFactory.create({
+      userId: session.userId,
+      title: 'Manual task execution',
+      description: 'Manual task should be executable by the owner',
+    });
 
     fakeRunner.enqueueBehavior({
       kind: 'success',
@@ -506,9 +520,9 @@ describe('Executions (e2e)', () => {
       url: '/api/executions',
       headers: { authorization: `Bearer ${session.accessToken}` },
       payload: buildCreateExecutionPayload(repository.id, 'fix', {
-        taskId: 'manual-task-1',
-        taskExternalId: 'manual-task-1',
-        taskTitle: 'Manual task execution',
+        taskId: manualTask.id,
+        taskExternalId: manualTask.id,
+        taskTitle: manualTask.title,
         taskSource: 'manual',
       }),
     });
@@ -522,6 +536,32 @@ describe('Executions (e2e)', () => {
     );
 
     expect(execution.taskSource).toBe('manual');
+  });
+
+  it('POST /api/executions should return 403 when manual task belongs to another user', async () => {
+    const owner = await createLoginSession();
+    const attacker = await createLoginSession();
+    await userSettingsFactory.create(attacker.userId);
+    const attackerRepository = await createRunnableRepository(attacker.userId);
+    const ownerManualTask = await manualTaskFactory.create({
+      userId: owner.userId,
+      title: 'Owner manual task',
+      description: 'Must not be executable by another user',
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${attacker.accessToken}` },
+      payload: buildCreateExecutionPayload(attackerRepository.id, 'fix', {
+        taskId: ownerManualTask.id,
+        taskExternalId: ownerManualTask.id,
+        taskTitle: ownerManualTask.title,
+        taskSource: 'manual',
+      }),
+    });
+
+    expect(response.statusCode).toBe(403);
   });
 
   it('POST /api/executions should return 400 when claudeOauthToken is missing', async () => {
@@ -709,7 +749,7 @@ describe('Executions (e2e)', () => {
     const execution = await waitForExecution(
       executionId,
       (current) =>
-        current.status === 'completed' && current.automationStatus === 'failed',
+        current.status === 'failed' && current.automationStatus === 'failed',
     );
 
     expect(execution.automationErrorMessage).toContain('GitHub token missing');
@@ -811,7 +851,7 @@ describe('Executions (e2e)', () => {
     expect(execution.finishedAt).not.toBeNull();
   });
 
-  it('POST /api/executions should publish report fallback when repository diff is empty', async () => {
+  it('POST /api/executions should publish report fallback when repository diff is empty and requireCodeChanges is false', async () => {
     const session = await createLoginSession();
     await userSettingsFactory.create(session.userId);
     const repository = await createRunnableRepository(session.userId);
@@ -827,7 +867,9 @@ describe('Executions (e2e)', () => {
       method: 'POST',
       url: '/api/executions',
       headers: { authorization: `Bearer ${session.accessToken}` },
-      payload: buildCreateExecutionPayload(repository.id),
+      payload: buildCreateExecutionPayload(repository.id, 'fix', {
+        requireCodeChanges: false,
+      }),
     });
     expect(response.statusCode).toBe(201);
 
@@ -844,6 +886,43 @@ describe('Executions (e2e)', () => {
       `${repository.localPath}/.ai/executions/${execution.id}.md`,
     );
     expect(reportContents).toContain('# Execution Report');
+  });
+
+  it('POST /api/executions should retry no-diff feature/fix and fail with no_changes after max attempts', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['noop'],
+      delayMs: 10,
+    });
+    fakeGitPublicationClient.setHasChangesResult(false);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: buildCreateExecutionPayload(repository.id, 'feature'),
+    });
+    expect(response.statusCode).toBe(201);
+
+    const executionId = response.json<{ id: string }>().id;
+    const execution = await waitForExecution(
+      executionId,
+      (current) =>
+        current.status === 'failed' &&
+        current.automationStatus === 'no_changes',
+    );
+
+    expect(execution.publishPullRequest).toBe(true);
+    expect(execution.requireCodeChanges).toBe(true);
+    expect(execution.implementationAttempts).toBe(3);
+    expect(execution.pullRequestUrl).toBeNull();
+    expect(execution.automationErrorMessage).toContain(
+      'No code changes produced after 3 attempts',
+    );
   });
 
   it('POST /api/executions should disable publication when publishPullRequest is false', async () => {
@@ -943,7 +1022,7 @@ describe('Executions (e2e)', () => {
     const execution = await waitForExecution(
       executionId,
       (current) =>
-        current.status === 'completed' && current.automationStatus === 'failed',
+        current.status === 'failed' && current.automationStatus === 'failed',
     );
 
     expect(execution.automationAttempts).toBe(3);
@@ -1053,7 +1132,7 @@ describe('Executions (e2e)', () => {
     const execution = await waitForExecution(
       executionId,
       (current) =>
-        current.status === 'completed' && current.automationStatus === 'failed',
+        current.status === 'failed' && current.automationStatus === 'failed',
     );
 
     expect(execution.automationErrorMessage).toContain('Pre-PR checks failed');
@@ -1206,16 +1285,22 @@ describe('Executions (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const body =
-      response.json<
-        Array<{ repositoryId: string; publishPullRequest: boolean }>
-      >();
+    const body = response.json<
+      Array<{
+        repositoryId: string;
+        publishPullRequest: boolean;
+        requireCodeChanges: boolean;
+        implementationAttempts: number;
+      }>
+    >();
     expect(body).toHaveLength(2);
     expect(body.every((item) => item.repositoryId === ownerRepo.id)).toBe(true);
     expect(body.every((item) => item.publishPullRequest)).toBe(true);
+    expect(body.every((item) => item.requireCodeChanges)).toBe(true);
+    expect(body.every((item) => item.implementationAttempts >= 1)).toBe(true);
   });
 
-  it('GET /api/executions/:id should include publishPullRequest and orchestration fields', async () => {
+  it('GET /api/executions/:id should include publication and implementation fields', async () => {
     const session = await createLoginSession();
     const repository = await repositoryFactory.create({
       userId: session.userId,
@@ -1224,6 +1309,8 @@ describe('Executions (e2e)', () => {
       userId: session.userId,
       repositoryId: repository.id,
       publishPullRequest: false,
+      requireCodeChanges: false,
+      implementationAttempts: 2,
       idempotencyKey: 'detail-idempotency-key',
       orchestrationState: 'done',
     });
@@ -1237,10 +1324,14 @@ describe('Executions (e2e)', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json<{
       publishPullRequest: boolean;
+      requireCodeChanges: boolean;
+      implementationAttempts: number;
       orchestrationState: string;
       idempotencyKey: string | null;
     }>();
     expect(body.publishPullRequest).toBe(false);
+    expect(body.requireCodeChanges).toBe(false);
+    expect(body.implementationAttempts).toBe(2);
     expect(body.orchestrationState).toBe('done');
     expect(body.idempotencyKey).toMatch(/^sha256:/);
   });
@@ -1508,6 +1599,7 @@ const buildCreateExecutionPayload = (
     taskDescription: string;
     taskSource: TaskSource;
     publishPullRequest: boolean;
+    requireCodeChanges: boolean;
   }> = {},
 ) => ({
   repositoryId,
@@ -1520,4 +1612,7 @@ const buildCreateExecutionPayload = (
   ...(overrides.publishPullRequest === undefined
     ? {}
     : { publishPullRequest: overrides.publishPullRequest }),
+  ...(overrides.requireCodeChanges === undefined
+    ? {}
+    : { requireCodeChanges: overrides.requireCodeChanges }),
 });

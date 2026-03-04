@@ -1,35 +1,52 @@
-import { HttpException, Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { parsePositiveInteger } from '../common/utils/parse.utils';
 import { RepositoriesService } from '../repositories/repositories.service';
-import { TaskManagerConnectionResponseDto } from '../task-managers/dto/task-manager-connection-response.dto';
+import { TaskPrefix } from '../task-managers/entities/task-prefix.entity';
+import { TaskFilterService } from '../task-managers/task-filter.service';
 import { TaskManagersService } from '../task-managers/task-managers.service';
 import { GetTasksQueryDto } from './dto/get-tasks-query.dto';
+import { StartTaskSyncResponseDto } from './dto/start-task-sync-response.dto';
 import {
-  TaskFeedConnectionErrorDto,
-  TaskFeedErrorCode,
   TaskFeedItemDto,
   TaskFeedResponseDto,
 } from './dto/task-feed-response.dto';
+import { TaskScopesResponseDto } from './dto/task-scopes-response.dto';
+import { TaskSyncRunResponseDto } from './dto/task-sync-run-response.dto';
+import { DeleteTaskRepositoryDefaultDto } from './dto/delete-task-repository-default.dto';
+import {
+  TaskRepositoryDefaultItemDto,
+  TaskRepositoryDefaultsResponseDto,
+} from './dto/task-repository-defaults-response.dto';
+import { SyncedTaskScope } from './entities/synced-task-scope.entity';
+import { SyncedTask } from './entities/synced-task.entity';
+import {
+  RepositorySelectionSource,
+  TaskRepositoryDefaultsService,
+} from './task-repository-defaults.service';
+import { TaskSyncService } from './task-sync.service';
+import { UpsertTaskRepositoryDefaultDto } from './dto/upsert-task-repository-default.dto';
 
-type TasksErrorMapping = {
-  code: TaskFeedErrorCode;
-  message: string;
-};
-
-type SettledConnectionTasks = {
-  connection: TaskManagerConnectionResponseDto;
-  result: PromiseSettledResult<TaskFeedItemDto[]>;
+type ScopeFilter = {
+  asanaWorkspaceId?: string;
+  asanaProjectId?: string;
+  jiraProjectKey?: string;
 };
 
 @Injectable()
 export class TasksService {
-  private readonly logger = new Logger(TasksService.name);
   private readonly defaultLimit: number;
   private readonly maxLimit: number;
 
   constructor(
+    @InjectRepository(SyncedTask)
+    private readonly syncedTaskRepository: Repository<SyncedTask>,
     private readonly taskManagersService: TaskManagersService,
+    private readonly taskFilterService: TaskFilterService,
+    private readonly taskSyncService: TaskSyncService,
+    private readonly taskRepositoryDefaultsService: TaskRepositoryDefaultsService,
     private readonly repositoriesService: RepositoriesService,
     private readonly configService: ConfigService,
   ) {
@@ -56,6 +73,7 @@ export class TasksService {
 
     const connections =
       await this.taskManagersService.listConnectionsForUser(userId);
+
     const limit = this.resolveLimit(query.limit);
     if (connections.length === 0) {
       return {
@@ -67,24 +85,45 @@ export class TasksService {
       };
     }
 
-    const perConnectionLimit =
-      (query.prefixes?.length ?? 0) > 0 ? this.maxLimit : limit;
-    const settledConnectionTasks = await this.fetchSettledConnectionTasks(
-      userId,
-      connections,
-      perConnectionLimit,
+    const connectionById = new Map(
+      connections.map((connection) => [connection.id, connection]),
     );
-    const mappedResult = this.mapSettledTasks(settledConnectionTasks);
 
-    let filteredItems = mappedResult.items;
-    if ((query.prefixes?.length ?? 0) > 0) {
-      filteredItems = this.filterByAdditionalPrefixes(
-        filteredItems,
-        query.prefixes ?? [],
-      );
-    }
+    const persistedTasks = await this.syncedTaskRepository.find({
+      where: { userId },
+      relations: { scopes: true },
+      order: {
+        sourceUpdatedAt: 'DESC',
+        externalId: 'ASC',
+      },
+    });
 
-    const sortedItems = filteredItems.sort((a, b) => this.compareItems(a, b));
+    const scopeFilteredTasks = this.filterByScope(persistedTasks, {
+      asanaWorkspaceId: query.asanaWorkspaceId,
+      asanaProjectId: query.asanaProjectId,
+      jiraProjectKey: query.jiraProjectKey,
+    });
+
+    const repositoryDefaultsLookup =
+      await this.taskRepositoryDefaultsService.buildLookupForUser(userId);
+
+    const prefixFilteredItems = this.applyConnectionPrefixes(
+      scopeFilteredTasks,
+      connectionById,
+      repositoryDefaultsLookup,
+    );
+
+    const additionalPrefixFilteredItems =
+      (query.prefixes?.length ?? 0) > 0
+        ? this.filterByAdditionalPrefixes(
+            prefixFilteredItems,
+            query.prefixes ?? [],
+          )
+        : prefixFilteredItems;
+
+    const sortedItems = additionalPrefixFilteredItems.sort((a, b) =>
+      this.compareItems(a, b),
+    );
     const items = sortedItems.slice(0, limit);
 
     return {
@@ -92,141 +131,228 @@ export class TasksService {
       appliedPrefixes: query.prefixes ?? [],
       total: items.length,
       items,
-      errors: mappedResult.errors,
+      errors: [],
     };
   }
 
-  private async fetchSettledConnectionTasks(
-    userId: string,
-    connections: TaskManagerConnectionResponseDto[],
-    perConnectionLimit: number,
-  ): Promise<SettledConnectionTasks[]> {
-    const taskPromises = connections.map(async (connection) => ({
-      connection,
-      result: await this.getConnectionTasks(
-        userId,
-        connection.id,
-        perConnectionLimit,
-      ),
-    }));
-
-    return Promise.all(taskPromises);
+  startSyncForUser(userId: string): Promise<StartTaskSyncResponseDto> {
+    return this.taskSyncService.startUserSync(userId);
   }
 
-  private async getConnectionTasks(
+  getSyncRunForUser(
     userId: string,
-    connectionId: string,
-    limit: number,
-  ): Promise<PromiseSettledResult<TaskFeedItemDto[]>> {
-    try {
-      const response = await this.taskManagersService.fetchTasksForConnection(
-        userId,
-        connectionId,
-        limit,
-      );
+    runId: string,
+  ): Promise<TaskSyncRunResponseDto> {
+    return this.taskSyncService.getSyncRunForUser(userId, runId);
+  }
 
-      return {
-        status: 'fulfilled',
-        value: response.items.map((item) => ({
-          id: `${connectionId}:${item.source}:${item.externalId}`,
-          connectionId,
-          externalId: item.externalId,
-          title: item.title,
-          description: item.description,
-          url: item.url,
-          status: item.status,
-          assignee: item.assignee,
-          source: item.source,
-          matchedPrefix: item.matchedPrefix,
-          updatedAt: item.updatedAt,
-        })),
-      };
-    } catch (error) {
-      return {
-        status: 'rejected',
-        reason: error,
-      };
+  listScopesForUser(userId: string): Promise<TaskScopesResponseDto> {
+    return this.taskSyncService.listScopesForUser(userId);
+  }
+
+  listRepositoryDefaultsForUser(
+    userId: string,
+  ): Promise<TaskRepositoryDefaultsResponseDto> {
+    return this.taskRepositoryDefaultsService.listForUser(userId);
+  }
+
+  async upsertRepositoryDefaultForUser(
+    userId: string,
+    dto: UpsertTaskRepositoryDefaultDto,
+  ): Promise<TaskRepositoryDefaultsResponseDto> {
+    const item = await this.taskRepositoryDefaultsService.upsertForUser(
+      userId,
+      dto,
+    );
+
+    return this.mapRepositoryDefaultsResponse([item]);
+  }
+
+  async deleteRepositoryDefaultForUser(
+    userId: string,
+    dto: DeleteTaskRepositoryDefaultDto,
+  ): Promise<void> {
+    await this.taskRepositoryDefaultsService.deleteForUser(userId, dto);
+  }
+
+  private filterByScope(
+    tasks: SyncedTask[],
+    filter: ScopeFilter,
+  ): SyncedTask[] {
+    const { asanaWorkspaceId, asanaProjectId, jiraProjectKey } = filter;
+
+    if (!asanaWorkspaceId && !asanaProjectId && !jiraProjectKey) {
+      return tasks;
     }
+
+    return tasks.filter((task) => {
+      if (task.provider === 'asana') {
+        if (!asanaWorkspaceId && !asanaProjectId) {
+          return false;
+        }
+
+        const workspaceMatches = !asanaWorkspaceId
+          ? true
+          : task.scopes.some(
+              (scope) =>
+                (scope.scopeType === 'asana_workspace' &&
+                  scope.scopeId === asanaWorkspaceId) ||
+                (scope.scopeType === 'asana_project' &&
+                  scope.parentScopeType === 'asana_workspace' &&
+                  scope.parentScopeId === asanaWorkspaceId),
+            );
+
+        const projectMatches = !asanaProjectId
+          ? true
+          : task.scopes.some(
+              (scope) =>
+                scope.scopeType === 'asana_project' &&
+                scope.scopeId === asanaProjectId,
+            );
+
+        return workspaceMatches && projectMatches;
+      }
+
+      if (task.provider === 'jira') {
+        if (!jiraProjectKey) {
+          return false;
+        }
+
+        return task.scopes.some(
+          (scope) =>
+            scope.scopeType === 'jira_project' &&
+            scope.scopeId === jiraProjectKey,
+        );
+      }
+
+      return false;
+    });
   }
 
-  private mapSettledTasks(settled: SettledConnectionTasks[]): {
-    items: TaskFeedItemDto[];
-    errors: TaskFeedConnectionErrorDto[];
-  } {
-    const items: TaskFeedItemDto[] = [];
-    const errors: TaskFeedConnectionErrorDto[] = [];
+  private applyConnectionPrefixes(
+    tasks: SyncedTask[],
+    connectionById: Map<
+      string,
+      {
+        id: string;
+        prefixes: Array<{
+          id: string;
+          value: string;
+          normalizedValue: string;
+          createdAt: Date;
+        }>;
+      }
+    >,
+    repositoryDefaultsLookup: Awaited<
+      ReturnType<TaskRepositoryDefaultsService['buildLookupForUser']>
+    >,
+  ): TaskFeedItemDto[] {
+    const groupedByConnection = new Map<string, SyncedTask[]>();
 
-    for (const entry of settled) {
-      if (entry.result.status === 'fulfilled') {
-        items.push(...entry.result.value);
+    for (const task of tasks) {
+      if (!connectionById.has(task.connectionId)) {
         continue;
       }
 
-      errors.push(
-        this.mapConnectionError(entry.connection, entry.result.reason),
+      const existingTasks = groupedByConnection.get(task.connectionId) ?? [];
+      existingTasks.push(task);
+      groupedByConnection.set(task.connectionId, existingTasks);
+    }
+
+    const items: TaskFeedItemDto[] = [];
+
+    for (const [
+      connectionId,
+      connectionTasks,
+    ] of groupedByConnection.entries()) {
+      const connection = connectionById.get(connectionId);
+      if (!connection) {
+        continue;
+      }
+
+      const taskByExternalId = new Map(
+        connectionTasks.map((task) => [task.externalId, task]),
       );
+
+      const connectionPrefixes: TaskPrefix[] = connection.prefixes.map(
+        (prefix) =>
+          ({
+            id: prefix.id,
+            connectionId,
+            value: prefix.value,
+            normalizedValue: prefix.normalizedValue,
+            createdAt: new Date(prefix.createdAt),
+          }) as TaskPrefix,
+      );
+
+      const filteredTasks = this.taskFilterService.filterTasks(
+        connectionTasks.map((task) => ({
+          externalId: task.externalId,
+          title: task.title,
+          description: task.description ?? '',
+          url: task.url ?? '',
+          status: task.status,
+          assignee: task.assignee,
+          updatedAt: this.taskUpdatedAt(task),
+        })),
+        connectionPrefixes,
+      );
+
+      for (const filteredTask of filteredTasks) {
+        const persistedTask = taskByExternalId.get(filteredTask.externalId);
+        if (!persistedTask) {
+          continue;
+        }
+
+        const primaryScope = this.resolvePrimaryScope(persistedTask.scopes);
+        const suggestedRepository =
+          this.taskRepositoryDefaultsService.resolveSuggestedRepository(
+            persistedTask.provider,
+            persistedTask.scopes,
+            repositoryDefaultsLookup,
+          );
+        items.push({
+          id: `${connectionId}:${persistedTask.provider}:${persistedTask.externalId}`,
+          connectionId,
+          externalId: persistedTask.externalId,
+          title: persistedTask.title,
+          description: persistedTask.description ?? '',
+          url: persistedTask.url ?? '',
+          status: persistedTask.status,
+          assignee: persistedTask.assignee,
+          source: persistedTask.provider,
+          matchedPrefix: filteredTask.matchedPrefix,
+          primaryScopeType: primaryScope?.scopeType ?? null,
+          primaryScopeId: primaryScope?.scopeId ?? null,
+          primaryScopeName: primaryScope?.scopeName ?? null,
+          suggestedRepositoryId: suggestedRepository.repositoryId,
+          repositorySelectionSource: suggestedRepository.source,
+          hasMultipleScopes: persistedTask.scopes.length > 1,
+          updatedAt: this.taskUpdatedAt(persistedTask),
+        });
+      }
     }
 
-    return { items, errors };
+    return items;
   }
 
-  private mapConnectionError(
-    connection: TaskManagerConnectionResponseDto,
-    error: unknown,
-  ): TaskFeedConnectionErrorDto {
-    if (error instanceof HttpException) {
-      const statusCode = error.getStatus();
-      const mapping = this.getErrorMapping(statusCode);
-
-      return {
-        connectionId: connection.id,
-        provider: connection.provider,
-        statusCode,
-        code: mapping.code,
-        message: mapping.message,
-      };
+  private resolvePrimaryScope(
+    scopes: SyncedTaskScope[],
+  ): SyncedTaskScope | null {
+    if (scopes.length === 0) {
+      return null;
     }
 
-    this.logger.error(
-      `Unexpected tasks aggregation error for connection ${connection.id}`,
-      error instanceof Error ? error.stack : undefined,
-    );
-
-    return {
-      connectionId: connection.id,
-      provider: connection.provider,
-      statusCode: 500,
-      code: 'unknown',
-      message: 'Unable to fetch tasks for this connection',
-    };
-  }
-
-  private getErrorMapping(statusCode: number): TasksErrorMapping {
-    if (statusCode === 400) {
-      return {
-        code: 'bad_request',
-        message: 'Task manager request is invalid for this connection',
-      };
+    const explicitPrimary = scopes.find((scope) => scope.isPrimary);
+    if (explicitPrimary) {
+      return explicitPrimary;
     }
 
-    if (statusCode === 404) {
-      return {
-        code: 'not_found',
-        message: 'Task manager resource was not found for this connection',
-      };
-    }
-
-    if (statusCode === 502) {
-      return {
-        code: 'bad_gateway',
-        message: 'Task manager provider request failed for this connection',
-      };
-    }
-
-    return {
-      code: 'unknown',
-      message: 'Unable to fetch tasks for this connection',
-    };
+    return [...scopes].sort((a, b) =>
+      `${a.scopeType}:${a.scopeId}`.localeCompare(
+        `${b.scopeType}:${b.scopeId}`,
+      ),
+    )[0];
   }
 
   private filterByAdditionalPrefixes(
@@ -237,6 +363,12 @@ export class TasksService {
       const normalizedTitle = item.title.trimStart().toLowerCase();
       return prefixes.some((prefix) => normalizedTitle.startsWith(prefix));
     });
+  }
+
+  private taskUpdatedAt(
+    task: Pick<SyncedTask, 'sourceUpdatedAt' | 'updatedAt'>,
+  ): string {
+    return (task.sourceUpdatedAt ?? task.updatedAt).toISOString();
   }
 
   private compareItems(a: TaskFeedItemDto, b: TaskFeedItemDto): number {
@@ -253,6 +385,12 @@ export class TasksService {
     }
 
     return a.connectionId.localeCompare(b.connectionId);
+  }
+
+  private mapRepositoryDefaultsResponse(
+    items: TaskRepositoryDefaultItemDto[],
+  ): TaskRepositoryDefaultsResponseDto {
+    return { items };
   }
 
   private resolveLimit(limit: number | undefined): number {

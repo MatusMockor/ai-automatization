@@ -1,0 +1,571 @@
+import { ConfigService } from '@nestjs/config';
+import {
+  TaskManagerProviderAuthError,
+  TaskManagerProviderNotFoundError,
+  TaskManagerProviderRequestError,
+} from '../errors/task-manager-provider.errors';
+import type { TaskManagerConnectionConfig } from '../interfaces/task-manager-provider.interface';
+import { AsanaTaskManagerProvider } from './asana-task-manager.provider';
+
+type AsanaMockState = {
+  apiClients: Array<{
+    authentications: {
+      token: {
+        accessToken?: string;
+      };
+    };
+    timeout?: number;
+  }>;
+  ApiClient: jest.Mock;
+  UsersApi: jest.Mock;
+  WorkspacesApi: jest.Mock;
+  ProjectsApi: jest.Mock;
+  TasksApi: jest.Mock;
+  usersApi: {
+    getUser: jest.Mock;
+  };
+  workspacesApi: {
+    getWorkspace: jest.Mock;
+    getWorkspaces: jest.Mock;
+  };
+  projectsApi: {
+    getProject: jest.Mock;
+    getProjectsForWorkspace: jest.Mock;
+  };
+  tasksApi: {
+    getTasks: jest.Mock;
+    getTasksForProject: jest.Mock;
+  };
+  reset: () => void;
+};
+
+jest.mock('asana', () => {
+  const apiClients: AsanaMockState['apiClients'] = [];
+  const usersApi = {
+    getUser: jest.fn(),
+  };
+  const workspacesApi = {
+    getWorkspace: jest.fn(),
+    getWorkspaces: jest.fn(),
+  };
+  const projectsApi = {
+    getProject: jest.fn(),
+    getProjectsForWorkspace: jest.fn(),
+  };
+  const tasksApi = {
+    getTasks: jest.fn(),
+    getTasksForProject: jest.fn(),
+  };
+
+  const ApiClient = jest.fn().mockImplementation(() => {
+    const client = {
+      authentications: {
+        token: {},
+      },
+      timeout: undefined,
+    };
+    apiClients.push(client);
+    return client;
+  });
+
+  const UsersApi = jest.fn().mockImplementation(() => usersApi);
+  const WorkspacesApi = jest.fn().mockImplementation(() => workspacesApi);
+  const ProjectsApi = jest.fn().mockImplementation(() => projectsApi);
+  const TasksApi = jest.fn().mockImplementation(() => tasksApi);
+
+  const reset = () => {
+    apiClients.length = 0;
+    ApiClient.mockClear();
+    UsersApi.mockClear();
+    WorkspacesApi.mockClear();
+    ProjectsApi.mockClear();
+    TasksApi.mockClear();
+    usersApi.getUser.mockReset();
+    workspacesApi.getWorkspace.mockReset();
+    workspacesApi.getWorkspaces.mockReset();
+    projectsApi.getProject.mockReset();
+    projectsApi.getProjectsForWorkspace.mockReset();
+    tasksApi.getTasks.mockReset();
+    tasksApi.getTasksForProject.mockReset();
+  };
+
+  const mockState: AsanaMockState = {
+    apiClients,
+    ApiClient,
+    UsersApi,
+    WorkspacesApi,
+    ProjectsApi,
+    TasksApi,
+    usersApi,
+    workspacesApi,
+    projectsApi,
+    tasksApi,
+    reset,
+  };
+
+  return {
+    ApiClient,
+    UsersApi,
+    WorkspacesApi,
+    ProjectsApi,
+    TasksApi,
+    __mockState: mockState,
+  };
+});
+
+const asanaMockState = (
+  jest.requireMock('asana') as { __mockState: AsanaMockState }
+).__mockState;
+
+describe('AsanaTaskManagerProvider', () => {
+  const createProvider = (timeoutMs = '4200') => {
+    const configService = {
+      get: jest.fn((_: string, defaultValue?: string) => {
+        if (timeoutMs) {
+          return timeoutMs;
+        }
+
+        return defaultValue;
+      }),
+    } as unknown as ConfigService;
+
+    return new AsanaTaskManagerProvider(configService);
+  };
+
+  const buildAsanaConfig = (
+    overrides: Partial<
+      Extract<TaskManagerConnectionConfig, { provider: 'asana' }>
+    > = {},
+  ): TaskManagerConnectionConfig => ({
+    provider: 'asana',
+    personalAccessToken: 'asana-token',
+    workspaceId: null,
+    projectId: null,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    asanaMockState.reset();
+  });
+
+  it('calls SDK v3 user validation endpoint and configures client token/timeout', async () => {
+    const provider = createProvider('4321');
+    asanaMockState.usersApi.getUser.mockResolvedValue({ data: { gid: 'me' } });
+
+    await provider.validateConnection(buildAsanaConfig());
+
+    expect(asanaMockState.ApiClient).toHaveBeenCalledTimes(1);
+    expect(asanaMockState.UsersApi).toHaveBeenCalledTimes(1);
+    expect(asanaMockState.usersApi.getUser).toHaveBeenCalledWith('me', {
+      opt_fields: ['gid'],
+    });
+    expect(
+      asanaMockState.apiClients[0]?.authentications.token.accessToken,
+    ).toBe('asana-token');
+    expect(asanaMockState.apiClients[0]?.timeout).toBe(4321);
+  });
+
+  it('validates configured workspace and project scopes', async () => {
+    const provider = createProvider();
+    asanaMockState.usersApi.getUser.mockResolvedValue({ data: { gid: 'me' } });
+    asanaMockState.workspacesApi.getWorkspace.mockResolvedValue({
+      data: { gid: 'workspace-1' },
+    });
+    asanaMockState.projectsApi.getProject.mockResolvedValue({
+      data: { gid: 'project-1' },
+    });
+
+    await provider.validateConnection(
+      buildAsanaConfig({
+        workspaceId: 'workspace-1',
+        projectId: 'project-1',
+      }),
+    );
+
+    expect(asanaMockState.workspacesApi.getWorkspace).toHaveBeenCalledWith(
+      'workspace-1',
+      { opt_fields: ['gid'] },
+    );
+    expect(asanaMockState.projectsApi.getProject).toHaveBeenCalledWith(
+      'project-1',
+      { opt_fields: ['gid'] },
+    );
+  });
+
+  it('maps 401 SDK errors to TaskManagerProviderAuthError', async () => {
+    const provider = createProvider();
+    asanaMockState.usersApi.getUser.mockRejectedValue({ status: 401 });
+
+    await expect(
+      provider.validateConnection(buildAsanaConfig()),
+    ).rejects.toBeInstanceOf(TaskManagerProviderAuthError);
+  });
+
+  it('maps 403 SDK errors to TaskManagerProviderAuthError', async () => {
+    const provider = createProvider();
+    asanaMockState.usersApi.getUser.mockRejectedValue({ status: 403 });
+
+    await expect(
+      provider.validateConnection(buildAsanaConfig()),
+    ).rejects.toBeInstanceOf(TaskManagerProviderAuthError);
+  });
+
+  it('maps 404 SDK errors to TaskManagerProviderNotFoundError', async () => {
+    const provider = createProvider();
+    asanaMockState.usersApi.getUser.mockResolvedValue({ data: { gid: 'me' } });
+    asanaMockState.workspacesApi.getWorkspace.mockRejectedValue({
+      response: { status: 404 },
+    });
+
+    await expect(
+      provider.validateConnection(buildAsanaConfig({ workspaceId: 'missing' })),
+    ).rejects.toBeInstanceOf(TaskManagerProviderNotFoundError);
+  });
+
+  it('maps unknown SDK errors to TaskManagerProviderRequestError', async () => {
+    const provider = createProvider();
+    asanaMockState.tasksApi.getTasks.mockRejectedValue(new Error('boom'));
+
+    await expect(
+      provider.fetchTasks(buildAsanaConfig(), 10),
+    ).rejects.toBeInstanceOf(TaskManagerProviderRequestError);
+  });
+
+  it('fetches project-scoped tasks and maps them to ProviderTask', async () => {
+    const provider = createProvider();
+    asanaMockState.tasksApi.getTasksForProject.mockResolvedValue({
+      data: [
+        {
+          gid: 'task-1',
+          name: 'Refactor billing',
+          notes: 'Implement SDK v3',
+          permalink_url: 'https://app.asana.com/0/1/2',
+          completed: false,
+          assignee: { name: 'Matus' },
+          modified_at: '2026-03-03T12:30:00.000Z',
+        },
+      ],
+    });
+
+    const result = await provider.fetchTasks(
+      buildAsanaConfig({ projectId: 'project-1' }),
+      15,
+    );
+
+    expect(asanaMockState.tasksApi.getTasksForProject).toHaveBeenCalledWith(
+      'project-1',
+      expect.objectContaining({
+        limit: 15,
+      }),
+    );
+    expect(result).toEqual([
+      {
+        externalId: 'task-1',
+        title: 'Refactor billing',
+        description: 'Implement SDK v3',
+        url: 'https://app.asana.com/0/1/2',
+        status: 'open',
+        assignee: 'Matus',
+        updatedAt: '2026-03-03T12:30:00.000Z',
+      },
+    ]);
+  });
+
+  it('fetches workspace-scoped tasks using getTasks workspace filter', async () => {
+    const provider = createProvider();
+    asanaMockState.tasksApi.getTasks.mockResolvedValue({
+      data: [
+        {
+          gid: 'task-2',
+          name: 'Fix login',
+          notes: 'Investigate auth flow',
+          permalink_url: 'https://app.asana.com/0/3/4',
+          completed: true,
+          assignee: { name: 'Jane' },
+          modified_at: '2026-03-02T08:00:00.000Z',
+        },
+      ],
+    });
+
+    const result = await provider.fetchTasks(
+      buildAsanaConfig({ workspaceId: 'ws-1' }),
+      20,
+    );
+
+    expect(asanaMockState.tasksApi.getTasks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace: 'ws-1',
+        assignee: 'me',
+        limit: 20,
+      }),
+    );
+    expect(asanaMockState.tasksApi.getTasksForProject).not.toHaveBeenCalled();
+    expect(result).toEqual([
+      {
+        externalId: 'task-2',
+        title: 'Fix login',
+        description: 'Investigate auth flow',
+        url: 'https://app.asana.com/0/3/4',
+        status: 'done',
+        assignee: 'Jane',
+        updatedAt: '2026-03-02T08:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('lists sync scopes as projects with workspace fallback', async () => {
+    const provider = createProvider();
+    asanaMockState.workspacesApi.getWorkspaces.mockResolvedValue({
+      data: [
+        { gid: 'ws-1', name: 'Workspace 1' },
+        { gid: 'ws-2', name: 'Workspace 2' },
+      ],
+    });
+    asanaMockState.projectsApi.getProjectsForWorkspace
+      .mockResolvedValueOnce({
+        data: [
+          { gid: 'proj-1', name: 'Project 1' },
+          { gid: 'proj-2', name: 'Project 2' },
+        ],
+      })
+      .mockResolvedValueOnce({ data: [] });
+
+    const scopes = await provider.listSyncScopes(buildAsanaConfig());
+
+    expect(asanaMockState.workspacesApi.getWorkspaces).toHaveBeenCalledWith({
+      limit: 100,
+      opt_fields: ['gid', 'name'],
+    });
+    expect(scopes).toEqual([
+      {
+        type: 'asana_project',
+        id: 'proj-1',
+        name: 'Project 1',
+        parent: { type: 'asana_workspace', id: 'ws-1', name: 'Workspace 1' },
+      },
+      {
+        type: 'asana_project',
+        id: 'proj-2',
+        name: 'Project 2',
+        parent: { type: 'asana_workspace', id: 'ws-1', name: 'Workspace 1' },
+      },
+      { type: 'asana_workspace', id: 'ws-2', name: 'Workspace 2' },
+    ]);
+  });
+
+  it('paginates workspace listing in listSyncScopes', async () => {
+    const provider = createProvider();
+    asanaMockState.workspacesApi.getWorkspaces
+      .mockResolvedValueOnce({
+        data: [{ gid: 'ws-1', name: 'Workspace 1' }],
+        next_page: { offset: 'next-1' },
+      })
+      .mockResolvedValueOnce({
+        data: [{ gid: 'ws-2', name: 'Workspace 2' }],
+      });
+    asanaMockState.projectsApi.getProjectsForWorkspace.mockResolvedValue({
+      data: [],
+    });
+
+    const scopes = await provider.listSyncScopes(buildAsanaConfig());
+
+    expect(asanaMockState.workspacesApi.getWorkspaces).toHaveBeenNthCalledWith(
+      1,
+      {
+        limit: 100,
+        opt_fields: ['gid', 'name'],
+      },
+    );
+    expect(asanaMockState.workspacesApi.getWorkspaces).toHaveBeenNthCalledWith(
+      2,
+      {
+        limit: 100,
+        opt_fields: ['gid', 'name'],
+        offset: 'next-1',
+      },
+    );
+    expect(scopes).toEqual([
+      { type: 'asana_workspace', id: 'ws-1', name: 'Workspace 1' },
+      { type: 'asana_workspace', id: 'ws-2', name: 'Workspace 2' },
+    ]);
+  });
+
+  it('lists configured workspace as project scopes when workspace has projects', async () => {
+    const provider = createProvider();
+    asanaMockState.workspacesApi.getWorkspace.mockResolvedValue({
+      data: { gid: 'ws-42', name: 'Workspace 42' },
+    });
+    asanaMockState.projectsApi.getProjectsForWorkspace.mockResolvedValue({
+      data: [{ gid: 'proj-42', name: 'Project 42' }],
+    });
+
+    const scopes = await provider.listSyncScopes(
+      buildAsanaConfig({ workspaceId: 'ws-42' }),
+    );
+
+    expect(asanaMockState.workspacesApi.getWorkspace).toHaveBeenCalledWith(
+      'ws-42',
+      { opt_fields: ['gid', 'name'] },
+    );
+    expect(
+      asanaMockState.projectsApi.getProjectsForWorkspace,
+    ).toHaveBeenCalledWith('ws-42', {
+      limit: 100,
+      opt_fields: ['gid', 'name', 'workspace.gid', 'workspace.name'],
+    });
+    expect(scopes).toEqual([
+      {
+        type: 'asana_project',
+        id: 'proj-42',
+        name: 'Project 42',
+        parent: { type: 'asana_workspace', id: 'ws-42', name: 'Workspace 42' },
+      },
+    ]);
+  });
+
+  it('fetches sync tasks for project scope with cursor support', async () => {
+    const provider = createProvider();
+    asanaMockState.tasksApi.getTasksForProject.mockResolvedValue({
+      data: [
+        {
+          gid: 'task-3',
+          name: 'Sync task',
+          notes: 'scope sync',
+          permalink_url: 'https://app.asana.com/0/5/6',
+          completed: false,
+          assignee: { name: 'Matus' },
+          modified_at: '2026-03-03T12:00:00.000Z',
+        },
+      ],
+      next_page: {
+        offset: 'cursor-2',
+      },
+    });
+
+    const result = await provider.fetchTasksForScope(
+      buildAsanaConfig(),
+      {
+        type: 'asana_project',
+        id: 'proj-1',
+        name: 'Project 1',
+        parent: { type: 'asana_workspace', id: 'ws-1', name: 'Workspace 1' },
+      },
+      50,
+      'cursor-1',
+    );
+
+    expect(asanaMockState.tasksApi.getTasksForProject).toHaveBeenCalledWith(
+      'proj-1',
+      expect.objectContaining({
+        limit: 50,
+        offset: 'cursor-1',
+      }),
+    );
+    expect(result.nextCursor).toBeTruthy();
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0]?.externalId).toBe('task-3');
+  });
+
+  it('fetches sync tasks for workspace fallback scope', async () => {
+    const provider = createProvider();
+    asanaMockState.tasksApi.getTasks.mockResolvedValue({
+      data: [
+        {
+          gid: 'task-4',
+          name: 'Workspace sync task',
+          notes: 'workspace scope',
+          permalink_url: 'https://app.asana.com/0/5/7',
+          completed: false,
+          assignee: { name: 'Matus' },
+          modified_at: '2026-03-03T12:00:00.000Z',
+        },
+      ],
+    });
+
+    const result = await provider.fetchTasksForScope(
+      buildAsanaConfig(),
+      { type: 'asana_workspace', id: 'ws-1', name: 'Workspace 1' },
+      20,
+    );
+
+    expect(asanaMockState.tasksApi.getTasks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace: 'ws-1',
+        assignee: 'me',
+        limit: 20,
+      }),
+    );
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0]?.externalId).toBe('task-4');
+  });
+
+  it('fetches projects for workspace via getProjectsForWorkspace', async () => {
+    const provider = createProvider();
+    asanaMockState.projectsApi.getProjectsForWorkspace.mockResolvedValue({
+      data: [
+        { gid: 'proj-1', name: 'Alpha' },
+        { gid: 'proj-2', name: 'Beta' },
+      ],
+    });
+
+    const result = await provider.fetchProjects(
+      buildAsanaConfig({ workspaceId: 'ws-1' }),
+    );
+
+    expect(
+      asanaMockState.projectsApi.getProjectsForWorkspace,
+    ).toHaveBeenCalledWith('ws-1', {
+      limit: 100,
+      opt_fields: ['gid', 'name'],
+    });
+    expect(result).toEqual([
+      { id: 'proj-1', name: 'Alpha' },
+      { id: 'proj-2', name: 'Beta' },
+    ]);
+  });
+
+  it('paginates projects for fetchProjects and listSyncScopes workspace mode', async () => {
+    const provider = createProvider();
+    asanaMockState.projectsApi.getProjectsForWorkspace
+      .mockResolvedValueOnce({
+        data: [{ gid: 'proj-1', name: 'Alpha' }],
+        next_page: { offset: 'proj-next' },
+      })
+      .mockResolvedValueOnce({
+        data: [{ gid: 'proj-2', name: 'Beta' }],
+      });
+
+    const result = await provider.fetchProjects(
+      buildAsanaConfig({ workspaceId: 'ws-1' }),
+    );
+
+    expect(
+      asanaMockState.projectsApi.getProjectsForWorkspace,
+    ).toHaveBeenNthCalledWith(1, 'ws-1', {
+      limit: 100,
+      opt_fields: ['gid', 'name'],
+    });
+    expect(
+      asanaMockState.projectsApi.getProjectsForWorkspace,
+    ).toHaveBeenNthCalledWith(2, 'ws-1', {
+      limit: 100,
+      opt_fields: ['gid', 'name'],
+      offset: 'proj-next',
+    });
+    expect(result).toEqual([
+      { id: 'proj-1', name: 'Alpha' },
+      { id: 'proj-2', name: 'Beta' },
+    ]);
+  });
+
+  it('returns empty project list when workspace scope is not configured', async () => {
+    const provider = createProvider();
+
+    const result = await provider.fetchProjects(buildAsanaConfig());
+
+    expect(result).toEqual([]);
+    expect(
+      asanaMockState.projectsApi.getProjectsForWorkspace,
+    ).not.toHaveBeenCalled();
+  });
+});

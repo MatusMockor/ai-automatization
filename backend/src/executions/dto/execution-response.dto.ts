@@ -12,6 +12,8 @@ export class ExecutionSummaryResponseDto {
   orchestrationState!: ExecutionOrchestrationState;
   idempotencyKey!: string | null;
   publishPullRequest!: boolean;
+  requireCodeChanges!: boolean;
+  implementationAttempts!: number;
   taskId!: string;
   taskExternalId!: string;
   taskTitle!: string;

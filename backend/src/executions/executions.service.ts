@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -18,6 +19,7 @@ import { ManagedRepository } from '../repositories/entities/repository.entity';
 import { RepositoriesService } from '../repositories/repositories.service';
 import { SettingsService } from '../settings/settings.service';
 import { User } from '../users/entities/user.entity';
+import { ManualTask } from '../manual-tasks/entities/manual-task.entity';
 import { CreateExecutionDto } from './dto/create-execution.dto';
 import {
   ExecutionDetailResponseDto,
@@ -42,6 +44,8 @@ export class ExecutionsService {
   constructor(
     @InjectRepository(Execution)
     private readonly executionsRepository: Repository<Execution>,
+    @InjectRepository(ManualTask)
+    private readonly manualTasksRepository: Repository<ManualTask>,
     private readonly repositoriesService: RepositoriesService,
     private readonly settingsService: SettingsService,
     private readonly executionDispatchService: ExecutionDispatchService,
@@ -62,7 +66,10 @@ export class ExecutionsService {
     idempotencyKeyHeader?: string,
   ): Promise<{ execution: ExecutionSummaryResponseDto; reused: boolean }> {
     const idempotencyKey = this.normalizeIdempotencyKey(idempotencyKeyHeader);
-    const requestHash = idempotencyKey ? this.computeRequestHash(dto) : null;
+    const requireCodeChanges = this.resolveRequireCodeChanges(dto);
+    const requestHash = idempotencyKey
+      ? this.computeRequestHash(dto, requireCodeChanges)
+      : null;
     const idempotencyCutoff = new Date(
       Date.now() - ExecutionsService.IDEMPOTENCY_TTL_MS,
     );
@@ -86,6 +93,8 @@ export class ExecutionsService {
       }
     }
 
+    await this.assertManualTaskOwnership(userId, dto);
+
     const repository = await this.getOwnedRepository(userId, dto.repositoryId);
     await this.assertRepositoryRunnable(repository);
 
@@ -97,7 +106,7 @@ export class ExecutionsService {
       );
     }
 
-    const prompt = this.buildPrompt(dto.action, dto);
+    const prompt = this.buildPrompt(dto.action, dto, requireCodeChanges);
 
     let transactionResult: { execution: Execution; reused: boolean };
     try {
@@ -129,6 +138,8 @@ export class ExecutionsService {
             requestHash,
             orchestrationState: 'queued',
             publishPullRequest: dto.publishPullRequest ?? true,
+            requireCodeChanges,
+            implementationAttempts: 1,
             taskId: dto.taskId,
             taskExternalId: dto.taskExternalId,
             taskTitle: dto.taskTitle,
@@ -440,8 +451,13 @@ export class ExecutionsService {
   private buildPrompt(
     action: ExecutionAction,
     dto: CreateExecutionDto,
+    requireCodeChanges: boolean,
   ): string {
     const actionInstruction = this.resolveActionInstruction(action);
+    const implementationRequirements = this.resolveImplementationRequirements(
+      action,
+      requireCodeChanges,
+    );
     const descriptionBlock = dto.taskDescription
       ? `Task description:\n${dto.taskDescription}\n`
       : '';
@@ -453,7 +469,8 @@ export class ExecutionsService {
       `Task title: ${dto.taskTitle}`,
       `${descriptionBlock}`.trimEnd(),
       '',
-      'Please implement the changes directly in the repository and provide a concise summary of what was done.',
+      ...implementationRequirements,
+      'Provide a concise summary of what was implemented.',
     ]
       .filter((line) => line.length > 0)
       .join('\n');
@@ -471,11 +488,56 @@ export class ExecutionsService {
     return 'Analyze the request and produce an implementation plan.';
   }
 
+  private resolveImplementationRequirements(
+    action: ExecutionAction,
+    requireCodeChanges: boolean,
+  ): string[] {
+    if (action === 'plan') {
+      return [
+        'Do not modify files. Produce only an actionable implementation plan.',
+      ];
+    }
+
+    if (!requireCodeChanges) {
+      return [
+        'Implement practical code changes when they are needed for the requested outcome.',
+        'If no code change is truly required, explain why briefly and clearly.',
+      ];
+    }
+
+    return [
+      'Hard requirement: modify repository files and produce a real git diff.',
+      'Do not return analysis-only output or report-only output.',
+      'If the request is vague, make minimal safe implementation assumptions and still implement concrete code changes with tests.',
+    ];
+  }
+
+  private async assertManualTaskOwnership(
+    userId: string,
+    dto: CreateExecutionDto,
+  ): Promise<void> {
+    if (dto.taskSource !== 'manual') {
+      return;
+    }
+
+    const manualTask = await this.manualTasksRepository.findOne({
+      where: { id: dto.taskId },
+      select: { id: true, userId: true },
+    });
+    if (!manualTask || manualTask.userId !== userId) {
+      throw new ForbiddenException(
+        'Manual task does not belong to authenticated user',
+      );
+    }
+  }
+
   private toSummaryResponse(execution: Execution): ExecutionSummaryResponseDto {
     return {
       id: execution.id,
       repositoryId: execution.repositoryId,
       publishPullRequest: execution.publishPullRequest,
+      requireCodeChanges: execution.requireCodeChanges,
+      implementationAttempts: execution.implementationAttempts,
       orchestrationState: execution.orchestrationState,
       idempotencyKey: this.maskIdempotencyKey(execution.idempotencyKey),
       taskId: execution.taskId,
@@ -528,7 +590,10 @@ export class ExecutionsService {
     return normalized;
   }
 
-  private computeRequestHash(dto: CreateExecutionDto): string {
+  private computeRequestHash(
+    dto: CreateExecutionDto,
+    requireCodeChanges: boolean,
+  ): string {
     const canonicalPayload = JSON.stringify({
       repositoryId: dto.repositoryId,
       action: dto.action,
@@ -538,9 +603,22 @@ export class ExecutionsService {
       taskDescription: dto.taskDescription ?? null,
       taskSource: dto.taskSource,
       publishPullRequest: dto.publishPullRequest ?? true,
+      requireCodeChanges,
     });
 
     return createHash('sha256').update(canonicalPayload, 'utf8').digest('hex');
+  }
+
+  private resolveRequireCodeChanges(dto: CreateExecutionDto): boolean {
+    if (dto.requireCodeChanges !== undefined) {
+      return dto.requireCodeChanges;
+    }
+
+    if (dto.action === 'plan') {
+      return false;
+    }
+
+    return dto.action === 'feature' || dto.action === 'fix';
   }
 
   private maskIdempotencyKey(value: string | null): string | null {
