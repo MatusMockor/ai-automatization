@@ -12,7 +12,6 @@ export class ConnectionTaskItemDto {
   status!: TaskItemStatus;
   assignee!: string | null;
   source!: TaskManagerProviderType;
-  matchedPrefix!: string | null;
   updatedAt!: string;
 }
 

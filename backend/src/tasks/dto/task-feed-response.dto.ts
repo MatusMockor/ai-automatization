@@ -19,7 +19,6 @@ export class TaskFeedItemDto {
   status!: TaskItemStatus;
   assignee!: string | null;
   source!: TaskManagerProviderType;
-  matchedPrefix!: string | null;
   primaryScopeType!:
     | 'asana_workspace'
     | 'asana_project'
@@ -48,7 +47,6 @@ export class TaskFeedConnectionErrorDto {
 
 export class TaskFeedResponseDto {
   repositoryId!: string | null;
-  appliedPrefixes!: string[];
   total!: number;
   items!: TaskFeedItemDto[];
   errors!: TaskFeedConnectionErrorDto[];
