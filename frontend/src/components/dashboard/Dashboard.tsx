@@ -65,6 +65,19 @@ export function Dashboard() {
   const [selectedProvider, setSelectedProvider] = useState<TaskManagerProvider | null>(null);
   const provider = selectedProvider ?? defaultProvider;
 
+  // Reconcile selectedProvider when scopes change (e.g. after sync removes a provider)
+  useEffect(() => {
+    if (!scopes || !selectedProvider) return;
+    const hasAsana = scopes.asanaWorkspaces.length > 0 || scopes.asanaProjects.length > 0;
+    const hasJira = scopes.jiraProjects.length > 0;
+
+    if (selectedProvider === 'asana' && !hasAsana) {
+      setSelectedProvider(hasJira ? 'jira' : null);
+    } else if (selectedProvider === 'jira' && !hasJira) {
+      setSelectedProvider(hasAsana ? 'asana' : null);
+    }
+  }, [scopes, selectedProvider]);
+
   // Reset scope filters when provider changes
   const prevProviderRef = useRef<TaskManagerProvider | null>(null);
   useEffect(() => {
