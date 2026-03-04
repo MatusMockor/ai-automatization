@@ -170,6 +170,10 @@ export interface StartSyncResponse {
   status: SyncRunStatus;
 }
 
+export interface StartSyncRequest {
+  provider: TaskManagerProvider;
+}
+
 export interface AsanaWorkspaceScope {
   id: string;
   name: string;

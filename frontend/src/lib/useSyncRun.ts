@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 import { api, getApiErrorMessage } from '@/lib/api';
-import type { StartSyncResponse, SyncRun } from '@/types';
+import type { StartSyncResponse, SyncRun, TaskManagerProvider } from '@/types';
 
 export type SyncState = 'idle' | 'starting' | 'polling' | 'done' | 'failed';
 
@@ -89,12 +89,12 @@ export function useSyncRun({ onComplete }: UseSyncRunOptions) {
     };
   }, [runId, syncState]);
 
-  const triggerSync = useCallback(async () => {
+  const triggerSync = useCallback(async (provider: TaskManagerProvider) => {
     if (syncState !== 'idle') return;
     setSyncState('starting');
     setProgress(INITIAL_PROGRESS);
     try {
-      const { data } = await api.post<StartSyncResponse>('/tasks/sync');
+      const { data } = await api.post<StartSyncResponse>('/tasks/sync', { provider });
       setRunId(data.runId);
       setSyncState('polling');
     } catch (err) {
