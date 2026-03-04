@@ -85,9 +85,16 @@ export function Dashboard() {
       setLoadError(null);
       const params: Record<string, string> = {};
       if (provider) params.provider = provider;
-      if (selectedWorkspaceId) params.asanaWorkspaceId = selectedWorkspaceId;
-      if (selectedProjectId) params.asanaProjectId = selectedProjectId;
-      if (selectedProjectKey) params.jiraProjectKey = selectedProjectKey;
+      if (provider === 'asana') {
+        if (selectedWorkspaceId) params.asanaWorkspaceId = selectedWorkspaceId;
+        if (selectedProjectId) params.asanaProjectId = selectedProjectId;
+      } else if (provider === 'jira') {
+        if (selectedProjectKey) params.jiraProjectKey = selectedProjectKey;
+      } else {
+        if (selectedWorkspaceId) params.asanaWorkspaceId = selectedWorkspaceId;
+        if (selectedProjectId) params.asanaProjectId = selectedProjectId;
+        if (selectedProjectKey) params.jiraProjectKey = selectedProjectKey;
+      }
       const { data } = await api.get<TaskFeedResponse>('/tasks', { params });
       if (requestId !== latestTasksRequestRef.current) return;
       setTasks(data.items);
