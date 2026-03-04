@@ -81,7 +81,7 @@ export function Dashboard() {
   // Reset scope filters when provider changes
   const prevProviderRef = useRef<TaskManagerProvider | null>(null);
   useEffect(() => {
-    if (provider && prevProviderRef.current && provider !== prevProviderRef.current) {
+    if (prevProviderRef.current !== null && provider !== prevProviderRef.current) {
       setSelectedWorkspaceId(null);
       setSelectedProjectId(null);
       setSelectedProjectKey(null);
