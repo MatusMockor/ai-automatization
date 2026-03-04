@@ -601,7 +601,7 @@ describe('Tasks (e2e)', () => {
       }),
     ]);
 
-    const syncRun = await startAndAwaitSync(session);
+    const syncRun = await startAndAwaitSyncForAllProviders(session);
     expect(syncRun.status).toBe('completed');
 
     const response = await app.inject({
@@ -710,7 +710,7 @@ describe('Tasks (e2e)', () => {
     ]);
     fakeJiraProvider.seedFailure(jiraBaseUrl, jiraProjectKey, 'request');
 
-    const syncRun = await startAndAwaitSync(session);
+    const syncRun = await startAndAwaitSyncForAllProviders(session);
     expect(syncRun.status).toBe('failed');
 
     const response = await app.inject({
@@ -765,7 +765,7 @@ describe('Tasks (e2e)', () => {
     fakeAsanaProvider.seedFailure(asanaWorkspaceId, asanaProjectId, 'auth');
     fakeJiraProvider.seedFailure(jiraBaseUrl, jiraProjectKey, 'not_found');
 
-    const syncRun = await startAndAwaitSync(session);
+    const syncRun = await startAndAwaitSyncForAllProviders(session);
     expect(syncRun.status).toBe('failed');
 
     const response = await app.inject({
@@ -846,7 +846,7 @@ describe('Tasks (e2e)', () => {
       }),
     ]);
 
-    const syncRun = await startAndAwaitSync(session);
+    const syncRun = await startAndAwaitSyncForAllProviders(session);
     expect(syncRun.status).toBe('completed');
 
     const response = await app.inject({
@@ -880,6 +880,21 @@ describe('Tasks (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  it('POST /api/tasks/sync should require provider in payload', async () => {
+    const session = await createLoginSession();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/tasks/sync',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(400);
   });
 
   it('GET /api/tasks/sync-runs/:id should enforce ownership', async () => {
@@ -937,7 +952,7 @@ describe('Tasks (e2e)', () => {
       }),
     ]);
 
-    const syncRun = await startAndAwaitSync(session);
+    const syncRun = await startAndAwaitSyncForAllProviders(session);
     expect(syncRun.status).toBe('completed');
 
     const response = await app.inject({
@@ -1057,7 +1072,7 @@ describe('Tasks (e2e)', () => {
       }),
     ]);
 
-    const syncRun = await startAndAwaitSync(session);
+    const syncRun = await startAndAwaitSyncForAllProviders(session);
     expect(syncRun.status).toBe('completed');
 
     const asanaFiltered = await app.inject({
@@ -1115,6 +1130,98 @@ describe('Tasks (e2e)', () => {
         .json<{ items: Array<{ externalId: string }> }>()
         .items.map((item) => item.externalId),
     ).toEqual(['F-J-1']);
+  });
+
+  it('GET /api/tasks should support provider filter query', async () => {
+    const session = await createLoginSession();
+    const workspaceId = faker.string.numeric(8);
+    const projectId = faker.string.numeric(8);
+    const jiraBaseUrl = 'https://provider-filter.atlassian.net';
+    const jiraProjectKey = 'PVD';
+
+    await connectionFactory.create({
+      userId: session.userId,
+      provider: 'asana',
+      workspaceId,
+      projectId,
+      scopeKey: `asana:${workspaceId}:${projectId}`,
+    });
+    await connectionFactory.create({
+      userId: session.userId,
+      provider: 'jira',
+      baseUrl: jiraBaseUrl,
+      projectKey: jiraProjectKey,
+      scopeKey: `jira:${jiraBaseUrl.toLowerCase()}:${jiraProjectKey}`,
+      authMode: 'bearer',
+    });
+
+    fakeAsanaProvider.seedTasks(workspaceId, projectId, [
+      buildProviderTask({
+        externalId: 'P-A-1',
+        title: 'asana provider task',
+        updatedAt: '2026-03-16T12:00:00.000Z',
+      }),
+    ]);
+    fakeJiraProvider.seedTasks(jiraBaseUrl, jiraProjectKey, [
+      buildProviderTask({
+        externalId: 'P-J-1',
+        title: 'jira provider task',
+        updatedAt: '2026-03-16T11:00:00.000Z',
+      }),
+    ]);
+
+    const syncRun = await startAndAwaitSyncForAllProviders(session);
+    expect(syncRun.status).toBe('completed');
+
+    const asanaOnlyResponse = await app.inject({
+      method: 'GET',
+      url: '/api/tasks?provider=asana',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(asanaOnlyResponse.statusCode).toBe(200);
+    expect(
+      asanaOnlyResponse
+        .json<{ items: Array<{ source: string; externalId: string }> }>()
+        .items.map((item) => `${item.source}:${item.externalId}`),
+    ).toEqual(['asana:P-A-1']);
+
+    const jiraOnlyResponse = await app.inject({
+      method: 'GET',
+      url: '/api/tasks?provider=jira',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(jiraOnlyResponse.statusCode).toBe(200);
+    expect(
+      jiraOnlyResponse
+        .json<{ items: Array<{ source: string; externalId: string }> }>()
+        .items.map((item) => `${item.source}:${item.externalId}`),
+    ).toEqual(['jira:P-J-1']);
+  });
+
+  it('GET /api/tasks should reject incompatible provider and scope query combinations', async () => {
+    const session = await createLoginSession();
+
+    const jiraWithAsanaScopeResponse = await app.inject({
+      method: 'GET',
+      url: '/api/tasks?provider=jira&asanaWorkspaceId=123',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(jiraWithAsanaScopeResponse.statusCode).toBe(400);
+
+    const asanaWithJiraScopeResponse = await app.inject({
+      method: 'GET',
+      url: '/api/tasks?provider=asana&jiraProjectKey=ABC',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(asanaWithJiraScopeResponse.statusCode).toBe(400);
   });
 
   it('sync should hard-delete stale tasks removed from provider snapshot', async () => {
@@ -1450,6 +1557,7 @@ describe('Tasks (e2e)', () => {
 
   const startAndAwaitSync = async (
     session: LoginSession,
+    provider: 'asana' | 'jira' = 'asana',
   ): Promise<{
     id: string;
     status: 'queued' | 'running' | 'completed' | 'failed';
@@ -1459,6 +1567,9 @@ describe('Tasks (e2e)', () => {
       url: '/api/tasks/sync',
       headers: {
         authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        provider,
       },
     });
 
@@ -1490,6 +1601,18 @@ describe('Tasks (e2e)', () => {
     }
 
     throw new Error('Timed out waiting for task sync completion');
+  };
+
+  const startAndAwaitSyncForAllProviders = async (
+    session: LoginSession,
+  ): Promise<{
+    id: string;
+    status: 'queued' | 'running' | 'completed' | 'failed';
+  }> => {
+    const asanaRun = await startAndAwaitSync(session, 'asana');
+    const jiraRun = await startAndAwaitSync(session, 'jira');
+
+    return jiraRun.status === 'failed' ? jiraRun : asanaRun;
   };
 });
 

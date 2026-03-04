@@ -103,7 +103,7 @@ describe('TaskSyncService', () => {
     } as TaskSyncRun);
     connectionRepository.find.mockResolvedValue([]);
 
-    const started = await service.startUserSync('user-1');
+    const started = await service.startUserSync('user-1', 'asana');
     expect(started).toEqual({
       runId: 'run-1',
       status: 'queued',
@@ -124,6 +124,10 @@ describe('TaskSyncService', () => {
         status: 'completed',
       }),
     );
+    expect(connectionRepository.find).toHaveBeenCalledWith({
+      where: { userId: 'user-1', provider: 'asana' },
+      order: { createdAt: 'ASC' },
+    });
   });
 
   it('lists scopes grouped by provider', async () => {

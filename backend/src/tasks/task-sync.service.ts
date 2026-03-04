@@ -71,7 +71,10 @@ export class TaskSyncService {
     );
   }
 
-  async startUserSync(userId: string): Promise<StartTaskSyncResponseDto> {
+  async startUserSync(
+    userId: string,
+    provider: TaskManagerProviderType,
+  ): Promise<StartTaskSyncResponseDto> {
     const run = await this.taskSyncRunRepository.save(
       this.taskSyncRunRepository.create({
         userId,
@@ -87,7 +90,7 @@ export class TaskSyncService {
     );
 
     setImmediate(() => {
-      void this.executeRun(run.id).catch((error) => {
+      void this.executeRun(run.id, provider).catch((error) => {
         this.logger.error(
           `Task sync run ${run.id} crashed unexpectedly`,
           error instanceof Error ? error.stack : undefined,
@@ -241,7 +244,10 @@ export class TaskSyncService {
     };
   }
 
-  private async executeRun(runId: string): Promise<void> {
+  private async executeRun(
+    runId: string,
+    provider: TaskManagerProviderType,
+  ): Promise<void> {
     const run = await this.taskSyncRunRepository.findOne({
       where: { id: runId },
     });
@@ -261,7 +267,7 @@ export class TaskSyncService {
 
     try {
       const connections = await this.connectionRepository.find({
-        where: { userId: run.userId },
+        where: { userId: run.userId, provider },
         order: { createdAt: 'ASC' },
       });
 
