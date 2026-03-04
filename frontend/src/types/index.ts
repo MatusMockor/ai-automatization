@@ -1,23 +1,9 @@
 export type TaskSource = 'jira' | 'asana' | 'manual';
-export type TaskPrefix = 'fix' | 'feature' | 'chore' | 'plan' | 'refactor';
 export type TaskStatus = 'open' | 'in_progress' | 'done' | 'closed';
 export type ExecutionAction = 'fix' | 'feature' | 'plan';
 export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type ExecutionOrchestrationState = 'queued' | 'running' | 'finalizing' | 'done' | 'failed';
 export type AutomationStatus = 'not_applicable' | 'pending' | 'publishing' | 'no_changes' | 'published' | 'failed';
-
-export interface Task {
-  id: string;
-  externalId: string;
-  title: string;
-  description: string;
-  source: TaskSource;
-  prefix: TaskPrefix;
-  assignee: string;
-  status: TaskStatus;
-  priority: 'low' | 'medium' | 'high' | 'critical';
-  createdAt: string;
-}
 
 export interface Execution {
   id: string;
@@ -96,22 +82,12 @@ export interface ManualTask {
   updatedAt: string;
 }
 
-export const ALL_PREFIXES = ['fix', 'feature', 'chore', 'plan', 'refactor'] as const;
-
 export interface SettingsResponse {
   githubToken: string | null;
   claudeApiKey: string | null;
 }
 
 export type TaskManagerProvider = 'asana' | 'jira';
-
-export interface ConnectionPrefix {
-  id: string;
-  connectionId: string;
-  value: string;
-  normalizedValue: string;
-  createdAt: string;
-}
 
 export interface TaskManagerConnection {
   id: string;
@@ -129,7 +105,6 @@ export interface TaskManagerConnection {
   lastSyncError: string | null;
   createdAt: string;
   updatedAt: string;
-  prefixes: ConnectionPrefix[];
 }
 
 export type TaskFeedStatus = 'open' | 'in_progress' | 'done' | 'closed' | 'unknown';
@@ -145,7 +120,6 @@ export interface TaskFeedItem {
   status: TaskFeedStatus;
   assignee: string | null;
   source: TaskSource;
-  matchedPrefix: string | null;
   primaryScopeType: 'asana_workspace' | 'asana_project' | 'jira_project' | null;
   primaryScopeId: string | null;
   primaryScopeName: string | null;
@@ -170,7 +144,6 @@ export interface TaskFeedConnectionError {
 
 export interface TaskFeedResponse {
   repositoryId: string | null;
-  appliedPrefixes: string[];
   total: number;
   items: TaskFeedItem[];
   errors: TaskFeedConnectionError[];
