@@ -136,9 +136,6 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
           case 'publication':
             setAutomationStatus(event.automationStatus);
             break;
-          case 'publication':
-            setAutomationStatus(event.automationStatus);
-            break;
           case 'completed':
           case 'error':
             setStatus(event.status);
