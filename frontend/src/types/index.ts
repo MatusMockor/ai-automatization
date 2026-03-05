@@ -62,6 +62,7 @@ export interface Repository {
   cloneUrl: string;
   defaultBranch: string;
   isCloned: boolean;
+  hasCheckProfileOverride: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -82,9 +83,23 @@ export interface ManualTask {
   updatedAt: string;
 }
 
+export type PreCommitCheckMode = 'warn' | 'block';
+export type PreCommitStepPreset = 'format' | 'lint' | 'test';
+export type PreCommitRuntimeLanguage = 'php' | 'node';
+
+export interface PreCommitChecksProfile {
+  enabled: boolean;
+  mode: PreCommitCheckMode;
+  runner: { type: 'compose_service'; service: string };
+  steps: { preset: PreCommitStepPreset; enabled: boolean }[];
+  runtime?: { language: PreCommitRuntimeLanguage; version: string };
+}
+
 export interface SettingsResponse {
   githubToken: string | null;
-  claudeApiKey: string | null;
+  claudeOauthToken: string | null;
+  executionTimeoutMs: number | null;
+  preCommitChecksDefault: PreCommitChecksProfile | null;
 }
 
 export type TaskManagerProvider = 'asana' | 'jira';
