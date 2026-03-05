@@ -10,12 +10,14 @@ import {
   AlertCircle,
   FolderGit2,
   X,
+  ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { timeAgo } from '@/lib/time';
 import { useTick } from '@/lib/useTick';
-import type { Repository } from '@/types';
+import type { Repository, PreCommitChecksProfile } from '@/types';
+import { PreCommitProfileEditor } from '@/components/shared/PreCommitProfileEditor';
 
 export function RepositoriesPage() {
   useTick();
@@ -27,6 +29,11 @@ export function RepositoriesPage() {
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deletingInFlight, setDeletingInFlight] = useState(false);
+
+  // Check profile state
+  const [expandedRepoId, setExpandedRepoId] = useState<string | null>(null);
+  const [editingProfile, setEditingProfile] = useState<PreCommitChecksProfile | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
 
   const fetchRepos = async () => {
     try {
@@ -86,12 +93,55 @@ export function RepositoriesPage() {
       await api.delete(`/repositories/${repoId}`);
       setRepos((prev) => prev.filter((r) => r.id !== repoId));
       setDeleting(null);
+      if (expandedRepoId === repoId) setExpandedRepoId(null);
       toast.success('Repository removed');
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to remove repository'));
       setDeleting(null);
     } finally {
       setDeletingInFlight(false);
+    }
+  };
+
+  const handleToggleExpand = (repoId: string) => {
+    if (expandedRepoId === repoId) {
+      setExpandedRepoId(null);
+      setEditingProfile(null);
+    } else {
+      setExpandedRepoId(repoId);
+      setEditingProfile(null);
+    }
+  };
+
+  const handleSaveProfile = async (repoId: string) => {
+    if (!editingProfile) return;
+    setSavingProfile(true);
+    try {
+      await api.put(`/repositories/${repoId}/check-profile`, { profile: editingProfile });
+      setRepos((prev) =>
+        prev.map((r) => (r.id === repoId ? { ...r, hasCheckProfileOverride: true } : r)),
+      );
+      toast.success('Check profile saved');
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to save check profile'));
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleDeleteProfile = async (repoId: string) => {
+    setSavingProfile(true);
+    try {
+      await api.delete(`/repositories/${repoId}/check-profile`);
+      setRepos((prev) =>
+        prev.map((r) => (r.id === repoId ? { ...r, hasCheckProfileOverride: false } : r)),
+      );
+      setEditingProfile(null);
+      toast.success('Check profile removed');
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to remove check profile'));
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -201,6 +251,11 @@ export function RepositoriesPage() {
                     ) : (
                       <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
                     )}
+                    {repo.hasCheckProfileOverride && (
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                        Custom checks
+                      </span>
+                    )}
                   </div>
                   <div className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
                     <div className="flex items-center gap-3">
@@ -217,6 +272,20 @@ export function RepositoriesPage() {
                 </div>
 
                 <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleExpand(repo.id)}
+                    aria-label={`Toggle check profile for ${repo.fullName}`}
+                    className="rounded-lg p-2 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                    title="Check profile"
+                  >
+                    <ChevronDown
+                      className={cn(
+                        'h-4 w-4 transition-transform',
+                        expandedRepoId === repo.id && 'rotate-180',
+                      )}
+                    />
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleSync(repo.id)}
@@ -259,6 +328,54 @@ export function RepositoriesPage() {
                   )}
                 </div>
               </div>
+
+              {/* Expanded check profile editor */}
+              {expandedRepoId === repo.id && (
+                <div className="mt-4 border-t border-border pt-4">
+                  <h3 className="mb-3 text-xs font-semibold text-muted-foreground">
+                    Pre-Commit Check Profile Override
+                  </h3>
+                  <PreCommitProfileEditor
+                    value={editingProfile}
+                    onChange={setEditingProfile}
+                    disabled={savingProfile}
+                  />
+                  {editingProfile && (
+                    <div className="mt-4 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleSaveProfile(repo.id)}
+                        disabled={savingProfile}
+                        className="flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                      >
+                        {savingProfile ? 'Saving...' : 'Save override'}
+                      </button>
+                      {repo.hasCheckProfileOverride && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteProfile(repo.id)}
+                          disabled={savingProfile}
+                          className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                        >
+                          Remove override
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {!editingProfile && repo.hasCheckProfileOverride && (
+                    <div className="mt-4">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteProfile(repo.id)}
+                        disabled={savingProfile}
+                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                      >
+                        Remove override
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
