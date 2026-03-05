@@ -9,6 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { access, rm } from 'fs/promises';
 import { QueryFailedError, Repository } from 'typeorm';
+import { normalizePreCommitChecksProfile } from '../executions/pre-commit/pre-commit-check-profile.normalizer';
 import { SettingsService } from '../settings/settings.service';
 import {
   GIT_CLIENT,
@@ -16,6 +17,7 @@ import {
 } from './constants/repositories.tokens';
 import { CreateRepositoryDto } from './dto/create-repository.dto';
 import { RepositoryResponseDto } from './dto/repository-response.dto';
+import { UpsertRepositoryCheckProfileDto } from './dto/upsert-repository-check-profile.dto';
 import { ManagedRepository } from './entities/repository.entity';
 import {
   GithubAuthorizationError,
@@ -95,6 +97,7 @@ export class RepositoriesService {
       defaultBranch: repositoryMetadata.defaultBranch,
       localPath,
       isCloned: true,
+      preCommitChecksOverride: null,
     });
 
     try {
@@ -189,6 +192,29 @@ export class RepositoriesService {
     repositoryId: string,
   ): Promise<void> {
     await this.getOwnedRepository(repositoryId, userId);
+  }
+
+  async upsertCheckProfileForUser(
+    userId: string,
+    repositoryId: string,
+    dto: UpsertRepositoryCheckProfileDto,
+  ): Promise<RepositoryResponseDto> {
+    const repository = await this.getOwnedRepository(repositoryId, userId);
+    repository.preCommitChecksOverride = normalizePreCommitChecksProfile(
+      dto.profile,
+      'profile',
+    );
+    const saved = await this.repositoriesRepository.save(repository);
+    return this.mapToResponse(saved);
+  }
+
+  async deleteCheckProfileForUser(
+    userId: string,
+    repositoryId: string,
+  ): Promise<void> {
+    const repository = await this.getOwnedRepository(repositoryId, userId);
+    repository.preCommitChecksOverride = null;
+    await this.repositoriesRepository.save(repository);
   }
 
   async getOwnedRepositoryForUser(
@@ -296,6 +322,7 @@ export class RepositoriesService {
       cloneUrl: repository.cloneUrl,
       defaultBranch: repository.defaultBranch,
       isCloned: repository.isCloned,
+      hasCheckProfileOverride: repository.preCommitChecksOverride !== null,
       createdAt: repository.createdAt,
       updatedAt: repository.updatedAt,
     };

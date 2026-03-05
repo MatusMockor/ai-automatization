@@ -52,6 +52,7 @@ Execution publication settings control automatic `branch -> commit -> push -> PR
 - `EXECUTION_QUEUE_MAX_ATTEMPTS` default: `3`
 - `EXECUTION_QUEUE_CONSUME_ERROR_BACKOFF_MS` default: `250`
 - `REDIS_URL` default: `redis://redis:6379`
+- `DOCKER_HOST` default: `tcp://docker-runner:2375` (worker-only runtime for compose pre-commit checks)
 - `EXECUTION_WORKER_ENABLED` default: `false` for API process (worker process sets `true`)
 - `EXECUTION_WORKER_RECOVERY_TIMEOUT_MS` default: `900000`
 - `EXECUTION_MIN_TIMEOUT_MS` default: `60000`

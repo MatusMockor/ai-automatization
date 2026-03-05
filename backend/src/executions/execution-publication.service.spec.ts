@@ -14,6 +14,7 @@ import { BranchNameBuilder } from './publication/branch-name.builder';
 import { ExecutionReportArtifactService } from './publication/execution-report-artifact.service';
 import { PublicationContentResolver } from './publication/publication-content.resolver';
 import { PullRequestTemplateResolver } from './publication/pull-request-template.resolver';
+import { ExecutionPreCommitChecksService } from './pre-commit/execution-pre-commit-checks.service';
 
 describe('ExecutionPublicationService', () => {
   const createExecution = (overrides: Partial<Execution> = {}): Execution =>
@@ -61,6 +62,7 @@ describe('ExecutionPublicationService', () => {
         defaultBranch: 'main',
         localPath: '/tmp/repo',
         isCloned: true,
+        preCommitChecksOverride: null,
         createdAt: new Date('2026-03-03T12:00:00.000Z'),
         updatedAt: new Date('2026-03-03T12:00:00.000Z'),
       } as Execution['repository'],
@@ -122,6 +124,17 @@ describe('ExecutionPublicationService', () => {
       }),
     } as unknown as jest.Mocked<PublicationContentResolver>;
 
+    const executionPreCommitChecksService = {
+      runForExecution: jest.fn().mockResolvedValue({
+        source: 'none',
+        mode: 'warn',
+        status: 'skipped',
+        failureReason: null,
+        stepResults: [],
+        durationMs: 0,
+      }),
+    } as unknown as jest.Mocked<ExecutionPreCommitChecksService>;
+
     const redactionService = new RedactionService();
 
     const metricsService = {
@@ -150,6 +163,7 @@ describe('ExecutionPublicationService', () => {
       executionReportArtifactService,
       pullRequestTemplateResolver,
       publicationContentResolver,
+      executionPreCommitChecksService,
       redactionService,
       metricsService,
       configService,

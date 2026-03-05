@@ -14,8 +14,10 @@ export class MetricsService {
   private readonly executionsFailedTotal: Counter<string>;
   private readonly executionsTimeoutTotal: Counter<string>;
   private readonly executionPublicationFailedTotal: Counter<string>;
+  private readonly executionPreCommitChecksTotal: Counter<string>;
   private readonly retentionDeletedTotal: Counter<string>;
   private readonly executionDurationSeconds: Histogram<string>;
+  private readonly executionPreCommitChecksDurationSeconds: Histogram<string>;
   private readonly queueWaitSeconds: Histogram<string>;
 
   constructor() {
@@ -48,6 +50,12 @@ export class MetricsService {
       help: 'Count of execution publication failures',
       registers: [this.registry],
     });
+    this.executionPreCommitChecksTotal = new Counter({
+      name: 'execution_precommit_checks_total',
+      help: 'Count of pre-commit checks outcomes',
+      labelNames: ['status'],
+      registers: [this.registry],
+    });
     this.retentionDeletedTotal = new Counter({
       name: 'retention_deleted_total',
       help: 'Count of deleted retention artifacts',
@@ -58,6 +66,12 @@ export class MetricsService {
       name: 'execution_duration_seconds',
       help: 'Execution runtime duration in seconds',
       buckets: [1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600],
+      registers: [this.registry],
+    });
+    this.executionPreCommitChecksDurationSeconds = new Histogram({
+      name: 'execution_precommit_checks_duration_seconds',
+      help: 'Pre-commit checks duration in seconds',
+      buckets: [0.1, 0.5, 1, 3, 5, 10, 30, 60, 120, 300],
       registers: [this.registry],
     });
     this.queueWaitSeconds = new Histogram({
@@ -88,8 +102,18 @@ export class MetricsService {
     this.executionPublicationFailedTotal.inc();
   }
 
+  incrementExecutionPreCommitChecks(
+    status: 'passed' | 'failed' | 'skipped',
+  ): void {
+    this.executionPreCommitChecksTotal.inc({ status });
+  }
+
   observeExecutionDuration(seconds: number): void {
     this.executionDurationSeconds.observe(Math.max(0, seconds));
+  }
+
+  observeExecutionPreCommitChecksDuration(seconds: number): void {
+    this.executionPreCommitChecksDurationSeconds.observe(Math.max(0, seconds));
   }
 
   observeQueueWait(seconds: number): void {

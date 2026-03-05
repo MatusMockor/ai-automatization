@@ -4,6 +4,7 @@ export class RepositoryResponseDto {
   cloneUrl!: string;
   defaultBranch!: string;
   isCloned!: boolean;
+  hasCheckProfileOverride!: boolean;
   createdAt!: Date;
   updatedAt!: Date;
 }

@@ -1,12 +1,14 @@
 import { faker } from '@faker-js/faker';
 import { DataSource } from 'typeorm';
 import { EncryptionService } from '../../src/common/encryption/encryption.service';
+import type { PreCommitChecksProfile } from '../../src/executions/pre-commit/pre-commit-check-profile.types';
 import { UserSettings } from '../../src/settings/entities/user-settings.entity';
 
 type CreateUserSettingsInput = {
   githubToken?: string | null;
   claudeOauthToken?: string | null;
   executionTimeoutMs?: number | null;
+  preCommitChecksDefault?: PreCommitChecksProfile | null;
 };
 
 type CreatedUserSettings = {
@@ -14,6 +16,7 @@ type CreatedUserSettings = {
   githubToken: string | null;
   claudeOauthToken: string | null;
   executionTimeoutMs: number | null;
+  preCommitChecksDefault: PreCommitChecksProfile | null;
 };
 
 export class UserSettingsFactory {
@@ -38,6 +41,10 @@ export class UserSettingsFactory {
         input.executionTimeoutMs === undefined
           ? 1800000
           : input.executionTimeoutMs,
+      preCommitChecksDefault:
+        input.preCommitChecksDefault === undefined
+          ? null
+          : input.preCommitChecksDefault,
     };
   }
 
@@ -59,6 +66,7 @@ export class UserSettingsFactory {
           ? null
           : this.encryptionService.encrypt(generatedInput.claudeOauthToken),
       executionTimeoutMs: generatedInput.executionTimeoutMs,
+      preCommitChecksDefault: generatedInput.preCommitChecksDefault,
     });
 
     return {
@@ -66,6 +74,7 @@ export class UserSettingsFactory {
       githubToken: generatedInput.githubToken,
       claudeOauthToken: generatedInput.claudeOauthToken,
       executionTimeoutMs: generatedInput.executionTimeoutMs,
+      preCommitChecksDefault: generatedInput.preCommitChecksDefault,
     };
   }
 }

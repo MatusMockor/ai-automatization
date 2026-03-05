@@ -173,12 +173,14 @@ describe('Repositories (e2e)', () => {
       cloneUrl: string;
       defaultBranch: string;
       isCloned: boolean;
+      hasCheckProfileOverride: boolean;
     }>();
 
     expect(body.fullName).toBe(remoteRepository.fullName);
     expect(body.cloneUrl).toBe(remoteRepository.cloneUrl);
     expect(body.defaultBranch).toBe(remoteRepository.defaultBranch);
     expect(body.isCloned).toBe(true);
+    expect(body.hasCheckProfileOverride).toBe(false);
 
     const storedRepository = await dataSource
       .getRepository(ManagedRepository)
@@ -192,6 +194,70 @@ describe('Repositories (e2e)', () => {
     await expect(
       access(join(storedRepository?.localPath ?? '', '.git')),
     ).resolves.toBeUndefined();
+  });
+
+  it('PUT/DELETE /api/repositories/:id/check-profile should upsert and clear repository check profile', async () => {
+    const session = await createLoginSession();
+    await setGithubToken(
+      session.userId,
+      `ghp_${faker.string.alphanumeric(36)}`,
+    );
+    const remoteRepository = await repositoryFactory.createRemoteRepository();
+    githubGateway.registerRepository(remoteRepository);
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/repositories',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        fullName: remoteRepository.fullName,
+      },
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const repository = createResponse.json<{ id: string }>();
+
+    const upsertResponse = await app.inject({
+      method: 'PUT',
+      url: `/api/repositories/${repository.id}/check-profile`,
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        profile: {
+          enabled: true,
+          mode: 'warn',
+          runner: {
+            type: 'compose_service',
+            service: 'app',
+          },
+          steps: [
+            { preset: 'format', enabled: true },
+            { preset: 'lint', enabled: false },
+            { preset: 'test', enabled: true },
+          ],
+          runtime: {
+            language: 'php',
+            version: '8.2',
+          },
+        },
+      },
+    });
+    expect(upsertResponse.statusCode).toBe(200);
+    expect(
+      upsertResponse.json<{ hasCheckProfileOverride: boolean }>()
+        .hasCheckProfileOverride,
+    ).toBe(true);
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/api/repositories/${repository.id}/check-profile`,
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(deleteResponse.statusCode).toBe(204);
   });
 
   it('POST /api/repositories should reject duplicate repository for same user', async () => {
