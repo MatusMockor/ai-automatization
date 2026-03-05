@@ -73,10 +73,35 @@ export function SettingsPage() {
     setSavingExecution(true);
     try {
       const payload: Record<string, unknown> = {};
-      const newTimeout = timeoutInput.trim() === '' ? null : Number(timeoutInput);
+      const rawTimeout = timeoutInput.trim();
+      const newTimeout = rawTimeout === '' ? null : Number(rawTimeout);
+
+      if (
+        newTimeout !== null &&
+        (!Number.isFinite(newTimeout) ||
+          !Number.isInteger(newTimeout) ||
+          newTimeout < 60000 ||
+          newTimeout > 7200000)
+      ) {
+        toast.error('Execution timeout must be an integer between 60 000 and 7 200 000 ms');
+        return;
+      }
+
       if (newTimeout !== maskedValues.executionTimeoutMs) {
         payload.executionTimeoutMs = newTimeout;
       }
+
+      if (profileDefault) {
+        if (!profileDefault.runner.service.trim()) {
+          toast.error('Runner service is required');
+          return;
+        }
+        if (profileDefault.runtime && !profileDefault.runtime.version.trim()) {
+          toast.error('Runtime version is required when runtime is enabled');
+          return;
+        }
+      }
+
       if (JSON.stringify(profileDefault) !== JSON.stringify(maskedValues.preCommitChecksDefault)) {
         payload.preCommitChecksDefault = profileDefault;
       }
