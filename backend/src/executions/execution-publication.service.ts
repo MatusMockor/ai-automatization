@@ -439,9 +439,10 @@ export class ExecutionPublicationService {
     }
 
     const hasFailureReason = (result.failureReason?.trim().length ?? 0) > 0;
-    const checkError = hasFailureReason
+    const rawCheckError = hasFailureReason
       ? (result.failureReason ?? 'No command output was captured')
       : 'No command output was captured';
+    const checkError = this.redactionService.redactText(rawCheckError);
 
     if (result.mode === 'block') {
       throw new ExecutionPublicationError('Pre-PR checks failed', checkError);
