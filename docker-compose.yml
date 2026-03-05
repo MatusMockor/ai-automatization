@@ -36,7 +36,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     command: ["--host=tcp://0.0.0.0:2375", "--tls=false"]
     healthcheck:
-      test: ["CMD", "docker", "info"]
+      test: ["CMD", "docker", "-H", "tcp://127.0.0.1:2375", "info"]
       interval: 5s
       timeout: 5s
       retries: 10
