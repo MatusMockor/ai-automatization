@@ -103,18 +103,38 @@ export function RepositoriesPage() {
     }
   };
 
-  const handleToggleExpand = (repoId: string) => {
-    if (expandedRepoId === repoId) {
+  const handleToggleExpand = async (repo: Repository) => {
+    if (expandedRepoId === repo.id) {
       setExpandedRepoId(null);
       setEditingProfile(null);
     } else {
-      setExpandedRepoId(repoId);
-      setEditingProfile(null);
+      setExpandedRepoId(repo.id);
+      if (repo.hasCheckProfileOverride) {
+        try {
+          const { data } = await api.get<{ profile: PreCommitChecksProfile }>(
+            `/repositories/${repo.id}/check-profile`,
+          );
+          setEditingProfile(data.profile);
+        } catch (err: unknown) {
+          toast.error(getApiErrorMessage(err, 'Failed to load check profile'));
+          setEditingProfile(null);
+        }
+      } else {
+        setEditingProfile(null);
+      }
     }
   };
 
   const handleSaveProfile = async (repoId: string) => {
     if (!editingProfile) return;
+    if (!editingProfile.runner.service.trim()) {
+      toast.error('Runner service is required');
+      return;
+    }
+    if (editingProfile.runtime && !editingProfile.runtime.version.trim()) {
+      toast.error('Runtime version is required when runtime is enabled');
+      return;
+    }
     setSavingProfile(true);
     try {
       await api.put(`/repositories/${repoId}/check-profile`, { profile: editingProfile });
@@ -274,7 +294,7 @@ export function RepositoriesPage() {
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => handleToggleExpand(repo.id)}
+                    onClick={() => void handleToggleExpand(repo)}
                     aria-label={`Toggle check profile for ${repo.fullName}`}
                     className="rounded-lg p-2 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
                     title="Check profile"
