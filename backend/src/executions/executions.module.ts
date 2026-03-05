@@ -30,6 +30,10 @@ import { BranchNameBuilder } from './publication/branch-name.builder';
 import { ExecutionReportArtifactService } from './publication/execution-report-artifact.service';
 import { PublicationContentResolver } from './publication/publication-content.resolver';
 import { PullRequestTemplateResolver } from './publication/pull-request-template.resolver';
+import { CheckPresetRegistryService } from './pre-commit/check-preset-registry.service';
+import { ExecutionPreCommitChecksService } from './pre-commit/execution-pre-commit-checks.service';
+import { PreCommitCheckProfileResolver } from './pre-commit/pre-commit-check-profile.resolver';
+import { ComposeServiceCheckRunner } from './pre-commit/runners/compose-service-check.runner';
 
 @Module({
   imports: [
@@ -59,6 +63,10 @@ import { PullRequestTemplateResolver } from './publication/pull-request-template
     ExecutionReportArtifactService,
     PullRequestTemplateResolver,
     PublicationContentResolver,
+    CheckPresetRegistryService,
+    PreCommitCheckProfileResolver,
+    ComposeServiceCheckRunner,
+    ExecutionPreCommitChecksService,
     {
       provide: CLAUDE_CLI_RUNNER,
       useClass: ChildProcessClaudeCliRunner,

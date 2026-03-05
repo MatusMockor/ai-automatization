@@ -65,11 +65,13 @@ describe('Settings (e2e)', () => {
         githubToken: string | null;
         claudeOauthToken: string | null;
         executionTimeoutMs: number | null;
+        preCommitChecksDefault: unknown;
       }>(),
     ).toEqual({
       githubToken: null,
       claudeOauthToken: null,
       executionTimeoutMs: null,
+      preCommitChecksDefault: null,
     });
   });
 
@@ -91,6 +93,7 @@ describe('Settings (e2e)', () => {
       githubToken: string | null;
       claudeOauthToken: string | null;
       executionTimeoutMs: number | null;
+      preCommitChecksDefault: unknown;
     }>();
 
     expect(body.githubToken).toBe(maskToken(savedSettings.githubToken));
@@ -98,6 +101,9 @@ describe('Settings (e2e)', () => {
       maskToken(savedSettings.claudeOauthToken),
     );
     expect(body.executionTimeoutMs).toBe(savedSettings.executionTimeoutMs);
+    expect(body.preCommitChecksDefault).toEqual(
+      savedSettings.preCommitChecksDefault,
+    );
   });
 
   it('PATCH /api/settings should encrypt and persist tokens', async () => {
@@ -123,11 +129,13 @@ describe('Settings (e2e)', () => {
         githubToken: string | null;
         claudeOauthToken: string | null;
         executionTimeoutMs: number | null;
+        preCommitChecksDefault: unknown;
       }>(),
     ).toEqual({
       githubToken: maskToken(payload.githubToken),
       claudeOauthToken: maskToken(payload.claudeOauthToken),
       executionTimeoutMs: payload.executionTimeoutMs,
+      preCommitChecksDefault: null,
     });
 
     const storedSettings = await dataSource
@@ -184,11 +192,13 @@ describe('Settings (e2e)', () => {
         githubToken: string | null;
         claudeOauthToken: string | null;
         executionTimeoutMs: number | null;
+        preCommitChecksDefault: unknown;
       }>(),
     ).toEqual({
       githubToken: null,
       claudeOauthToken: maskToken(initialPayload.claudeOauthToken),
       executionTimeoutMs: 600000,
+      preCommitChecksDefault: null,
     });
 
     const storedSettings = await dataSource
@@ -202,6 +212,59 @@ describe('Settings (e2e)', () => {
       expect.any(String),
     );
     expect(storedSettings?.executionTimeoutMs).toBe(600000);
+  });
+
+  it('PATCH /api/settings should persist pre-commit checks default profile', async () => {
+    const session = await createLoginSession();
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        preCommitChecksDefault: {
+          enabled: true,
+          mode: 'warn',
+          runner: {
+            type: 'compose_service',
+            service: 'php',
+          },
+          steps: [
+            { preset: 'format', enabled: true },
+            { preset: 'lint', enabled: false },
+            { preset: 'test', enabled: true },
+          ],
+          runtime: {
+            language: 'php',
+            version: '8.2',
+          },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      response.json<{ preCommitChecksDefault: unknown }>()
+        .preCommitChecksDefault,
+    ).toEqual({
+      enabled: true,
+      mode: 'warn',
+      runner: {
+        type: 'compose_service',
+        service: 'php',
+      },
+      steps: [
+        { preset: 'format', enabled: true },
+        { preset: 'lint', enabled: false },
+        { preset: 'test', enabled: true },
+      ],
+      runtime: {
+        language: 'php',
+        version: '8.2',
+      },
+    });
   });
 
   it('PATCH /api/settings should validate executionTimeoutMs bounds and support null reset', async () => {

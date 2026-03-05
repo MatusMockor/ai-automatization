@@ -7,11 +7,13 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
 } from '@nestjs/common';
 import type { RequestUser } from '../auth/interfaces/request-user.interface';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CreateRepositoryDto } from './dto/create-repository.dto';
 import { RepositoryResponseDto } from './dto/repository-response.dto';
+import { UpsertRepositoryCheckProfileDto } from './dto/upsert-repository-check-profile.dto';
 import { RepositoriesService } from './repositories.service';
 
 @Controller('repositories')
@@ -49,5 +51,30 @@ export class RepositoriesController {
     @Param('id', new ParseUUIDPipe()) repositoryId: string,
   ): Promise<RepositoryResponseDto> {
     return this.repositoriesService.syncForUser(user.id, repositoryId);
+  }
+
+  @Put(':id/check-profile')
+  upsertRepositoryCheckProfile(
+    @CurrentUser() user: RequestUser,
+    @Param('id', new ParseUUIDPipe()) repositoryId: string,
+    @Body() dto: UpsertRepositoryCheckProfileDto,
+  ): Promise<RepositoryResponseDto> {
+    return this.repositoriesService.upsertCheckProfileForUser(
+      user.id,
+      repositoryId,
+      dto,
+    );
+  }
+
+  @HttpCode(204)
+  @Delete(':id/check-profile')
+  async deleteRepositoryCheckProfile(
+    @CurrentUser() user: RequestUser,
+    @Param('id', new ParseUUIDPipe()) repositoryId: string,
+  ): Promise<void> {
+    await this.repositoriesService.deleteCheckProfileForUser(
+      user.id,
+      repositoryId,
+    );
   }
 }

@@ -2,6 +2,8 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EncryptionService } from '../common/encryption/encryption.service';
+import { normalizePreCommitChecksProfile } from '../executions/pre-commit/pre-commit-check-profile.normalizer';
+import type { PreCommitChecksProfile } from '../executions/pre-commit/pre-commit-check-profile.types';
 import { SettingsResponseDto } from './dto/settings-response.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { UserSettings } from './entities/user-settings.entity';
@@ -22,6 +24,7 @@ export class SettingsService {
         githubToken: null,
         claudeOauthToken: null,
         executionTimeoutMs: null,
+        preCommitChecksDefault: null,
       };
     }
 
@@ -55,6 +58,13 @@ export class SettingsService {
     return settings?.executionTimeoutMs ?? null;
   }
 
+  async getPreCommitChecksDefaultForUserOrNull(
+    userId: string,
+  ): Promise<PreCommitChecksProfile | null> {
+    const settings = await this.settingsRepository.findOneBy({ userId });
+    return settings?.preCommitChecksDefault ?? null;
+  }
+
   async updateSettings(
     userId: string,
     dto: UpdateSettingsDto,
@@ -66,6 +76,7 @@ export class SettingsService {
         githubTokenEncrypted: null,
         claudeOauthTokenEncrypted: null,
         executionTimeoutMs: null,
+        preCommitChecksDefault: null,
       });
 
     if (dto.githubToken !== undefined) {
@@ -88,6 +99,16 @@ export class SettingsService {
       settings.executionTimeoutMs = dto.executionTimeoutMs;
     }
 
+    if (dto.preCommitChecksDefault !== undefined) {
+      settings.preCommitChecksDefault =
+        dto.preCommitChecksDefault === null
+          ? null
+          : normalizePreCommitChecksProfile(
+              dto.preCommitChecksDefault,
+              'preCommitChecksDefault',
+            );
+    }
+
     const savedSettings = await this.settingsRepository.save(settings);
     return this.toSettingsResponse(savedSettings);
   }
@@ -107,6 +128,7 @@ export class SettingsService {
         settings.claudeOauthTokenEncrypted,
       ),
       executionTimeoutMs: settings.executionTimeoutMs,
+      preCommitChecksDefault: settings.preCommitChecksDefault,
     };
   }
 

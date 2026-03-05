@@ -1,4 +1,4 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsInt,
   IsOptional,
@@ -7,8 +7,10 @@ import {
   MaxLength,
   Min,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { parseOptionalInteger } from '../../common/utils/parse.utils';
+import { PreCommitChecksProfileDto } from '../../executions/pre-commit/dto/pre-commit-check-profile.dto';
 
 const normalizeNullableString = (value: unknown): unknown => {
   if (typeof value !== 'string') {
@@ -45,4 +47,10 @@ export class UpdateSettingsDto {
   @Min(60000)
   @Max(7200000)
   executionTimeoutMs?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, value: unknown) => value !== null)
+  @ValidateNested()
+  @Type(() => PreCommitChecksProfileDto)
+  preCommitChecksDefault?: PreCommitChecksProfileDto | null;
 }

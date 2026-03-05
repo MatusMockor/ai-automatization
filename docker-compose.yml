@@ -29,6 +29,19 @@ services:
       timeout: 3s
       retries: 5
 
+  docker-runner:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command: ["--host=tcp://0.0.0.0:2375", "--tls=false"]
+    volumes:
+      - repos_data:/app/repos
+      - docker_runner_data:/var/lib/docker
+    networks:
+      - ai-automation-net
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -141,6 +154,7 @@ services:
       EXECUTION_QUEUE_MAX_ATTEMPTS: ${EXECUTION_QUEUE_MAX_ATTEMPTS:-3}
       EXECUTION_QUEUE_CONSUME_ERROR_BACKOFF_MS: ${EXECUTION_QUEUE_CONSUME_ERROR_BACKOFF_MS:-250}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DOCKER_HOST: ${DOCKER_HOST:-tcp://docker-runner:2375}
       EXECUTION_WORKER_ENABLED: ${EXECUTION_WORKER_ENABLED:-true}
       EXECUTION_WORKER_RECOVERY_TIMEOUT_MS: ${EXECUTION_WORKER_RECOVERY_TIMEOUT_MS:-900000}
       EXECUTION_RETENTION_ENABLED: ${EXECUTION_RETENTION_ENABLED_WORKER:-false}
@@ -154,6 +168,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      docker-runner:
+        condition: service_started
     networks:
       - ai-automation-net
     restart: unless-stopped
@@ -161,6 +177,7 @@ services:
 volumes:
   ai_automation_pg_data:
   repos_data:
+  docker_runner_data:
 
 networks:
   ai-automation-net:

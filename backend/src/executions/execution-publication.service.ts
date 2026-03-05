@@ -25,6 +25,7 @@ import { BranchNameBuilder } from './publication/branch-name.builder';
 import { ExecutionReportArtifactService } from './publication/execution-report-artifact.service';
 import { PublicationContentResolver } from './publication/publication-content.resolver';
 import { PullRequestTemplateResolver } from './publication/pull-request-template.resolver';
+import { ExecutionPreCommitChecksService } from './pre-commit/execution-pre-commit-checks.service';
 
 export type CompletedPublicationResult =
   | { outcome: 'published' }
@@ -57,6 +58,7 @@ export class ExecutionPublicationService {
     private readonly executionReportArtifactService: ExecutionReportArtifactService,
     private readonly pullRequestTemplateResolver: PullRequestTemplateResolver,
     private readonly publicationContentResolver: PublicationContentResolver,
+    private readonly executionPreCommitChecksService: ExecutionPreCommitChecksService,
     private readonly redactionService: RedactionService,
     private readonly metricsService: MetricsService,
     private readonly configService: ConfigService,
@@ -154,6 +156,7 @@ export class ExecutionPublicationService {
     let reportArtifactPath: string | null = null;
     let reportOnlyPublication = false;
     let branchCleanupHandled = false;
+    let preCommitWarning: string | null = null;
 
     try {
       branchName = await this.resolveAvailableBranchName(
@@ -199,7 +202,7 @@ export class ExecutionPublicationService {
       }
 
       if (!reportOnlyPublication) {
-        await this.assertPrePrChecks(execution.repository.localPath);
+        preCommitWarning = await this.assertPrePrChecks(execution);
       }
 
       const templateBody = await this.pullRequestTemplateResolver.resolve(
@@ -213,6 +216,10 @@ export class ExecutionPublicationService {
         executionOutput: execution.output,
         templateBody,
       });
+      const pullRequestBody = this.appendPreCommitWarningToBody(
+        content.pullRequestBody,
+        preCommitWarning,
+      );
 
       await this.gitPublicationClient.addAll(execution.repository.localPath);
       await this.gitPublicationClient.commit(
@@ -230,7 +237,7 @@ export class ExecutionPublicationService {
         branchName,
         githubToken,
         title: content.pullRequestTitle,
-        body: content.pullRequestBody,
+        body: pullRequestBody,
       });
 
       await this.updateAutomationState(execution.id, {
@@ -422,32 +429,46 @@ export class ExecutionPublicationService {
     );
   }
 
-  private async assertPrePrChecks(localPath: string): Promise<void> {
-    const prePrCheckCommand =
-      process.env.EXECUTION_PRE_PR_CHECK_COMMAND ??
-      this.configService.get<string>('EXECUTION_PRE_PR_CHECK_COMMAND', '') ??
-      '';
-    if (prePrCheckCommand.trim().length === 0) {
-      return;
+  private async assertPrePrChecks(
+    execution: Execution,
+  ): Promise<string | null> {
+    const result =
+      await this.executionPreCommitChecksService.runForExecution(execution);
+    if (result.status !== 'failed') {
+      return null;
     }
 
-    const result = await this.gitPublicationClient.runCheckCommand(
-      localPath,
-      prePrCheckCommand,
-    );
+    const hasFailureReason = (result.failureReason?.trim().length ?? 0) > 0;
+    const checkError = hasFailureReason
+      ? (result.failureReason ?? 'No command output was captured')
+      : 'No command output was captured';
 
-    if (!result.success) {
-      const checkError = [result.stderr, result.stdout]
-        .map((chunk) => chunk.trim())
-        .filter((chunk) => chunk.length > 0)
-        .join('\n')
-        .slice(0, 2000);
+    if (result.mode === 'block') {
+      throw new ExecutionPublicationError('Pre-PR checks failed', checkError);
+    }
 
-      throw new ExecutionPublicationError(
-        'Pre-PR checks failed',
-        checkError || 'No command output was captured',
+    const warningMessage =
+      `Pre-PR checks failed but publication continues (warn mode): ${checkError}`.slice(
+        0,
+        2000,
       );
+    this.publishAutomationEvent(execution.id, {
+      automationStatus: 'publishing',
+      message: warningMessage,
+    });
+
+    return warningMessage;
+  }
+
+  private appendPreCommitWarningToBody(
+    pullRequestBody: string,
+    preCommitWarning: string | null,
+  ): string {
+    if (!preCommitWarning) {
+      return pullRequestBody;
     }
+
+    return `${pullRequestBody}\n\n## Pre-commit checks warning\n\n${preCommitWarning}`;
   }
 
   private async publishWithRetry(input: {

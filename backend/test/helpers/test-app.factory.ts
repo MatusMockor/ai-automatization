@@ -60,6 +60,7 @@ const DEFAULT_TEST_ENV: Record<string, string> = {
   EXECUTION_QUEUE_NAME: 'executions',
   EXECUTION_QUEUE_CONSUME_ERROR_BACKOFF_MS: '1',
   REDIS_URL: 'redis://localhost:6379',
+  DOCKER_HOST: 'tcp://docker-runner:2375',
   EXECUTION_WORKER_ENABLED: 'false',
   EXECUTION_WORKER_RECOVERY_TIMEOUT_MS: '900000',
   EXECUTION_RETENTION_ENABLED: 'false',
