@@ -66,12 +66,14 @@ describe('Settings (e2e)', () => {
         claudeOauthToken: string | null;
         executionTimeoutMs: number | null;
         preCommitChecksDefault: unknown;
+        aiReviewEnabled: boolean;
       }>(),
     ).toEqual({
       githubToken: null,
       claudeOauthToken: null,
       executionTimeoutMs: null,
       preCommitChecksDefault: null,
+      aiReviewEnabled: true,
     });
   });
 
@@ -94,6 +96,7 @@ describe('Settings (e2e)', () => {
       claudeOauthToken: string | null;
       executionTimeoutMs: number | null;
       preCommitChecksDefault: unknown;
+      aiReviewEnabled: boolean;
     }>();
 
     expect(body.githubToken).toBe(maskToken(savedSettings.githubToken));
@@ -104,6 +107,7 @@ describe('Settings (e2e)', () => {
     expect(body.preCommitChecksDefault).toEqual(
       savedSettings.preCommitChecksDefault,
     );
+    expect(body.aiReviewEnabled).toBe(savedSettings.aiReviewEnabled);
   });
 
   it('PATCH /api/settings should encrypt and persist tokens', async () => {
@@ -130,12 +134,14 @@ describe('Settings (e2e)', () => {
         claudeOauthToken: string | null;
         executionTimeoutMs: number | null;
         preCommitChecksDefault: unknown;
+        aiReviewEnabled: boolean;
       }>(),
     ).toEqual({
       githubToken: maskToken(payload.githubToken),
       claudeOauthToken: maskToken(payload.claudeOauthToken),
       executionTimeoutMs: payload.executionTimeoutMs,
       preCommitChecksDefault: null,
+      aiReviewEnabled: true,
     });
 
     const storedSettings = await dataSource
@@ -193,12 +199,14 @@ describe('Settings (e2e)', () => {
         claudeOauthToken: string | null;
         executionTimeoutMs: number | null;
         preCommitChecksDefault: unknown;
+        aiReviewEnabled: boolean;
       }>(),
     ).toEqual({
       githubToken: null,
       claudeOauthToken: maskToken(initialPayload.claudeOauthToken),
       executionTimeoutMs: 600000,
       preCommitChecksDefault: null,
+      aiReviewEnabled: true,
     });
 
     const storedSettings = await dataSource

@@ -5,7 +5,9 @@ import type {
   AutomationStatus,
   ExecutionAction,
   ExecutionOrchestrationState,
+  ExecutionRole,
   ExecutionStatus,
+  ReviewGateStatus,
   TaskSource,
 } from '../../src/executions/interfaces/execution.types';
 
@@ -24,6 +26,11 @@ type CreateExecutionInput = {
   taskDescription?: string | null;
   taskSource?: TaskSource;
   action?: ExecutionAction;
+  executionRole?: ExecutionRole;
+  parentExecutionId?: string | null;
+  rootExecutionId?: string;
+  reviewGateStatus?: ReviewGateStatus;
+  reviewPendingDecisionUntil?: Date | null;
   prompt?: string;
   status?: ExecutionStatus;
   automationStatus?: AutomationStatus;
@@ -90,6 +97,15 @@ export class ExecutionFactory {
           : input.taskDescription,
       taskSource: input.taskSource ?? 'jira',
       action,
+      executionRole: input.executionRole ?? 'implementation',
+      parentExecutionId:
+        input.parentExecutionId === undefined ? null : input.parentExecutionId,
+      rootExecutionId: input.rootExecutionId ?? faker.string.uuid(),
+      reviewGateStatus: input.reviewGateStatus ?? 'not_applicable',
+      reviewPendingDecisionUntil:
+        input.reviewPendingDecisionUntil === undefined
+          ? null
+          : input.reviewPendingDecisionUntil,
       prompt: input.prompt ?? faker.lorem.paragraph(),
       status,
       automationStatus: input.automationStatus ?? 'pending',

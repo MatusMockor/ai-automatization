@@ -1,5 +1,6 @@
 import type {
   AutomationStatus,
+  ReviewGateStatus,
   ExecutionStatus,
   ExecutionStreamEventType,
 } from '../interfaces/execution.types';
@@ -34,6 +35,16 @@ export type ExecutionStreamEventPayload =
       executionId: string;
       status: ExecutionStatus;
       errorMessage?: string;
+    }
+  | {
+      type: 'review';
+      executionId: string;
+      reviewGateStatus: ReviewGateStatus;
+      cycle: number;
+      message?: string;
+      pendingDecisionUntil?: string;
+      reviewExecutionId?: string;
+      remediationExecutionId?: string;
     }
   | {
       type: 'publication';

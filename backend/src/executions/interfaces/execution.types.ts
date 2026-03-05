@@ -1,4 +1,5 @@
 export type ExecutionAction = 'fix' | 'feature' | 'plan';
+export type ExecutionRole = 'implementation' | 'review' | 'remediation';
 
 export type ExecutionStatus =
   | 'pending'
@@ -11,8 +12,19 @@ export type ExecutionOrchestrationState =
   | 'queued'
   | 'running'
   | 'finalizing'
+  | 'awaiting_review_decision'
   | 'done'
   | 'failed';
+
+export type ReviewGateStatus =
+  | 'not_applicable'
+  | 'review_running'
+  | 'awaiting_decision'
+  | 'decision_continue'
+  | 'decision_block'
+  | 'remediation_running'
+  | 'review_passed'
+  | 'timeout_continue';
 
 export type TaskSource = 'asana' | 'jira' | 'manual';
 
@@ -29,6 +41,7 @@ export type ExecutionStreamEventType =
   | 'stdout'
   | 'stderr'
   | 'status'
+  | 'review'
   | 'publication'
   | 'completed'
   | 'error';

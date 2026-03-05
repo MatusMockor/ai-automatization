@@ -25,6 +25,7 @@ export class SettingsService {
         claudeOauthToken: null,
         executionTimeoutMs: null,
         preCommitChecksDefault: null,
+        aiReviewEnabled: true,
       };
     }
 
@@ -65,6 +66,11 @@ export class SettingsService {
     return settings?.preCommitChecksDefault ?? null;
   }
 
+  async getAiReviewEnabledForUser(userId: string): Promise<boolean> {
+    const settings = await this.settingsRepository.findOneBy({ userId });
+    return settings?.aiReviewEnabled ?? true;
+  }
+
   async updateSettings(
     userId: string,
     dto: UpdateSettingsDto,
@@ -77,6 +83,7 @@ export class SettingsService {
         claudeOauthTokenEncrypted: null,
         executionTimeoutMs: null,
         preCommitChecksDefault: null,
+        aiReviewEnabled: true,
       });
 
     if (dto.githubToken !== undefined) {
@@ -109,6 +116,10 @@ export class SettingsService {
             );
     }
 
+    if (dto.aiReviewEnabled !== undefined) {
+      settings.aiReviewEnabled = dto.aiReviewEnabled;
+    }
+
     const savedSettings = await this.settingsRepository.save(settings);
     return this.toSettingsResponse(savedSettings);
   }
@@ -129,6 +140,7 @@ export class SettingsService {
       ),
       executionTimeoutMs: settings.executionTimeoutMs,
       preCommitChecksDefault: settings.preCommitChecksDefault,
+      aiReviewEnabled: settings.aiReviewEnabled ?? true,
     };
   }
 

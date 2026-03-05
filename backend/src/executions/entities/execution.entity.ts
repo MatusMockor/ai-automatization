@@ -15,7 +15,9 @@ import type {
   AutomationStatus,
   ExecutionAction,
   ExecutionOrchestrationState,
+  ExecutionRole,
   ExecutionStatus,
+  ReviewGateStatus,
   TaskSource,
 } from '../interfaces/execution.types';
 
@@ -87,6 +89,35 @@ export class Execution {
 
   @Column({ type: 'varchar', length: 16 })
   action!: ExecutionAction;
+
+  @Column({
+    name: 'execution_role',
+    type: 'varchar',
+    length: 16,
+    default: 'implementation',
+  })
+  executionRole!: ExecutionRole;
+
+  @Column({ name: 'parent_execution_id', type: 'uuid', nullable: true })
+  parentExecutionId!: string | null;
+
+  @Column({ name: 'root_execution_id', type: 'uuid' })
+  rootExecutionId!: string;
+
+  @Column({
+    name: 'review_gate_status',
+    type: 'varchar',
+    length: 32,
+    default: 'not_applicable',
+  })
+  reviewGateStatus!: ReviewGateStatus;
+
+  @Column({
+    name: 'review_pending_decision_until',
+    type: EXECUTION_DATETIME_COLUMN_TYPE,
+    nullable: true,
+  })
+  reviewPendingDecisionUntil!: Date | null;
 
   @Column({ type: 'text' })
   prompt!: string;

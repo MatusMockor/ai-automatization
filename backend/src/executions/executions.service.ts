@@ -25,11 +25,14 @@ import {
   ExecutionDetailResponseDto,
   ExecutionSummaryResponseDto,
 } from './dto/execution-response.dto';
+import { ReviewDecisionDto } from './dto/review-decision.dto';
+import { ReviewStateResponseDto } from './dto/review-state-response.dto';
 import { ExecutionStreamEventDto } from './dto/execution-stream-event.dto';
 import { GetExecutionsQueryDto } from './dto/get-executions-query.dto';
 import { Execution } from './entities/execution.entity';
 import { ExecutionDispatchService } from './execution-dispatch.service';
 import { ExecutionEventStoreService } from './execution-event-store.service';
+import { ExecutionReviewGateService } from './execution-review-gate.service';
 import { ExecutionStreamHub } from './execution-stream.hub';
 import { ExecutionRuntimeManager } from './execution-runtime.manager';
 import type { ExecutionAction } from './interfaces/execution.types';
@@ -50,6 +53,7 @@ export class ExecutionsService {
     private readonly settingsService: SettingsService,
     private readonly executionDispatchService: ExecutionDispatchService,
     private readonly executionEventStoreService: ExecutionEventStoreService,
+    private readonly executionReviewGateService: ExecutionReviewGateService,
     private readonly runtimeManager: ExecutionRuntimeManager,
     private readonly streamHub: ExecutionStreamHub,
     configService: ConfigService,
@@ -146,6 +150,11 @@ export class ExecutionsService {
             taskDescription: dto.taskDescription ?? null,
             taskSource: dto.taskSource,
             action: dto.action,
+            executionRole: 'implementation',
+            parentExecutionId: null,
+            rootExecutionId: repository.id, // temporary value replaced after save
+            reviewGateStatus: 'not_applicable',
+            reviewPendingDecisionUntil: null,
             prompt,
             status: 'pending',
             automationStatus: 'pending',
@@ -167,6 +176,11 @@ export class ExecutionsService {
           });
 
           const savedExecution = await executionRepository.save(execution);
+          await executionRepository.update(
+            { id: savedExecution.id },
+            { rootExecutionId: savedExecution.id },
+          );
+          savedExecution.rootExecutionId = savedExecution.id;
           return { execution: savedExecution, reused: false };
         },
       );
@@ -360,6 +374,38 @@ export class ExecutionsService {
     return this.toSummaryResponse(updatedExecution);
   }
 
+  async getReviewStateForUser(
+    userId: string,
+    executionId: string,
+  ): Promise<ReviewStateResponseDto> {
+    return this.executionReviewGateService.getReviewStateForUser(
+      userId,
+      executionId,
+    );
+  }
+
+  async applyReviewDecisionForUser(
+    userId: string,
+    executionId: string,
+    dto: ReviewDecisionDto,
+  ): Promise<ExecutionSummaryResponseDto> {
+    const outcome = await this.executionReviewGateService.applyDecision(
+      userId,
+      executionId,
+      dto.decision,
+    );
+
+    if (outcome.action === 'continue_publication') {
+      await this.runtimeManager.finalizeCompletedExecution(
+        outcome.parentExecutionId,
+        0,
+      );
+    }
+
+    const updatedExecution = await this.getOwnedExecution(executionId, userId);
+    return this.toSummaryResponse(updatedExecution);
+  }
+
   private async getOwnedExecution(
     executionId: string,
     userId: string,
@@ -545,6 +591,11 @@ export class ExecutionsService {
       taskTitle: execution.taskTitle,
       taskSource: execution.taskSource,
       action: execution.action,
+      executionRole: execution.executionRole,
+      parentExecutionId: execution.parentExecutionId,
+      rootExecutionId: execution.rootExecutionId,
+      reviewGateStatus: execution.reviewGateStatus,
+      reviewPendingDecisionUntil: execution.reviewPendingDecisionUntil,
       status: execution.status,
       automationStatus: execution.automationStatus,
       automationAttempts: execution.automationAttempts,

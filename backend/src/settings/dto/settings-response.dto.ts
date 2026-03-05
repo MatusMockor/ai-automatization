@@ -5,4 +5,5 @@ export class SettingsResponseDto {
   claudeOauthToken!: string | null;
   executionTimeoutMs!: number | null;
   preCommitChecksDefault!: PreCommitChecksProfile | null;
+  aiReviewEnabled!: boolean;
 }

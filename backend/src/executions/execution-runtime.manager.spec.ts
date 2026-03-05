@@ -7,15 +7,27 @@ import {
   CompletedPublicationResult,
   ExecutionPublicationService,
 } from './execution-publication.service';
+import { ExecutionReviewGateService } from './execution-review-gate.service';
 import { ExecutionRuntimeManager } from './execution-runtime.manager';
 import { ExecutionStreamHub } from './execution-stream.hub';
 import type { ClaudeCliRunner } from './interfaces/claude-cli-runner.interface';
 
 describe('ExecutionRuntimeManager', () => {
   const createManager = (publicationResult: CompletedPublicationResult) => {
+    const defaultExecution = {
+      id: 'execution-1',
+      executionRole: 'implementation',
+      status: 'completed',
+      reviewGateStatus: 'not_applicable',
+      parentExecutionId: null,
+    } as Partial<Execution>;
+
     const executionRepository = {
       update: jest.fn().mockResolvedValue(undefined),
-      findOneBy: jest.fn().mockResolvedValue(null),
+      findOneBy: jest
+        .fn()
+        .mockResolvedValueOnce(defaultExecution)
+        .mockResolvedValue(defaultExecution),
       findOne: jest.fn().mockResolvedValue({
         automationErrorMessage: 'Publication failed',
       }),
@@ -34,6 +46,16 @@ describe('ExecutionRuntimeManager', () => {
       handleCompletedExecution: jest.fn().mockResolvedValue(publicationResult),
     } as unknown as jest.Mocked<ExecutionPublicationService>;
 
+    const executionReviewGateService = {
+      handleImplementationCompletion: jest
+        .fn()
+        .mockResolvedValue({ action: 'continue_publication' }),
+      handleReviewCompletion: jest.fn().mockResolvedValue({ action: 'none' }),
+      handleRemediationCompletion: jest
+        .fn()
+        .mockResolvedValue({ action: 'none' }),
+    } as unknown as jest.Mocked<ExecutionReviewGateService>;
+
     const metricsService = {
       incrementExecutionsStarted: jest.fn(),
       observeExecutionDuration: jest.fn(),
@@ -51,6 +73,7 @@ describe('ExecutionRuntimeManager', () => {
       claudeCliRunner,
       streamHub,
       publicationService,
+      executionReviewGateService,
       new RedactionService(),
       metricsService,
       configService,

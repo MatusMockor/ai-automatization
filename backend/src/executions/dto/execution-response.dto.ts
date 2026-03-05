@@ -2,7 +2,9 @@ import type {
   AutomationStatus,
   ExecutionAction,
   ExecutionOrchestrationState,
+  ExecutionRole,
   ExecutionStatus,
+  ReviewGateStatus,
   TaskSource,
 } from '../interfaces/execution.types';
 
@@ -19,6 +21,11 @@ export class ExecutionSummaryResponseDto {
   taskTitle!: string;
   taskSource!: TaskSource;
   action!: ExecutionAction;
+  executionRole!: ExecutionRole;
+  parentExecutionId!: string | null;
+  rootExecutionId!: string;
+  reviewGateStatus!: ReviewGateStatus;
+  reviewPendingDecisionUntil!: Date | null;
   status!: ExecutionStatus;
   automationStatus!: AutomationStatus;
   automationAttempts!: number;
