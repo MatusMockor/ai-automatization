@@ -31,23 +31,27 @@ export class ExecutionPreCommitChecksService {
     execution: Execution,
   ): Promise<PreCommitChecksExecutionResult> {
     const startedAt = Date.now();
-    const resolvedProfile = await this.profileResolver.resolve(
-      execution.userId,
-      execution.repository,
-    );
-
-    if (resolvedProfile.source === 'none') {
-      return this.buildResult({
-        source: 'none',
-        mode: 'warn',
-        status: 'skipped',
-        failureReason: null,
-        stepResults: [],
-        durationMs: Date.now() - startedAt,
-      });
-    }
+    let resolvedProfile: Awaited<
+      ReturnType<PreCommitCheckProfileResolver['resolve']>
+    > | null = null;
 
     try {
+      resolvedProfile = await this.profileResolver.resolve(
+        execution.userId,
+        execution.repository,
+      );
+
+      if (resolvedProfile.source === 'none') {
+        return this.buildResult({
+          source: 'none',
+          mode: 'warn',
+          status: 'skipped',
+          failureReason: null,
+          stepResults: [],
+          durationMs: Date.now() - startedAt,
+        });
+      }
+
       if (resolvedProfile.source === 'legacy_env') {
         const result = await this.runLegacyCommand(
           execution.repository.localPath,
@@ -143,10 +147,10 @@ export class ExecutionPreCommitChecksService {
       const reason =
         error instanceof Error ? error.message : 'Pre-commit checks failed';
       return this.buildResult({
-        source: resolvedProfile.source,
+        source: resolvedProfile?.source ?? 'none',
         mode:
-          resolvedProfile.profile?.mode ??
-          (resolvedProfile.source === 'legacy_env' ? 'block' : 'warn'),
+          resolvedProfile?.profile?.mode ??
+          (resolvedProfile?.source === 'legacy_env' ? 'block' : 'warn'),
         status: 'failed',
         failureReason: reason,
         stepResults: [],
