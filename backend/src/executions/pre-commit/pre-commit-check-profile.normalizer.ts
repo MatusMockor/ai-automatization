@@ -24,12 +24,21 @@ const toBoolean = (value: unknown): boolean | null => {
   return typeof value === 'boolean' ? value : null;
 };
 
-const normalizeMode = (value: unknown): PreCommitCheckMode => {
+const normalizeMode = (
+  value: unknown,
+  contextLabel: string,
+): PreCommitCheckMode => {
+  if (value === undefined || value === null) {
+    return DEFAULT_PRE_COMMIT_CHECK_MODE;
+  }
+
   if (typeof value === 'string' && MODE_SET.has(value)) {
     return value as PreCommitCheckMode;
   }
 
-  return DEFAULT_PRE_COMMIT_CHECK_MODE;
+  throw new BadRequestException(
+    `${contextLabel}.mode must be one of: ${PRE_COMMIT_CHECK_MODES.join(', ')}`,
+  );
 };
 
 const normalizeRuntime = (
@@ -159,7 +168,7 @@ export const normalizePreCommitChecksProfile = (
 
   return {
     enabled,
-    mode: normalizeMode(value.mode),
+    mode: normalizeMode(value.mode, contextLabel),
     runner: {
       type: 'compose_service',
       service: service.trim(),

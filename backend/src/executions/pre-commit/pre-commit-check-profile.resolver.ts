@@ -2,8 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ManagedRepository } from '../../repositories/entities/repository.entity';
 import { SettingsService } from '../../settings/settings.service';
+import { normalizePreCommitChecksProfile } from './pre-commit-check-profile.normalizer';
 import {
-  DEFAULT_PRE_COMMIT_CHECK_MODE,
   type PreCommitChecksProfile,
   type ResolvedPreCommitProfile,
 } from './pre-commit-check-profile.types';
@@ -71,10 +71,10 @@ export class PreCommitCheckProfileResolver {
       return null;
     }
 
-    const normalized = profile as PreCommitChecksProfile;
-    return {
-      ...normalized,
-      mode: normalized.mode ?? DEFAULT_PRE_COMMIT_CHECK_MODE,
-    };
+    try {
+      return normalizePreCommitChecksProfile(profile, 'preCommitChecksProfile');
+    } catch {
+      return null;
+    }
   }
 }

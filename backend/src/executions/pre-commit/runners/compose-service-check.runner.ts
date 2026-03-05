@@ -9,6 +9,9 @@ import type { CheckRunner } from './check-runner.interface';
 
 @Injectable()
 export class ComposeServiceCheckRunner implements CheckRunner {
+  private static readonly COMPOSE_SERVICE_NAME_RE =
+    /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+
   constructor(
     @Inject(GIT_PUBLICATION_CLIENT)
     private readonly gitPublicationClient: GitPublicationClient,
@@ -21,7 +24,12 @@ export class ComposeServiceCheckRunner implements CheckRunner {
       service: string;
     },
   ): Promise<GitCheckCommandResult> {
-    const composeCommand = `docker compose run --rm -T ${options.service} ${command}`;
+    const service = options.service.trim();
+    if (!ComposeServiceCheckRunner.COMPOSE_SERVICE_NAME_RE.test(service)) {
+      throw new Error(`Invalid compose service name: ${options.service}`);
+    }
+
+    const composeCommand = `docker compose run --rm -T ${service} ${command}`;
 
     return this.gitPublicationClient.runCheckCommand(localPath, composeCommand);
   }

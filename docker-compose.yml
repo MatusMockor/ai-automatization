@@ -35,11 +35,16 @@ services:
     environment:
       DOCKER_TLS_CERTDIR: ""
     command: ["--host=tcp://0.0.0.0:2375", "--tls=false"]
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     volumes:
       - repos_data:/app/repos
       - docker_runner_data:/var/lib/docker
     networks:
-      - ai-automation-net
+      - docker-runner-net
     restart: unless-stopped
 
   backend:
@@ -169,9 +174,10 @@ services:
       redis:
         condition: service_healthy
       docker-runner:
-        condition: service_started
+        condition: service_healthy
     networks:
       - ai-automation-net
+      - docker-runner-net
     restart: unless-stopped
 
 volumes:
@@ -181,3 +187,5 @@ volumes:
 
 networks:
   ai-automation-net:
+  docker-runner-net:
+    internal: true

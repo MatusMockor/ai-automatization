@@ -322,7 +322,7 @@ export class RepositoriesService {
       cloneUrl: repository.cloneUrl,
       defaultBranch: repository.defaultBranch,
       isCloned: repository.isCloned,
-      hasCheckProfileOverride: repository.preCommitChecksOverride !== null,
+      hasCheckProfileOverride: repository.preCommitChecksOverride != null,
       createdAt: repository.createdAt,
       updatedAt: repository.updatedAt,
     };
