@@ -112,6 +112,14 @@ export class ExecutionPublicationService {
       return { outcome: 'failed' };
     }
 
+    if (execution.executionRole !== 'implementation') {
+      await this.updateAutomationState(execution.id, {
+        automationStatus: 'not_applicable',
+        automationCompletedAt: new Date(),
+      });
+      return { outcome: 'not_applicable' };
+    }
+
     if (!execution.publishPullRequest) {
       await this.updateAutomationState(execution.id, {
         automationStatus: 'not_applicable',

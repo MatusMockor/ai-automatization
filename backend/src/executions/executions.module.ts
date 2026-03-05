@@ -14,12 +14,14 @@ import {
   GIT_PUBLICATION_CLIENT,
 } from './constants/executions.tokens';
 import { ExecutionEvent } from './entities/execution-event.entity';
+import { ExecutionReview } from './entities/execution-review.entity';
 import { Execution } from './entities/execution.entity';
 import { ExecutionDispatchService } from './execution-dispatch.service';
 import { ExecutionEventStoreService } from './execution-event-store.service';
 import { ExecutionOrchestratorService } from './execution-orchestrator.service';
 import { ExecutionPublicationService } from './execution-publication.service';
 import { ExecutionQueueService } from './execution-queue.service';
+import { ExecutionReviewGateService } from './execution-review-gate.service';
 import { ExecutionRetentionService } from './execution-retention.service';
 import { ExecutionsController } from './executions.controller';
 import { ExecutionStreamHub } from './execution-stream.hub';
@@ -39,6 +41,7 @@ import { ComposeServiceCheckRunner } from './pre-commit/runners/compose-service-
   imports: [
     TypeOrmModule.forFeature([
       Execution,
+      ExecutionReview,
       ExecutionEvent,
       ManagedRepository,
       ManualTask,
@@ -55,6 +58,7 @@ import { ComposeServiceCheckRunner } from './pre-commit/runners/compose-service-
     ExecutionOrchestratorService,
     ExecutionWorkerService,
     ExecutionRetentionService,
+    ExecutionReviewGateService,
     RedactionService,
     ExecutionStreamHub,
     ExecutionPublicationService,

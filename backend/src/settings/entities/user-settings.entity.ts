@@ -38,6 +38,9 @@ export class UserSettings {
   })
   preCommitChecksDefault!: PreCommitChecksProfile | null;
 
+  @Column({ name: 'ai_review_enabled', type: 'boolean', default: true })
+  aiReviewEnabled!: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

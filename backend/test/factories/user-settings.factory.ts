@@ -9,6 +9,7 @@ type CreateUserSettingsInput = {
   claudeOauthToken?: string | null;
   executionTimeoutMs?: number | null;
   preCommitChecksDefault?: PreCommitChecksProfile | null;
+  aiReviewEnabled?: boolean;
 };
 
 type CreatedUserSettings = {
@@ -17,6 +18,7 @@ type CreatedUserSettings = {
   claudeOauthToken: string | null;
   executionTimeoutMs: number | null;
   preCommitChecksDefault: PreCommitChecksProfile | null;
+  aiReviewEnabled: boolean;
 };
 
 export class UserSettingsFactory {
@@ -45,6 +47,8 @@ export class UserSettingsFactory {
         input.preCommitChecksDefault === undefined
           ? null
           : input.preCommitChecksDefault,
+      aiReviewEnabled:
+        input.aiReviewEnabled === undefined ? true : input.aiReviewEnabled,
     };
   }
 
@@ -67,6 +71,7 @@ export class UserSettingsFactory {
           : this.encryptionService.encrypt(generatedInput.claudeOauthToken),
       executionTimeoutMs: generatedInput.executionTimeoutMs,
       preCommitChecksDefault: generatedInput.preCommitChecksDefault,
+      aiReviewEnabled: generatedInput.aiReviewEnabled,
     });
 
     return {
@@ -75,6 +80,7 @@ export class UserSettingsFactory {
       claudeOauthToken: generatedInput.claudeOauthToken,
       executionTimeoutMs: generatedInput.executionTimeoutMs,
       preCommitChecksDefault: generatedInput.preCommitChecksDefault,
+      aiReviewEnabled: generatedInput.aiReviewEnabled,
     };
   }
 }

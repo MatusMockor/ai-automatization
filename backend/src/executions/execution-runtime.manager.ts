@@ -12,6 +12,7 @@ import {
   CompletedPublicationResult,
   ExecutionPublicationService,
 } from './execution-publication.service';
+import { ExecutionReviewGateService } from './execution-review-gate.service';
 import type {
   ClaudeCliProcess,
   ClaudeCliRunner,
@@ -56,6 +57,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     private readonly claudeCliRunner: ClaudeCliRunner,
     private readonly streamHub: ExecutionStreamHub,
     private readonly publicationService: ExecutionPublicationService,
+    private readonly executionReviewGateService: ExecutionReviewGateService,
     private readonly redactionService: RedactionService,
     private readonly metricsService: MetricsService,
     private readonly configService: ConfigService,
@@ -542,123 +544,333 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       `Execution finished: id=${executionId}, status=${status}, exitCode=${exitCode ?? 'null'}, timedOut=${activeExecution.timedOut}, cancelRequested=${activeExecution.cancelRequested}`,
     );
 
-    if (status === 'completed') {
-      let publicationResult: CompletedPublicationResult = { outcome: 'failed' };
-      try {
-        publicationResult =
-          await this.publicationService.handleCompletedExecution(executionId);
-      } catch (error) {
-        this.logger.error(
-          `Execution publication hook failed for ${executionId}`,
-          error instanceof Error ? error.stack : String(error),
-        );
-        publicationResult = { outcome: 'failed' };
+    const updatedExecution = await this.executionRepository.findOneBy({
+      id: executionId,
+    });
+    if (!updatedExecution) {
+      if (this.activeExecutions.get(executionId) === activeExecutionRef) {
+        this.activeExecutions.delete(executionId);
       }
+      return;
+    }
 
-      if (publicationResult.outcome === 'requeued') {
-        this.publish({
-          type: 'status',
-          payload: {
-            type: 'status',
+    if (updatedExecution.executionRole === 'implementation') {
+      if (status === 'completed') {
+        const gateOutcome =
+          await this.executionReviewGateService.handleImplementationCompletion(
             executionId,
-            status: 'pending',
-          },
-        });
-      } else if (
-        publicationResult.outcome === 'published' ||
-        publicationResult.outcome === 'not_applicable'
-      ) {
-        await this.executionRepository.update(
-          { id: executionId },
-          {
-            orchestrationState: 'done',
-          },
-        );
-        this.metricsService.incrementExecutionsCompleted();
-        this.publish(
-          {
-            type: 'completed',
+          );
+
+        if (gateOutcome.action === 'review_started') {
+          this.publish({
+            type: 'review',
             payload: {
-              type: 'completed',
+              type: 'review',
               executionId,
-              status,
-              exitCode,
+              reviewGateStatus: 'review_running',
+              cycle: gateOutcome.cycle,
+              message: 'Secondary AI review started',
+              reviewExecutionId: gateOutcome.reviewExecutionId,
             },
-          },
-          true,
-        );
+          });
+          if (this.activeExecutions.get(executionId) === activeExecutionRef) {
+            this.activeExecutions.delete(executionId);
+          }
+          return;
+        }
+
+        await this.finalizeCompletedExecution(executionId, exitCode);
       } else {
-        const latestAfterPublication = await this.executionRepository.findOne({
-          select: {
-            automationErrorMessage: true,
-          },
-          where: {
-            id: executionId,
-          },
-        });
-        const publicationFailureMessage =
-          latestAfterPublication?.automationErrorMessage ??
-          'Execution publication failed';
-        await this.executionRepository.update(
-          { id: executionId },
-          {
-            status: 'failed',
-            orchestrationState: 'failed',
-            errorMessage: publicationFailureMessage,
-            automationStatus:
-              publicationResult.outcome === 'failed_no_changes'
-                ? 'no_changes'
-                : 'failed',
-            automationCompletedAt: new Date(),
-            automationErrorMessage: publicationFailureMessage,
-          },
-        );
-        this.metricsService.incrementExecutionsFailed();
-        this.publish(
-          {
-            type: 'error',
-            payload: {
-              type: 'error',
-              executionId,
-              status: 'failed',
-              exitCode,
-              errorMessage: publicationFailureMessage,
-            },
-          },
-          true,
+        await this.finalizeNonCompletedExecution(
+          executionId,
+          status,
+          exitCode,
+          errorMessage ?? 'Execution failed',
         );
       }
-    } else {
-      if (status === 'failed') {
-        this.metricsService.incrementExecutionsFailed();
-      }
-      if (status === 'cancelled') {
-        this.metricsService.incrementExecutionsCompleted();
-        await this.executionRepository.update(
-          { id: executionId },
-          {
-            orchestrationState: 'done',
-          },
-        );
-      }
-      this.publish(
-        {
-          type: 'error',
-          payload: {
-            type: 'error',
-            executionId,
-            status,
-            exitCode,
-            errorMessage: errorMessage ?? 'Execution failed',
-          },
-        },
-        true,
+    } else if (updatedExecution.executionRole === 'review') {
+      await this.finalizeChildExecution(
+        executionId,
+        status,
+        exitCode,
+        errorMessage,
       );
+      const outcome =
+        await this.executionReviewGateService.handleReviewCompletion(
+          executionId,
+        );
+      await this.handleChildOutcome(outcome, exitCode);
+    } else {
+      await this.finalizeChildExecution(
+        executionId,
+        status,
+        exitCode,
+        errorMessage,
+      );
+      const outcome =
+        await this.executionReviewGateService.handleRemediationCompletion(
+          executionId,
+        );
+      await this.handleChildOutcome(outcome, exitCode);
     }
 
     if (this.activeExecutions.get(executionId) === activeExecutionRef) {
       this.activeExecutions.delete(executionId);
     }
+  }
+
+  async finalizeCompletedExecution(
+    executionId: string,
+    exitCode: number | null,
+  ): Promise<void> {
+    let publicationResult: CompletedPublicationResult = { outcome: 'failed' };
+    try {
+      publicationResult =
+        await this.publicationService.handleCompletedExecution(executionId);
+    } catch (error) {
+      this.logger.error(
+        `Execution publication hook failed for ${executionId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      publicationResult = { outcome: 'failed' };
+    }
+
+    if (publicationResult.outcome === 'requeued') {
+      this.publish({
+        type: 'status',
+        payload: {
+          type: 'status',
+          executionId,
+          status: 'pending',
+        },
+      });
+      return;
+    }
+
+    if (
+      publicationResult.outcome === 'published' ||
+      publicationResult.outcome === 'not_applicable'
+    ) {
+      await this.executionRepository.update(
+        { id: executionId },
+        {
+          status: 'completed',
+          orchestrationState: 'done',
+        },
+      );
+      this.metricsService.incrementExecutionsCompleted();
+      this.publish(
+        {
+          type: 'completed',
+          payload: {
+            type: 'completed',
+            executionId,
+            status: 'completed',
+            exitCode,
+          },
+        },
+        true,
+      );
+      return;
+    }
+
+    const latestAfterPublication = await this.executionRepository.findOne({
+      select: {
+        automationErrorMessage: true,
+      },
+      where: {
+        id: executionId,
+      },
+    });
+    const publicationFailureMessage =
+      latestAfterPublication?.automationErrorMessage ??
+      'Execution publication failed';
+    await this.executionRepository.update(
+      { id: executionId },
+      {
+        status: 'failed',
+        orchestrationState: 'failed',
+        errorMessage: publicationFailureMessage,
+        automationStatus:
+          publicationResult.outcome === 'failed_no_changes'
+            ? 'no_changes'
+            : 'failed',
+        automationCompletedAt: new Date(),
+        automationErrorMessage: publicationFailureMessage,
+      },
+    );
+    this.metricsService.incrementExecutionsFailed();
+    this.publish(
+      {
+        type: 'error',
+        payload: {
+          type: 'error',
+          executionId,
+          status: 'failed',
+          exitCode,
+          errorMessage: publicationFailureMessage,
+        },
+      },
+      true,
+    );
+  }
+
+  private async finalizeNonCompletedExecution(
+    executionId: string,
+    status: ExecutionStatus,
+    exitCode: number | null,
+    errorMessage: string,
+  ): Promise<void> {
+    if (status === 'failed') {
+      this.metricsService.incrementExecutionsFailed();
+    }
+    if (status === 'cancelled') {
+      this.metricsService.incrementExecutionsCompleted();
+      await this.executionRepository.update(
+        { id: executionId },
+        {
+          orchestrationState: 'done',
+        },
+      );
+    }
+    this.publish(
+      {
+        type: 'error',
+        payload: {
+          type: 'error',
+          executionId,
+          status,
+          exitCode,
+          errorMessage,
+        },
+      },
+      true,
+    );
+  }
+
+  private async finalizeChildExecution(
+    executionId: string,
+    status: ExecutionStatus,
+    exitCode: number | null,
+    errorMessage: string | null,
+  ): Promise<void> {
+    if (status === 'completed') {
+      await this.executionRepository.update(
+        { id: executionId },
+        {
+          orchestrationState: 'done',
+          automationStatus: 'not_applicable',
+          automationCompletedAt: new Date(),
+        },
+      );
+      this.metricsService.incrementExecutionsCompleted();
+      this.publish(
+        {
+          type: 'completed',
+          payload: {
+            type: 'completed',
+            executionId,
+            status: 'completed',
+            exitCode,
+          },
+        },
+        true,
+      );
+      return;
+    }
+
+    await this.finalizeNonCompletedExecution(
+      executionId,
+      status,
+      exitCode,
+      errorMessage ?? 'Execution failed',
+    );
+  }
+
+  private async handleChildOutcome(
+    outcome:
+      | { action: 'none' }
+      | {
+          action: 'continue_publication';
+          parentExecutionId: string;
+          cycle: number;
+        }
+      | {
+          action: 'awaiting_decision';
+          parentExecutionId: string;
+          cycle: number;
+          pendingDecisionUntil: Date;
+          reviewExecutionId: string;
+        }
+      | {
+          action: 'review_started';
+          parentExecutionId: string;
+          cycle: number;
+          reviewExecutionId: string;
+        }
+      | {
+          action: 'parent_failed';
+          parentExecutionId: string;
+          message: string;
+        },
+    exitCode: number | null,
+  ): Promise<void> {
+    if (outcome.action === 'none') {
+      return;
+    }
+
+    if (outcome.action === 'continue_publication') {
+      await this.finalizeCompletedExecution(
+        outcome.parentExecutionId,
+        exitCode,
+      );
+      return;
+    }
+
+    if (outcome.action === 'awaiting_decision') {
+      this.publish({
+        type: 'review',
+        payload: {
+          type: 'review',
+          executionId: outcome.parentExecutionId,
+          reviewGateStatus: 'awaiting_decision',
+          cycle: outcome.cycle,
+          message: 'Review findings require decision',
+          pendingDecisionUntil: outcome.pendingDecisionUntil.toISOString(),
+          reviewExecutionId: outcome.reviewExecutionId,
+        },
+      });
+      return;
+    }
+
+    if (outcome.action === 'review_started') {
+      this.publish({
+        type: 'review',
+        payload: {
+          type: 'review',
+          executionId: outcome.parentExecutionId,
+          reviewGateStatus: 'review_running',
+          cycle: outcome.cycle,
+          message: 'Remediation completed, review restarted',
+          reviewExecutionId: outcome.reviewExecutionId,
+        },
+      });
+      return;
+    }
+
+    this.publish(
+      {
+        type: 'error',
+        payload: {
+          type: 'error',
+          executionId: outcome.parentExecutionId,
+          status: 'failed',
+          exitCode: null,
+          errorMessage: outcome.message,
+        },
+      },
+      true,
+    );
   }
 
   private publish(event: ExecutionStreamEventDto, terminal = false): void {

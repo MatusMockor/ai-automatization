@@ -21,6 +21,8 @@ import {
   ExecutionSummaryResponseDto,
 } from './dto/execution-response.dto';
 import { GetExecutionsQueryDto } from './dto/get-executions-query.dto';
+import { ReviewDecisionDto } from './dto/review-decision.dto';
+import { ReviewStateResponseDto } from './dto/review-state-response.dto';
 import { ExecutionsService } from './executions.service';
 
 @Controller('executions')
@@ -147,5 +149,27 @@ export class ExecutionsController {
     @Param('id', new ParseUUIDPipe()) executionId: string,
   ): Promise<ExecutionSummaryResponseDto> {
     return this.executionsService.cancelForUser(user.id, executionId);
+  }
+
+  @Get(':id/review-state')
+  getReviewState(
+    @CurrentUser() user: RequestUser,
+    @Param('id', new ParseUUIDPipe()) executionId: string,
+  ): Promise<ReviewStateResponseDto> {
+    return this.executionsService.getReviewStateForUser(user.id, executionId);
+  }
+
+  @HttpCode(200)
+  @Post(':id/review-decision')
+  applyReviewDecision(
+    @CurrentUser() user: RequestUser,
+    @Param('id', new ParseUUIDPipe()) executionId: string,
+    @Body() dto: ReviewDecisionDto,
+  ): Promise<ExecutionSummaryResponseDto> {
+    return this.executionsService.applyReviewDecisionForUser(
+      user.id,
+      executionId,
+      dto,
+    );
   }
 }
