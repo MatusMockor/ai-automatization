@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { TaskManagerConnection } from '../task-managers/entities/task-manager-connection.entity';
+import { TaskManagerProviderRequestError } from '../task-managers/errors/task-manager-provider.errors';
 import { TaskManagerProviderRegistry } from '../task-managers/task-manager-provider.registry';
 import { SyncedTaskScope } from './entities/synced-task-scope.entity';
 import { SyncedTask } from './entities/synced-task.entity';
@@ -60,6 +61,8 @@ describe('TaskSyncService', () => {
     return {
       service,
       connectionRepository,
+      encryptionService,
+      providerRegistry,
       syncedTaskScopeRepository,
       taskSyncRunRepository,
     };
@@ -202,5 +205,102 @@ describe('TaskSyncService', () => {
     await expect(
       service.getSyncRunForUser('user-1', 'run-1'),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('stores detailed Jira sync errors on run and connection state', async () => {
+    const {
+      service,
+      connectionRepository,
+      encryptionService,
+      providerRegistry,
+      taskSyncRunRepository,
+    } = createService();
+
+    const provider = {
+      listSyncScopes: jest
+        .fn()
+        .mockResolvedValue([
+          { type: 'jira_project', id: 'SCRUM', name: 'Scrum' },
+        ]),
+      fetchTasksForScope: jest
+        .fn()
+        .mockRejectedValue(
+          new TaskManagerProviderRequestError(
+            'Unable to fetch Jira tasks for project SCRUM: Browse projects permission is missing',
+            403,
+          ),
+        ),
+    };
+
+    taskSyncRunRepository.create.mockReturnValue({
+      userId: 'user-1',
+      status: 'queued',
+    } as TaskSyncRun);
+    taskSyncRunRepository.save.mockResolvedValue({
+      id: 'run-1',
+      userId: 'user-1',
+      status: 'queued',
+      connectionsTotal: 0,
+      connectionsDone: 0,
+      tasksUpserted: 0,
+      tasksDeleted: 0,
+      errorMessage: null,
+      startedAt: null,
+      finishedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as TaskSyncRun);
+    taskSyncRunRepository.findOne.mockResolvedValue({
+      id: 'run-1',
+      userId: 'user-1',
+      status: 'queued',
+      connectionsTotal: 0,
+      connectionsDone: 0,
+      tasksUpserted: 0,
+      tasksDeleted: 0,
+      errorMessage: null,
+      startedAt: null,
+      finishedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as TaskSyncRun);
+    connectionRepository.find.mockResolvedValue([
+      {
+        id: 'connection-1',
+        userId: 'user-1',
+        provider: 'jira',
+        baseUrl: 'https://example.atlassian.net',
+        projectKey: 'SCRUM',
+        authMode: 'basic',
+        emailEncrypted: 'enc-email',
+        secretEncrypted: 'enc-secret',
+        createdAt: new Date(),
+      } as TaskManagerConnection,
+    ]);
+    encryptionService.decrypt
+      .mockReturnValueOnce('jira-token')
+      .mockReturnValueOnce('user@example.com');
+    providerRegistry.getProvider.mockReturnValue(provider as never);
+
+    await service.startUserSync('user-1', 'jira');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(connectionRepository.update).toHaveBeenCalledWith(
+      { id: 'connection-1' },
+      expect.objectContaining({
+        lastSyncStatus: 'failed',
+        lastSyncError:
+          'Unable to fetch Jira tasks for project SCRUM: Browse projects permission is missing',
+      }),
+    );
+    expect(taskSyncRunRepository.update).toHaveBeenCalledWith(
+      { id: 'run-1' },
+      expect.objectContaining({
+        status: 'failed',
+        errorMessage:
+          '[jira:connection-1] Unable to fetch Jira tasks for project SCRUM: Browse projects permission is missing',
+      }),
+    );
   });
 });

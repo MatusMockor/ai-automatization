@@ -37,6 +37,17 @@ type JiraIssue = {
   };
 };
 
+type JiraSearchResponse = {
+  issues?: JiraIssue[];
+  nextPageToken?: string | null;
+};
+
+type JiraErrorPayload = {
+  errorMessages?: string[];
+  errors?: Record<string, string>;
+  message?: string;
+};
+
 @Injectable()
 export class JiraTaskManagerProvider implements TaskManagerProvider {
   readonly provider = 'jira' as const;
@@ -92,38 +103,19 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
     const jiraConfig = this.assertJiraConfig(config);
     const client = this.createClient(jiraConfig);
 
-    const jql = jiraConfig.projectKey
-      ? `project = "${this.escapeJqlValue(jiraConfig.projectKey)}" ORDER BY updated DESC`
-      : 'ORDER BY updated DESC';
-
-    let response: { issues?: JiraIssue[] };
-
     try {
-      response = (await this.withTimeout(
-        client.issueSearch.searchForIssuesUsingJqlPost({
-          jql,
-          maxResults: limit,
-          fields: ['summary', 'description', 'status', 'assignee', 'updated'],
-        }),
-        'Jira task fetch request timed out before completion',
-      )) as { issues?: JiraIssue[] };
+      const response = await this.searchIssues(
+        client,
+        jiraConfig.projectKey
+          ? this.buildProjectJql(jiraConfig.projectKey)
+          : 'ORDER BY updated DESC',
+        limit,
+      );
+
+      return this.mapIssuesToTasks(jiraConfig.baseUrl, response.issues);
     } catch (error) {
       this.throwMappedJiraError(error, 'Unable to fetch Jira tasks');
     }
-
-    const issues = Array.isArray(response.issues) ? response.issues : [];
-
-    return issues
-      .filter((issue): issue is JiraIssue => Boolean(issue.key && issue.fields))
-      .map((issue) => ({
-        externalId: issue.key ?? issue.id ?? '',
-        title: issue.fields?.summary ?? '',
-        description: this.stringifyDescription(issue.fields?.description),
-        url: this.buildIssueUrl(jiraConfig.baseUrl, issue.key),
-        status: this.mapStatus(issue.fields?.status?.name),
-        assignee: issue.fields?.assignee?.displayName ?? null,
-        updatedAt: this.normalizeTimestamp(issue.fields?.updated),
-      }));
   }
 
   async fetchProjects(
@@ -259,50 +251,24 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
       );
     }
 
-    const client = this.createClient(jiraConfig);
-    const startAt = this.parseCursor(cursor);
-    const jql = `project = "${this.escapeJqlValue(scope.id)}" ORDER BY updated DESC`;
-
-    let response: { issues?: JiraIssue[]; total?: number };
     try {
-      response = (await this.withTimeout(
-        client.issueSearch.searchForIssuesUsingJqlPost({
-          jql,
-          startAt,
-          maxResults: limit,
-          fields: ['summary', 'description', 'status', 'assignee', 'updated'],
-        }),
-        'Jira scoped task fetch request timed out before completion',
-      )) as { issues?: JiraIssue[]; total?: number };
+      const response = await this.searchIssues(
+        this.createClient(jiraConfig),
+        this.buildProjectJql(scope.id),
+        limit,
+        cursor,
+      );
+
+      return {
+        tasks: this.mapIssuesToTasks(jiraConfig.baseUrl, response.issues),
+        nextCursor: response.nextPageToken ?? null,
+      };
     } catch (error) {
       this.throwMappedJiraError(
         error,
         `Unable to fetch Jira tasks for project ${scope.id}`,
       );
     }
-
-    const issues = Array.isArray(response.issues) ? response.issues : [];
-    const tasks = issues
-      .filter((issue): issue is JiraIssue => Boolean(issue.key && issue.fields))
-      .map((issue) => ({
-        externalId: issue.key ?? issue.id ?? '',
-        title: issue.fields?.summary ?? '',
-        description: this.stringifyDescription(issue.fields?.description),
-        url: this.buildIssueUrl(jiraConfig.baseUrl, issue.key),
-        status: this.mapStatus(issue.fields?.status?.name),
-        assignee: issue.fields?.assignee?.displayName ?? null,
-        updatedAt: this.normalizeTimestamp(issue.fields?.updated),
-      }));
-
-    const total = response.total ?? tasks.length;
-    const nextStartAt = startAt + issues.length;
-    const nextCursor =
-      issues.length > 0 && nextStartAt < total ? String(nextStartAt) : null;
-
-    return {
-      tasks,
-      nextCursor,
-    };
   }
 
   private createClient(
@@ -356,18 +322,26 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
     }
 
     const statusCode = this.extractStatusCode(error);
+    const detail = this.extractErrorDetail(error);
+    const formattedMessage = detail ? `${message}: ${detail}` : message;
 
     if (statusCode === 401 || statusCode === 403) {
       throw new TaskManagerProviderAuthError(
-        'Jira credentials are invalid or do not have required access',
+        detail
+          ? `Jira credentials are invalid or do not have required access: ${detail}`
+          : 'Jira credentials are invalid or do not have required access',
       );
     }
 
     if (statusCode === 404) {
-      throw new TaskManagerProviderNotFoundError('Jira resource not found');
+      throw new TaskManagerProviderNotFoundError(
+        detail
+          ? `Jira resource not found: ${detail}`
+          : 'Jira resource not found',
+      );
     }
 
-    throw new TaskManagerProviderRequestError(message, statusCode);
+    throw new TaskManagerProviderRequestError(formattedMessage, statusCode);
   }
 
   private extractStatusCode(error: unknown): number | undefined {
@@ -384,6 +358,110 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
       candidate?.response?.status ??
       candidate?.cause?.status
     );
+  }
+
+  private extractErrorDetail(error: unknown): string | null {
+    const candidate = error as {
+      message?: string;
+      response?: JiraErrorPayload & {
+        data?: JiraErrorPayload;
+      };
+      cause?: {
+        message?: string;
+        response?: {
+          data?: JiraErrorPayload;
+        };
+      };
+    };
+
+    const details = new Set<string>();
+    const responsePayloads = [
+      candidate?.response,
+      candidate?.response?.data,
+      candidate?.cause?.response?.data,
+    ].filter((payload): payload is JiraErrorPayload => Boolean(payload));
+
+    for (const payload of responsePayloads) {
+      for (const message of payload.errorMessages ?? []) {
+        if (message.trim()) {
+          details.add(message.trim());
+        }
+      }
+
+      for (const message of Object.values(payload.errors ?? {})) {
+        if (message.trim()) {
+          details.add(message.trim());
+        }
+      }
+
+      if (payload.message?.trim()) {
+        details.add(payload.message.trim());
+      }
+    }
+
+    if (details.size === 0 && candidate?.message?.trim()) {
+      details.add(candidate.message.trim());
+    }
+
+    if (details.size === 0 && candidate?.cause?.message?.trim()) {
+      details.add(candidate.cause.message.trim());
+    }
+
+    if (details.size === 0) {
+      return null;
+    }
+
+    return this.sanitizeErrorDetail([...details].join('; ')).slice(0, 1000);
+  }
+
+  private sanitizeErrorDetail(detail: string): string {
+    return detail
+      .replace(
+        /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
+        '[redacted-email]',
+      )
+      .replace(/\bBearer\s+[A-Za-z0-9._-]+\b/gi, 'Bearer [redacted]')
+      .replace(/\bBasic\s+[A-Za-z0-9+/=]+\b/gi, 'Basic [redacted]');
+  }
+
+  private buildProjectJql(projectKey: string): string {
+    return `project = "${this.escapeJqlValue(projectKey)}" ORDER BY updated DESC`;
+  }
+
+  private async searchIssues(
+    client: Version3Client,
+    jql: string,
+    maxResults: number,
+    nextPageToken?: string,
+  ): Promise<JiraSearchResponse> {
+    return (await this.withTimeout(
+      client.issueSearch.searchForIssuesUsingJqlEnhancedSearch({
+        jql,
+        nextPageToken,
+        maxResults,
+        fields: ['summary', 'description', 'status', 'assignee', 'updated'],
+      }),
+      'Jira task fetch request timed out before completion',
+    )) as JiraSearchResponse;
+  }
+
+  private mapIssuesToTasks(
+    baseUrl: string,
+    issues: JiraIssue[] | undefined,
+  ): ProviderTask[] {
+    const normalizedIssues = Array.isArray(issues) ? issues : [];
+
+    return normalizedIssues
+      .filter((issue): issue is JiraIssue => Boolean(issue.key && issue.fields))
+      .map((issue) => ({
+        externalId: issue.key ?? issue.id ?? '',
+        title: issue.fields?.summary ?? '',
+        description: this.stringifyDescription(issue.fields?.description),
+        url: this.buildIssueUrl(baseUrl, issue.key),
+        status: this.mapStatus(issue.fields?.status?.name),
+        assignee: issue.fields?.assignee?.displayName ?? null,
+        updatedAt: this.normalizeTimestamp(issue.fields?.updated),
+      }));
   }
 
   private mapStatus(statusName: string | undefined): TaskItemStatus {
@@ -460,19 +538,6 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
     }
 
     return timestamp.toISOString();
-  }
-
-  private parseCursor(cursor: string | undefined): number {
-    if (!cursor) {
-      return 0;
-    }
-
-    const parsedCursor = Number.parseInt(cursor, 10);
-    if (!Number.isFinite(parsedCursor) || parsedCursor < 0) {
-      return 0;
-    }
-
-    return parsedCursor;
   }
 
   private async withTimeout<T>(
