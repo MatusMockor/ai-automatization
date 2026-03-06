@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AutomationStatus, ExecutionStatus, ExecutionStreamEvent } from '@/types';
+import type { AutomationStatus, ExecutionStatus, ExecutionStreamEvent, ReviewGateStatus } from '@/types';
 
 interface UseExecutionStreamOptions {
   executionId: string | null;
@@ -11,6 +11,7 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
   const [status, setStatus] = useState<ExecutionStatus | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [automationStatus, setAutomationStatus] = useState<AutomationStatus | null>(null);
+  const [reviewGateStatus, setReviewGateStatus] = useState<ReviewGateStatus | null>(null);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
   const lastSequenceRef = useRef<number>(0);
@@ -20,6 +21,7 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
     setStatus(null);
     setErrorMessage(null);
     setAutomationStatus(null);
+    setReviewGateStatus(null);
     lastSequenceRef.current = 0;
 
     if (!executionId) {
@@ -133,6 +135,9 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
               setErrorMessage((prev) => event.errorMessage ?? prev);
             }
             break;
+          case 'review':
+            setReviewGateStatus(event.reviewGateStatus);
+            break;
           case 'publication':
             setAutomationStatus(event.automationStatus);
             break;
@@ -171,5 +176,5 @@ export function useExecutionStream({ executionId, onEvent }: UseExecutionStreamO
     };
   }, [executionId]);
 
-  return { output, status, errorMessage, automationStatus };
+  return { output, status, errorMessage, automationStatus, reviewGateStatus };
 }

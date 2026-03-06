@@ -1,3 +1,12 @@
+export function timeRemaining(isoDate: string): string {
+  const diff = new Date(isoDate).getTime() - Date.now();
+  if (diff <= 0) return 'expired';
+  const minutes = Math.floor(diff / 60000);
+  const seconds = Math.floor((diff % 60000) / 1000);
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 export function timeAgo(dateStr: string): string {
   const now = Date.now();
   const ts = new Date(dateStr).getTime();
