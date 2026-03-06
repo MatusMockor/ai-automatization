@@ -10,12 +10,11 @@ import { TerminalPanel } from './TerminalPanel';
 import { SyncBanner } from './SyncBanner';
 import { SyncButton } from '@/components/shared/SyncButton';
 import { ScopeFilter } from '@/components/shared/ScopeFilter';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { useRepo } from '@/context/RepoContext';
 import { useExecutionStream } from '@/lib/useExecutionStream';
 import { toast } from 'sonner';
-import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, ExecutionAction, Execution, CreateExecutionRequest, TaskManagerProvider, ReviewGateStatus } from '@/types';
+import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, ExecutionAction, Execution, CreateExecutionRequest, TaskManagerProvider, TaskManagerConnection, ReviewGateStatus } from '@/types';
 import { Search, AlertTriangle } from 'lucide-react';
 
 const createIdempotencyKey = (): string => {
@@ -53,30 +52,52 @@ export function Dashboard() {
   // Scopes + sync
   const { scopes, refreshScopes } = useTaskScopes();
 
+  // Connections — used as provider fallback when scopes are empty (pre-first-sync)
+  const [connections, setConnections] = useState<TaskManagerConnection[]>([]);
+  useEffect(() => {
+    api.get<TaskManagerConnection[]>('/task-managers/connections')
+      .then(({ data }) => setConnections(data))
+      .catch(() => {});
+  }, []);
+
+  const connectionProvider = useMemo<TaskManagerProvider | null>(() => {
+    const connected = connections.filter((c) => c.status === 'connected');
+    if (connected.some((c) => c.provider === 'asana')) return 'asana';
+    if (connected.some((c) => c.provider === 'jira')) return 'jira';
+    return null;
+  }, [connections]);
+
   // Provider derivation
   const defaultProvider = useMemo(() => {
-    if (!scopes) return null;
+    if (!scopes) return connectionProvider;
     const hasAsana = scopes.asanaWorkspaces.length > 0 || scopes.asanaProjects.length > 0;
     if (hasAsana) return 'asana' as TaskManagerProvider;
     if (scopes.jiraProjects.length > 0) return 'jira' as TaskManagerProvider;
-    return null;
-  }, [scopes]);
+    return connectionProvider;
+  }, [scopes, connectionProvider]);
+
+  const availableProviders = useMemo<TaskManagerProvider[]>(() => {
+    const set = new Set<TaskManagerProvider>();
+    if (scopes) {
+      if (scopes.asanaWorkspaces.length > 0 || scopes.asanaProjects.length > 0) set.add('asana');
+      if (scopes.jiraProjects.length > 0) set.add('jira');
+    }
+    for (const c of connections) {
+      if (c.status === 'connected') set.add(c.provider);
+    }
+    return Array.from(set);
+  }, [scopes, connections]);
 
   const [selectedProvider, setSelectedProvider] = useState<TaskManagerProvider | null>(null);
   const provider = selectedProvider ?? defaultProvider;
 
-  // Reconcile selectedProvider when scopes change (e.g. after sync removes a provider)
+  // Reconcile selectedProvider when available providers change (e.g. after sync removes a provider)
   useEffect(() => {
-    if (!scopes || !selectedProvider) return;
-    const hasAsana = scopes.asanaWorkspaces.length > 0 || scopes.asanaProjects.length > 0;
-    const hasJira = scopes.jiraProjects.length > 0;
-
-    if (selectedProvider === 'asana' && !hasAsana) {
-      setSelectedProvider(hasJira ? 'jira' : null);
-    } else if (selectedProvider === 'jira' && !hasJira) {
-      setSelectedProvider(hasAsana ? 'asana' : null);
+    if (!selectedProvider || availableProviders.length === 0) return;
+    if (!availableProviders.includes(selectedProvider)) {
+      setSelectedProvider(availableProviders[0] ?? null);
     }
-  }, [scopes, selectedProvider]);
+  }, [availableProviders, selectedProvider]);
 
   // Reset scope filters when provider changes
   const prevProviderRef = useRef<TaskManagerProvider | null>(null);
@@ -316,18 +337,20 @@ export function Dashboard() {
           </kbd>
         </div>
 
-        {scopes && defaultProvider && (
-          <Tabs value={provider ?? undefined} onValueChange={(v) => setSelectedProvider(v as TaskManagerProvider)}>
-            <TabsList className="h-8">
-              {(scopes.asanaWorkspaces.length > 0 || scopes.asanaProjects.length > 0) && (
-                <TabsTrigger value="asana" disabled={syncState !== 'idle'} className="text-xs px-3">Asana</TabsTrigger>
-              )}
-              {scopes.jiraProjects.length > 0 && (
-                <TabsTrigger value="jira" disabled={syncState !== 'idle'} className="text-xs px-3">Jira</TabsTrigger>
-              )}
-            </TabsList>
-          </Tabs>
-        )}
+        {availableProviders.length > 1 ? (
+          <select
+            value={provider ?? ''}
+            onChange={(e) => setSelectedProvider(e.target.value as TaskManagerProvider)}
+            disabled={syncState !== 'idle'}
+            className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-medium capitalize outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 disabled:opacity-50"
+          >
+            {availableProviders.map((p) => (
+              <option key={p} value={p}>{p === 'asana' ? 'Asana' : 'Jira'}</option>
+            ))}
+          </select>
+        ) : availableProviders.length === 1 ? (
+          <span className="rounded-lg bg-muted px-2.5 py-1.5 text-xs font-medium capitalize">{availableProviders[0] === 'asana' ? 'Asana' : 'Jira'}</span>
+        ) : null}
 
         {scopes && provider && (
           <ScopeFilter
