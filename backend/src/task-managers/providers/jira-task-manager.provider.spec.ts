@@ -255,4 +255,27 @@ describe('JiraTaskManagerProvider', () => {
       statusCode: 400,
     } satisfies Partial<TaskManagerProviderRequestError>);
   });
+
+  it('redacts basic auth tokens that include base64 padding', async () => {
+    const provider = createProvider();
+    jiraMockState.issueSearch.searchForIssuesUsingJqlEnhancedSearch.mockRejectedValue(
+      {
+        status: 400,
+        response: {
+          errorMessages: [
+            'Authorization header Basic dXNlcjpwYXNz== is invalid',
+          ],
+        },
+      },
+    );
+
+    await expect(
+      provider.fetchTasks(buildJiraConfig(), 10),
+    ).rejects.toMatchObject({
+      name: 'TaskManagerProviderRequestError',
+      message:
+        'Unable to fetch Jira tasks: Authorization header Basic [redacted] is invalid',
+      statusCode: 400,
+    } satisfies Partial<TaskManagerProviderRequestError>);
+  });
 });
