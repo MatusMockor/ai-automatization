@@ -417,11 +417,17 @@ export class JiraTaskManagerProvider implements TaskManagerProvider {
   private sanitizeErrorDetail(detail: string): string {
     return detail
       .replace(
-        /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
+        /(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}(?=[\s,;:"')\]}]|$)/gi,
         '[redacted-email]',
       )
-      .replace(/\bBearer\s+[A-Za-z0-9._-]+\b/gi, 'Bearer [redacted]')
-      .replace(/\bBasic\s+[A-Za-z0-9+/=]+\b/gi, 'Basic [redacted]');
+      .replace(
+        /\bBearer\s+[A-Za-z0-9._-]+(?=[\s,;:"')\]}]|$)/gi,
+        'Bearer [redacted]',
+      )
+      .replace(
+        /\bBasic\s+[A-Za-z0-9+/=]+(?=[\s,;:"')\]}]|$)/gi,
+        'Basic [redacted]',
+      );
   }
 
   private buildProjectJql(projectKey: string): string {
