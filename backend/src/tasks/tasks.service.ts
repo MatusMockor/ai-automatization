@@ -8,6 +8,7 @@ import { TaskManagersService } from '../task-managers/task-managers.service';
 import type { TaskManagerProviderType } from '../task-managers/interfaces/task-manager-provider.interface';
 import { GetTasksQueryDto } from './dto/get-tasks-query.dto';
 import { StartTaskSyncResponseDto } from './dto/start-task-sync-response.dto';
+import { GetTaskSyncRunsQueryDto } from './dto/get-task-sync-runs-query.dto';
 import {
   TaskFeedItemDto,
   TaskFeedResponseDto,
@@ -139,6 +140,13 @@ export class TasksService {
     runId: string,
   ): Promise<TaskSyncRunResponseDto> {
     return this.taskSyncService.getSyncRunForUser(userId, runId);
+  }
+
+  listSyncRunsForUser(
+    userId: string,
+    query: GetTaskSyncRunsQueryDto,
+  ): Promise<TaskSyncRunResponseDto[]> {
+    return this.taskSyncService.listSyncRunsForUser(userId, query);
   }
 
   listScopesForUser(userId: string): Promise<TaskScopesResponseDto> {

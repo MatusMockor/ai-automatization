@@ -54,6 +54,8 @@ Execution publication settings control automatic `branch -> commit -> push -> PR
 - `REDIS_URL` default: `redis://redis:6379`
 - `DOCKER_HOST` default: `tcp://docker-runner:2375` (worker-only runtime for compose pre-commit checks)
 - `EXECUTION_WORKER_ENABLED` default: `false` for API process (worker process sets `true`)
+- `TASK_SYNC_SCHEDULER_ENABLED` default: `false` for API process and `true` for worker process in docker-compose
+- `TASK_SYNC_SCHEDULER_POLL_MS` default: `60000`
 - `EXECUTION_WORKER_RECOVERY_TIMEOUT_MS` default: `900000`
 - `EXECUTION_MIN_TIMEOUT_MS` default: `60000`
 - `EXECUTION_MAX_TIMEOUT_MS` default: `7200000`
@@ -103,6 +105,21 @@ Claude CLI runtime for executions is configurable via env vars:
 - `EXECUTION_CLAUDE_MODEL` default: `claude-opus-4-6`
 - `EXECUTION_CLAUDE_PERMISSION_MODE` default for `feature/fix`: `acceptEdits`
 - `EXECUTION_CLAUDE_ALLOWED_TOOLS` default: `Bash,Read,Edit,Write,Glob,Grep`
+
+## Automatic task sync
+
+Task sync can now run in the background from the worker process.
+
+- User settings expose:
+  - `syncEnabled`
+  - `syncIntervalMinutes`
+  - `syncProvidersEnabled`
+- Sync runs keep metadata for:
+  - `provider`
+  - `triggerType` (`manual`, `schedule`, `webhook`)
+- Worker scheduler is controlled through:
+  - `TASK_SYNC_SCHEDULER_ENABLED`
+  - `TASK_SYNC_SCHEDULER_POLL_MS`
 
 ## Project setup
 

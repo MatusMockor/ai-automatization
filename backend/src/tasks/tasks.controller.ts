@@ -14,6 +14,7 @@ import type { RequestUser } from '../auth/interfaces/request-user.interface';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { DeleteTaskRepositoryDefaultDto } from './dto/delete-task-repository-default.dto';
 import { GetTasksQueryDto } from './dto/get-tasks-query.dto';
+import { GetTaskSyncRunsQueryDto } from './dto/get-task-sync-runs-query.dto';
 import { StartTaskSyncDto } from './dto/start-task-sync.dto';
 import { StartTaskSyncResponseDto } from './dto/start-task-sync-response.dto';
 import { TaskRepositoryDefaultsResponseDto } from './dto/task-repository-defaults-response.dto';
@@ -50,6 +51,14 @@ export class TasksController {
     @Param('id', new ParseUUIDPipe()) runId: string,
   ): Promise<TaskSyncRunResponseDto> {
     return this.tasksService.getSyncRunForUser(user.id, runId);
+  }
+
+  @Get('sync-runs')
+  listSyncRuns(
+    @CurrentUser() user: RequestUser,
+    @Query() query: GetTaskSyncRunsQueryDto,
+  ): Promise<TaskSyncRunResponseDto[]> {
+    return this.tasksService.listSyncRunsForUser(user.id, query);
   }
 
   @Get('scopes')

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RepositoriesModule } from '../repositories/repositories.module';
 import { EncryptionModule } from '../common/encryption/encryption.module';
+import { UserSettings } from '../settings/entities/user-settings.entity';
 import { TaskManagerConnection } from '../task-managers/entities/task-manager-connection.entity';
 import { TaskManagersModule } from '../task-managers/task-managers.module';
 import { TasksController } from './tasks.controller';
@@ -10,6 +11,7 @@ import { SyncedTask } from './entities/synced-task.entity';
 import { TaskScopeRepositoryDefault } from './entities/task-scope-repository-default.entity';
 import { TaskSyncRun } from './entities/task-sync-run.entity';
 import { TaskRepositoryDefaultsService } from './task-repository-defaults.service';
+import { TaskSyncSchedulerService } from './task-sync-scheduler.service';
 import { TaskSyncService } from './task-sync.service';
 import { TasksService } from './tasks.service';
 
@@ -24,9 +26,15 @@ import { TasksService } from './tasks.service';
       SyncedTaskScope,
       TaskSyncRun,
       TaskScopeRepositoryDefault,
+      UserSettings,
     ]),
   ],
   controllers: [TasksController],
-  providers: [TasksService, TaskSyncService, TaskRepositoryDefaultsService],
+  providers: [
+    TasksService,
+    TaskSyncService,
+    TaskRepositoryDefaultsService,
+    TaskSyncSchedulerService,
+  ],
 })
 export class TasksModule {}

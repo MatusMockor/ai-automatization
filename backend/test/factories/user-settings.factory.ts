@@ -10,6 +10,12 @@ type CreateUserSettingsInput = {
   executionTimeoutMs?: number | null;
   preCommitChecksDefault?: PreCommitChecksProfile | null;
   aiReviewEnabled?: boolean;
+  syncEnabled?: boolean;
+  syncIntervalMinutes?: number | null;
+  syncProvidersEnabled?: {
+    asana: boolean;
+    jira: boolean;
+  };
 };
 
 type CreatedUserSettings = {
@@ -19,6 +25,12 @@ type CreatedUserSettings = {
   executionTimeoutMs: number | null;
   preCommitChecksDefault: PreCommitChecksProfile | null;
   aiReviewEnabled: boolean;
+  syncEnabled: boolean;
+  syncIntervalMinutes: number | null;
+  syncProvidersEnabled: {
+    asana: boolean;
+    jira: boolean;
+  };
 };
 
 export class UserSettingsFactory {
@@ -49,6 +61,18 @@ export class UserSettingsFactory {
           : input.preCommitChecksDefault,
       aiReviewEnabled:
         input.aiReviewEnabled === undefined ? true : input.aiReviewEnabled,
+      syncEnabled: input.syncEnabled === undefined ? false : input.syncEnabled,
+      syncIntervalMinutes:
+        input.syncIntervalMinutes === undefined
+          ? null
+          : input.syncIntervalMinutes,
+      syncProvidersEnabled:
+        input.syncProvidersEnabled === undefined
+          ? {
+              asana: true,
+              jira: true,
+            }
+          : input.syncProvidersEnabled,
     };
   }
 
@@ -72,6 +96,10 @@ export class UserSettingsFactory {
       executionTimeoutMs: generatedInput.executionTimeoutMs,
       preCommitChecksDefault: generatedInput.preCommitChecksDefault,
       aiReviewEnabled: generatedInput.aiReviewEnabled,
+      syncEnabled: generatedInput.syncEnabled,
+      syncIntervalMinutes: generatedInput.syncIntervalMinutes,
+      syncAsanaEnabled: generatedInput.syncProvidersEnabled.asana,
+      syncJiraEnabled: generatedInput.syncProvidersEnabled.jira,
     });
 
     return {
@@ -81,6 +109,9 @@ export class UserSettingsFactory {
       executionTimeoutMs: generatedInput.executionTimeoutMs,
       preCommitChecksDefault: generatedInput.preCommitChecksDefault,
       aiReviewEnabled: generatedInput.aiReviewEnabled,
+      syncEnabled: generatedInput.syncEnabled,
+      syncIntervalMinutes: generatedInput.syncIntervalMinutes,
+      syncProvidersEnabled: generatedInput.syncProvidersEnabled,
     };
   }
 }

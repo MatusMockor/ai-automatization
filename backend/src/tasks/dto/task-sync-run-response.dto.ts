@@ -1,8 +1,14 @@
-import { TaskSyncRunStatus } from '../entities/task-sync-run.entity';
+import type { TaskManagerProviderType } from '../../task-managers/interfaces/task-manager-provider.interface';
+import {
+  TaskSyncRunStatus,
+  TaskSyncTriggerType,
+} from '../entities/task-sync-run.entity';
 
 export class TaskSyncRunResponseDto {
   id!: string;
   status!: TaskSyncRunStatus;
+  provider!: TaskManagerProviderType | null;
+  triggerType!: TaskSyncTriggerType;
   connectionsTotal!: number;
   connectionsDone!: number;
   tasksUpserted!: number;

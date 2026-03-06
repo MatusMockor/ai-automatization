@@ -16,6 +16,7 @@ import {
 } from '../task-managers/interfaces/task-manager-provider.interface';
 import { TaskManagerProviderRegistry } from '../task-managers/task-manager-provider.registry';
 import { StartTaskSyncResponseDto } from './dto/start-task-sync-response.dto';
+import { GetTaskSyncRunsQueryDto } from './dto/get-task-sync-runs-query.dto';
 import { TaskScopesResponseDto } from './dto/task-scopes-response.dto';
 import { TaskSyncRunResponseDto } from './dto/task-sync-run-response.dto';
 import {
@@ -23,7 +24,10 @@ import {
   SyncedTaskScopeType,
 } from './entities/synced-task-scope.entity';
 import { SyncedTask } from './entities/synced-task.entity';
-import { TaskSyncRun } from './entities/task-sync-run.entity';
+import {
+  TaskSyncRun,
+  TaskSyncTriggerType,
+} from './entities/task-sync-run.entity';
 
 type AggregatedTask = {
   task: ProviderTask;
@@ -74,10 +78,24 @@ export class TaskSyncService {
   async startUserSync(
     userId: string,
     provider: TaskManagerProviderType,
+    triggerType: Exclude<TaskSyncTriggerType, 'webhook'> = 'manual',
   ): Promise<StartTaskSyncResponseDto> {
+    const activeRun = await this.findActiveRunForUserProvider(userId, provider);
+    if (activeRun) {
+      return {
+        runId: activeRun.id,
+        status: activeRun.status === 'running' ? 'running' : 'queued',
+        provider,
+        triggerType:
+          activeRun.triggerType === 'schedule' ? 'schedule' : 'manual',
+      };
+    }
+
     const run = await this.taskSyncRunRepository.save(
       this.taskSyncRunRepository.create({
         userId,
+        provider,
+        triggerType,
         status: 'queued',
         connectionsTotal: 0,
         connectionsDone: 0,
@@ -101,7 +119,37 @@ export class TaskSyncService {
     return {
       runId: run.id,
       status: 'queued',
+      provider,
+      triggerType,
     };
+  }
+
+  async startScheduledSyncIfDue(
+    userId: string,
+    provider: TaskManagerProviderType,
+    intervalMinutes: number,
+  ): Promise<StartTaskSyncResponseDto | null> {
+    const activeRun = await this.findActiveRunForUserProvider(userId, provider);
+    if (activeRun) {
+      return null;
+    }
+
+    const latestRun = await this.findLatestRunForUserProvider(userId, provider);
+    const baselineTime =
+      latestRun?.finishedAt ??
+      latestRun?.startedAt ??
+      latestRun?.createdAt ??
+      null;
+
+    if (baselineTime) {
+      const nextEligibleAt =
+        baselineTime.getTime() + Math.max(1, intervalMinutes) * 60 * 1000;
+      if (Date.now() < nextEligibleAt) {
+        return null;
+      }
+    }
+
+    return this.startUserSync(userId, provider, 'schedule');
   }
 
   async getSyncRunForUser(
@@ -117,6 +165,27 @@ export class TaskSyncService {
     }
 
     return this.mapRun(run);
+  }
+
+  async listSyncRunsForUser(
+    userId: string,
+    query: GetTaskSyncRunsQueryDto,
+  ): Promise<TaskSyncRunResponseDto[]> {
+    const limit = this.resolveRunLimit(query.limit);
+    const runs = await this.taskSyncRunRepository.find({
+      where: {
+        userId,
+        ...(query.provider ? { provider: query.provider } : {}),
+        ...(query.triggerType ? { triggerType: query.triggerType } : {}),
+        ...(query.status ? { status: query.status } : {}),
+      },
+      order: {
+        createdAt: 'DESC',
+      },
+      take: limit,
+    });
+
+    return runs.map((run) => this.mapRun(run));
   }
 
   async listScopesForUser(userId: string): Promise<TaskScopesResponseDto> {
@@ -813,6 +882,8 @@ export class TaskSyncService {
     return {
       id: run.id,
       status: run.status,
+      provider: run.provider,
+      triggerType: run.triggerType,
       connectionsTotal: run.connectionsTotal,
       connectionsDone: run.connectionsDone,
       tasksUpserted: run.tasksUpserted,
@@ -823,5 +894,51 @@ export class TaskSyncService {
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,
     };
+  }
+
+  private async findActiveRunForUserProvider(
+    userId: string,
+    provider: TaskManagerProviderType,
+  ): Promise<TaskSyncRun | null> {
+    return this.taskSyncRunRepository.findOne({
+      where: [
+        {
+          userId,
+          provider,
+          status: 'queued',
+        },
+        {
+          userId,
+          provider,
+          status: 'running',
+        },
+      ],
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+  }
+
+  private async findLatestRunForUserProvider(
+    userId: string,
+    provider: TaskManagerProviderType,
+  ): Promise<TaskSyncRun | null> {
+    return this.taskSyncRunRepository.findOne({
+      where: {
+        userId,
+        provider,
+      },
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+  }
+
+  private resolveRunLimit(limit: number | undefined): number {
+    if (limit === undefined || !Number.isFinite(limit)) {
+      return 20;
+    }
+
+    return Math.min(Math.max(1, Math.trunc(limit)), 100);
   }
 }
