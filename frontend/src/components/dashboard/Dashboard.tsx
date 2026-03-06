@@ -201,7 +201,7 @@ export function Dashboard() {
     }
   }, []);
 
-  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage, automationStatus: streamAutomationStatus, reviewGateStatus: streamReviewGateStatus } = useExecutionStream({
+  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage, automationStatus: streamAutomationStatus } = useExecutionStream({
     executionId: activeExecutionId,
     onEvent: handleStreamEvent,
   });
@@ -217,9 +217,8 @@ export function Dashboard() {
       status: streamStatus ?? base.status,
       errorMessage: streamErrorMessage ?? base.errorMessage,
       automationStatus: streamAutomationStatus ?? base.automationStatus,
-      reviewGateStatus: streamReviewGateStatus ?? base.reviewGateStatus,
     };
-  }, [activeExecutionId, executions, streamOutput, streamStatus, streamErrorMessage, streamAutomationStatus, streamReviewGateStatus]);
+  }, [activeExecutionId, executions, streamOutput, streamStatus, streamErrorMessage, streamAutomationStatus]);
 
   const runningCount = executions.filter((e) => e.status === 'running').length;
   const completedCount = executions.filter((e) => e.status === 'completed').length;
