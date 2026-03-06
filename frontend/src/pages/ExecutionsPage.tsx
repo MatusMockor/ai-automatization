@@ -200,7 +200,7 @@ export function ExecutionsPage() {
     }
   }, []);
 
-  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage, automationStatus: streamAutomationStatus, reviewGateStatus: streamReviewGateStatus } = useExecutionStream({
+  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage, automationStatus: streamAutomationStatus } = useExecutionStream({
     executionId: selected?.id ?? null,
     onEvent: handleStreamEvent,
   });
@@ -214,9 +214,8 @@ export function ExecutionsPage() {
       status: streamStatus ?? base.status,
       errorMessage: streamErrorMessage ?? base.errorMessage,
       automationStatus: streamAutomationStatus ?? base.automationStatus,
-      reviewGateStatus: streamReviewGateStatus ?? base.reviewGateStatus,
     };
-  }, [selected, selectedDetail, streamOutput, streamStatus, streamErrorMessage, streamAutomationStatus, streamReviewGateStatus]);
+  }, [selected, selectedDetail, streamOutput, streamStatus, streamErrorMessage, streamAutomationStatus]);
 
   return (
     <div className="flex h-full">
