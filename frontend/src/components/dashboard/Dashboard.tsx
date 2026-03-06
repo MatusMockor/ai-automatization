@@ -15,7 +15,7 @@ import { api, getApiErrorMessage } from '@/lib/api';
 import { useRepo } from '@/context/RepoContext';
 import { useExecutionStream } from '@/lib/useExecutionStream';
 import { toast } from 'sonner';
-import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, ExecutionAction, Execution, CreateExecutionRequest, TaskManagerProvider, ReviewGateStatus } from '@/types';
+import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, ExecutionAction, Execution, CreateExecutionRequest, TaskManagerProvider, TaskManagerConnection, ReviewGateStatus } from '@/types';
 import { Search, AlertTriangle } from 'lucide-react';
 
 const createIdempotencyKey = (): string => {
@@ -53,14 +53,29 @@ export function Dashboard() {
   // Scopes + sync
   const { scopes, refreshScopes } = useTaskScopes();
 
+  // Connections — used as provider fallback when scopes are empty (pre-first-sync)
+  const [connections, setConnections] = useState<TaskManagerConnection[]>([]);
+  useEffect(() => {
+    api.get<TaskManagerConnection[]>('/task-managers/connections')
+      .then(({ data }) => setConnections(data))
+      .catch(() => {});
+  }, []);
+
+  const connectionProvider = useMemo<TaskManagerProvider | null>(() => {
+    const connected = connections.filter((c) => c.status === 'connected');
+    if (connected.some((c) => c.provider === 'asana')) return 'asana';
+    if (connected.some((c) => c.provider === 'jira')) return 'jira';
+    return null;
+  }, [connections]);
+
   // Provider derivation
   const defaultProvider = useMemo(() => {
-    if (!scopes) return null;
+    if (!scopes) return connectionProvider;
     const hasAsana = scopes.asanaWorkspaces.length > 0 || scopes.asanaProjects.length > 0;
     if (hasAsana) return 'asana' as TaskManagerProvider;
     if (scopes.jiraProjects.length > 0) return 'jira' as TaskManagerProvider;
-    return null;
-  }, [scopes]);
+    return connectionProvider;
+  }, [scopes, connectionProvider]);
 
   const [selectedProvider, setSelectedProvider] = useState<TaskManagerProvider | null>(null);
   const provider = selectedProvider ?? defaultProvider;
@@ -316,13 +331,13 @@ export function Dashboard() {
           </kbd>
         </div>
 
-        {scopes && defaultProvider && (
+        {defaultProvider && (
           <Tabs value={provider ?? undefined} onValueChange={(v) => setSelectedProvider(v as TaskManagerProvider)}>
             <TabsList className="h-8">
-              {(scopes.asanaWorkspaces.length > 0 || scopes.asanaProjects.length > 0) && (
+              {((scopes && (scopes.asanaWorkspaces.length > 0 || scopes.asanaProjects.length > 0)) || connections.some((c) => c.provider === 'asana' && c.status === 'connected')) && (
                 <TabsTrigger value="asana" disabled={syncState !== 'idle'} className="text-xs px-3">Asana</TabsTrigger>
               )}
-              {scopes.jiraProjects.length > 0 && (
+              {((scopes && scopes.jiraProjects.length > 0) || connections.some((c) => c.provider === 'jira' && c.status === 'connected')) && (
                 <TabsTrigger value="jira" disabled={syncState !== 'idle'} className="text-xs px-3">Jira</TabsTrigger>
               )}
             </TabsList>
