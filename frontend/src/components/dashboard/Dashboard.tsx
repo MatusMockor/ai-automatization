@@ -10,7 +10,6 @@ import { TerminalPanel } from './TerminalPanel';
 import { SyncBanner } from './SyncBanner';
 import { SyncButton } from '@/components/shared/SyncButton';
 import { ScopeFilter } from '@/components/shared/ScopeFilter';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { useRepo } from '@/context/RepoContext';
 import { useExecutionStream } from '@/lib/useExecutionStream';
@@ -76,6 +75,18 @@ export function Dashboard() {
     if (scopes.jiraProjects.length > 0) return 'jira' as TaskManagerProvider;
     return connectionProvider;
   }, [scopes, connectionProvider]);
+
+  const availableProviders = useMemo<TaskManagerProvider[]>(() => {
+    const set = new Set<TaskManagerProvider>();
+    if (scopes) {
+      if (scopes.asanaWorkspaces.length > 0 || scopes.asanaProjects.length > 0) set.add('asana');
+      if (scopes.jiraProjects.length > 0) set.add('jira');
+    }
+    for (const c of connections) {
+      if (c.status === 'connected') set.add(c.provider);
+    }
+    return Array.from(set);
+  }, [scopes, connections]);
 
   const [selectedProvider, setSelectedProvider] = useState<TaskManagerProvider | null>(null);
   const provider = selectedProvider ?? defaultProvider;
@@ -331,18 +342,20 @@ export function Dashboard() {
           </kbd>
         </div>
 
-        {defaultProvider && (
-          <Tabs value={provider ?? undefined} onValueChange={(v) => setSelectedProvider(v as TaskManagerProvider)}>
-            <TabsList className="h-8">
-              {((scopes && (scopes.asanaWorkspaces.length > 0 || scopes.asanaProjects.length > 0)) || connections.some((c) => c.provider === 'asana' && c.status === 'connected')) && (
-                <TabsTrigger value="asana" disabled={syncState !== 'idle'} className="text-xs px-3">Asana</TabsTrigger>
-              )}
-              {((scopes && scopes.jiraProjects.length > 0) || connections.some((c) => c.provider === 'jira' && c.status === 'connected')) && (
-                <TabsTrigger value="jira" disabled={syncState !== 'idle'} className="text-xs px-3">Jira</TabsTrigger>
-              )}
-            </TabsList>
-          </Tabs>
-        )}
+        {availableProviders.length > 1 ? (
+          <select
+            value={provider ?? ''}
+            onChange={(e) => setSelectedProvider(e.target.value as TaskManagerProvider)}
+            disabled={syncState !== 'idle'}
+            className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-medium capitalize outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 disabled:opacity-50"
+          >
+            {availableProviders.map((p) => (
+              <option key={p} value={p}>{p === 'asana' ? 'Asana' : 'Jira'}</option>
+            ))}
+          </select>
+        ) : availableProviders.length === 1 ? (
+          <span className="rounded-lg bg-muted px-2.5 py-1.5 text-xs font-medium capitalize">{availableProviders[0] === 'asana' ? 'Asana' : 'Jira'}</span>
+        ) : null}
 
         {scopes && provider && (
           <ScopeFilter

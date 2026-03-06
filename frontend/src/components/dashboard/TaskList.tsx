@@ -88,10 +88,13 @@ function TaskRow({
   onAction: (action: ExecutionAction) => void;
 }) {
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
       className={cn(
-        'group relative flex w-full items-start gap-4 px-5 py-3.5 text-left transition-colors',
+        'group relative flex w-full cursor-pointer items-start gap-4 px-5 py-3.5 text-left transition-colors',
         isSelected
           ? 'bg-primary/5'
           : 'hover:bg-foreground/[0.02]',
@@ -125,6 +128,6 @@ function TaskRow({
       <div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
         <ActionButtons size="sm" onAction={onAction} />
       </div>
-    </button>
+    </div>
   );
 }
