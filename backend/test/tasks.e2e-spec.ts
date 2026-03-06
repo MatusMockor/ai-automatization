@@ -913,6 +913,56 @@ describe('Tasks (e2e)', () => {
     expect(response.statusCode).toBe(404);
   });
 
+  it('GET /api/tasks/sync-runs should list recent runs with provider and trigger metadata', async () => {
+    const session = await createLoginSession();
+    const asanaWorkspaceId = faker.string.numeric(8);
+    const asanaProjectId = faker.string.numeric(8);
+
+    await connectionFactory.create({
+      userId: session.userId,
+      provider: 'asana',
+      workspaceId: asanaWorkspaceId,
+      projectId: asanaProjectId,
+      scopeKey: `asana:${asanaWorkspaceId}:${asanaProjectId}`,
+    });
+
+    fakeAsanaProvider.seedTasks(asanaWorkspaceId, asanaProjectId, [
+      buildProviderTask({
+        externalId: 'LIST-1',
+        title: 'fix/ list sync run metadata',
+        updatedAt: '2026-03-15T10:00:00.000Z',
+      }),
+    ]);
+
+    const syncRun = await startAndAwaitSync(session, 'asana');
+    expect(syncRun.status).toBe('completed');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tasks/sync-runs?provider=asana&limit=5',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json<
+      Array<{
+        id: string;
+        provider: 'asana' | 'jira' | null;
+        triggerType: 'manual' | 'schedule' | 'webhook';
+      }>
+    >();
+
+    expect(body).toEqual([
+      expect.objectContaining({
+        id: syncRun.id,
+        provider: 'asana',
+        triggerType: 'manual',
+      }),
+    ]);
+  });
+
   it('GET /api/tasks/scopes should return synced workspace and project options', async () => {
     const session = await createLoginSession();
 

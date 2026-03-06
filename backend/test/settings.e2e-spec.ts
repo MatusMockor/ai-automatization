@@ -67,6 +67,9 @@ describe('Settings (e2e)', () => {
         executionTimeoutMs: number | null;
         preCommitChecksDefault: unknown;
         aiReviewEnabled: boolean;
+        syncEnabled: boolean;
+        syncIntervalMinutes: number;
+        syncProvidersEnabled: { asana: boolean; jira: boolean };
       }>(),
     ).toEqual({
       githubToken: null,
@@ -74,6 +77,9 @@ describe('Settings (e2e)', () => {
       executionTimeoutMs: null,
       preCommitChecksDefault: null,
       aiReviewEnabled: true,
+      syncEnabled: false,
+      syncIntervalMinutes: 15,
+      syncProvidersEnabled: { asana: true, jira: true },
     });
   });
 
@@ -97,6 +103,9 @@ describe('Settings (e2e)', () => {
       executionTimeoutMs: number | null;
       preCommitChecksDefault: unknown;
       aiReviewEnabled: boolean;
+      syncEnabled: boolean;
+      syncIntervalMinutes: number;
+      syncProvidersEnabled: { asana: boolean; jira: boolean };
     }>();
 
     expect(body.githubToken).toBe(maskToken(savedSettings.githubToken));
@@ -108,6 +117,11 @@ describe('Settings (e2e)', () => {
       savedSettings.preCommitChecksDefault,
     );
     expect(body.aiReviewEnabled).toBe(savedSettings.aiReviewEnabled);
+    expect(body.syncEnabled).toBe(savedSettings.syncEnabled);
+    expect(body.syncIntervalMinutes).toBe(15);
+    expect(body.syncProvidersEnabled).toEqual(
+      savedSettings.syncProvidersEnabled,
+    );
   });
 
   it('PATCH /api/settings should encrypt and persist tokens', async () => {
@@ -135,6 +149,9 @@ describe('Settings (e2e)', () => {
         executionTimeoutMs: number | null;
         preCommitChecksDefault: unknown;
         aiReviewEnabled: boolean;
+        syncEnabled: boolean;
+        syncIntervalMinutes: number;
+        syncProvidersEnabled: { asana: boolean; jira: boolean };
       }>(),
     ).toEqual({
       githubToken: maskToken(payload.githubToken),
@@ -142,6 +159,9 @@ describe('Settings (e2e)', () => {
       executionTimeoutMs: payload.executionTimeoutMs,
       preCommitChecksDefault: null,
       aiReviewEnabled: true,
+      syncEnabled: false,
+      syncIntervalMinutes: 15,
+      syncProvidersEnabled: { asana: true, jira: true },
     });
 
     const storedSettings = await dataSource
@@ -200,6 +220,9 @@ describe('Settings (e2e)', () => {
         executionTimeoutMs: number | null;
         preCommitChecksDefault: unknown;
         aiReviewEnabled: boolean;
+        syncEnabled: boolean;
+        syncIntervalMinutes: number;
+        syncProvidersEnabled: { asana: boolean; jira: boolean };
       }>(),
     ).toEqual({
       githubToken: null,
@@ -207,6 +230,9 @@ describe('Settings (e2e)', () => {
       executionTimeoutMs: 600000,
       preCommitChecksDefault: null,
       aiReviewEnabled: true,
+      syncEnabled: false,
+      syncIntervalMinutes: 15,
+      syncProvidersEnabled: { asana: true, jira: true },
     });
 
     const storedSettings = await dataSource
@@ -273,6 +299,82 @@ describe('Settings (e2e)', () => {
         version: '8.2',
       },
     });
+  });
+
+  it('PATCH /api/settings should persist scheduled sync settings', async () => {
+    const session = await createLoginSession();
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        syncEnabled: true,
+        syncIntervalMinutes: 30,
+        syncProvidersEnabled: {
+          asana: true,
+          jira: false,
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      response.json<{
+        githubToken: string | null;
+        claudeOauthToken: string | null;
+        executionTimeoutMs: number | null;
+        preCommitChecksDefault: unknown;
+        aiReviewEnabled: boolean;
+        syncEnabled: boolean;
+        syncIntervalMinutes: number;
+        syncProvidersEnabled: { asana: boolean; jira: boolean };
+      }>(),
+    ).toEqual(
+      expect.objectContaining({
+        syncEnabled: true,
+        syncIntervalMinutes: 30,
+        syncProvidersEnabled: {
+          asana: true,
+          jira: false,
+        },
+      }),
+    );
+
+    const storedSettings = await dataSource
+      .getRepository(UserSettings)
+      .findOneBy({ userId: session.userId });
+
+    expect(storedSettings?.syncEnabled).toBe(true);
+    expect(storedSettings?.syncIntervalMinutes).toBe(30);
+    expect(storedSettings?.syncAsanaEnabled).toBe(true);
+    expect(storedSettings?.syncJiraEnabled).toBe(false);
+  });
+
+  it('PATCH /api/settings should reject enabling automatic sync with all providers disabled', async () => {
+    const session = await createLoginSession();
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        syncEnabled: true,
+        syncProvidersEnabled: {
+          asana: false,
+          jira: false,
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ message: string }>().message).toContain(
+      'At least one sync provider must be enabled',
+    );
   });
 
   it('PATCH /api/settings should validate executionTimeoutMs bounds and support null reset', async () => {

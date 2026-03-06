@@ -4,6 +4,11 @@ import { Repository } from 'typeorm';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { normalizePreCommitChecksProfile } from '../executions/pre-commit/pre-commit-check-profile.normalizer';
 import type { PreCommitChecksProfile } from '../executions/pre-commit/pre-commit-check-profile.types';
+import {
+  DEFAULT_SYNC_ENABLED,
+  resolveSyncIntervalMinutes,
+  resolveSyncProvidersEnabled,
+} from './task-sync-settings.constants';
 import { SettingsResponseDto } from './dto/settings-response.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { UserSettings } from './entities/user-settings.entity';
@@ -26,6 +31,9 @@ export class SettingsService {
         executionTimeoutMs: null,
         preCommitChecksDefault: null,
         aiReviewEnabled: true,
+        syncEnabled: DEFAULT_SYNC_ENABLED,
+        syncIntervalMinutes: resolveSyncIntervalMinutes(null),
+        syncProvidersEnabled: resolveSyncProvidersEnabled(undefined),
       };
     }
 
@@ -84,6 +92,10 @@ export class SettingsService {
         executionTimeoutMs: null,
         preCommitChecksDefault: null,
         aiReviewEnabled: true,
+        syncEnabled: DEFAULT_SYNC_ENABLED,
+        syncIntervalMinutes: null,
+        syncAsanaEnabled: true,
+        syncJiraEnabled: true,
       });
 
     if (dto.githubToken !== undefined) {
@@ -120,6 +132,21 @@ export class SettingsService {
       settings.aiReviewEnabled = dto.aiReviewEnabled;
     }
 
+    if (dto.syncEnabled !== undefined) {
+      settings.syncEnabled = dto.syncEnabled;
+    }
+
+    if (dto.syncIntervalMinutes !== undefined) {
+      settings.syncIntervalMinutes = dto.syncIntervalMinutes;
+    }
+
+    if (dto.syncProvidersEnabled !== undefined) {
+      settings.syncAsanaEnabled = dto.syncProvidersEnabled.asana;
+      settings.syncJiraEnabled = dto.syncProvidersEnabled.jira;
+    }
+
+    this.validateSyncConfiguration(settings);
+
     const savedSettings = await this.settingsRepository.save(settings);
     return this.toSettingsResponse(savedSettings);
   }
@@ -141,6 +168,14 @@ export class SettingsService {
       executionTimeoutMs: settings.executionTimeoutMs,
       preCommitChecksDefault: settings.preCommitChecksDefault,
       aiReviewEnabled: settings.aiReviewEnabled ?? true,
+      syncEnabled: settings.syncEnabled ?? DEFAULT_SYNC_ENABLED,
+      syncIntervalMinutes: resolveSyncIntervalMinutes(
+        settings.syncIntervalMinutes,
+      ),
+      syncProvidersEnabled: resolveSyncProvidersEnabled({
+        asana: settings.syncAsanaEnabled,
+        jira: settings.syncJiraEnabled,
+      }),
     };
   }
 
@@ -168,6 +203,18 @@ export class SettingsService {
     if (value != null && /\s/.test(value)) {
       throw new BadRequestException(
         `${label} must not contain whitespace characters`,
+      );
+    }
+  }
+
+  private validateSyncConfiguration(settings: UserSettings): void {
+    if (!settings.syncEnabled) {
+      return;
+    }
+
+    if (!settings.syncAsanaEnabled && !settings.syncJiraEnabled) {
+      throw new BadRequestException(
+        'At least one sync provider must be enabled when automatic sync is enabled',
       );
     }
   }

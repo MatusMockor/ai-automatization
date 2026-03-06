@@ -10,6 +10,7 @@ import {
 import { getJsonObjectColumnType } from '../../common/utils/database-column.utils';
 import { User } from '../../users/entities/user.entity';
 import type { PreCommitChecksProfile } from '../../executions/pre-commit/pre-commit-check-profile.types';
+import { DEFAULT_SYNC_ENABLED } from '../task-sync-settings.constants';
 
 const JSON_COLUMN_TYPE = getJsonObjectColumnType();
 
@@ -40,6 +41,22 @@ export class UserSettings {
 
   @Column({ name: 'ai_review_enabled', type: 'boolean', default: true })
   aiReviewEnabled!: boolean;
+
+  @Column({
+    name: 'sync_enabled',
+    type: 'boolean',
+    default: DEFAULT_SYNC_ENABLED,
+  })
+  syncEnabled!: boolean;
+
+  @Column({ name: 'sync_interval_minutes', type: 'integer', nullable: true })
+  syncIntervalMinutes!: number | null;
+
+  @Column({ name: 'sync_asana_enabled', type: 'boolean', default: true })
+  syncAsanaEnabled!: boolean;
+
+  @Column({ name: 'sync_jira_enabled', type: 'boolean', default: true })
+  syncJiraEnabled!: boolean;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

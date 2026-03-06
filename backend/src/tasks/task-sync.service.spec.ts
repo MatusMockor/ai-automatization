@@ -31,6 +31,7 @@ describe('TaskSyncService', () => {
 
     const taskSyncRunRepository = {
       create: jest.fn(),
+      find: jest.fn(),
       save: jest.fn(),
       findOne: jest.fn(),
       update: jest.fn(),
@@ -74,11 +75,15 @@ describe('TaskSyncService', () => {
 
     taskSyncRunRepository.create.mockReturnValue({
       userId: 'user-1',
+      provider: 'asana',
+      triggerType: 'manual',
       status: 'queued',
     } as TaskSyncRun);
     taskSyncRunRepository.save.mockResolvedValue({
       id: 'run-1',
       userId: 'user-1',
+      provider: 'asana',
+      triggerType: 'manual',
       status: 'queued',
       connectionsTotal: 0,
       connectionsDone: 0,
@@ -90,26 +95,32 @@ describe('TaskSyncService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     } as TaskSyncRun);
-    taskSyncRunRepository.findOne.mockResolvedValue({
-      id: 'run-1',
-      userId: 'user-1',
-      status: 'queued',
-      connectionsTotal: 0,
-      connectionsDone: 0,
-      tasksUpserted: 0,
-      tasksDeleted: 0,
-      errorMessage: null,
-      startedAt: null,
-      finishedAt: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    } as TaskSyncRun);
+    taskSyncRunRepository.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'run-1',
+        userId: 'user-1',
+        provider: 'asana',
+        triggerType: 'manual',
+        status: 'queued',
+        connectionsTotal: 0,
+        connectionsDone: 0,
+        tasksUpserted: 0,
+        tasksDeleted: 0,
+        errorMessage: null,
+        startedAt: null,
+        finishedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as TaskSyncRun);
     connectionRepository.find.mockResolvedValue([]);
 
     const started = await service.startUserSync('user-1', 'asana');
     expect(started).toEqual({
       runId: 'run-1',
       status: 'queued',
+      provider: 'asana',
+      triggerType: 'manual',
     });
 
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -131,6 +142,37 @@ describe('TaskSyncService', () => {
       where: { userId: 'user-1', provider: 'asana' },
       order: { createdAt: 'ASC' },
     });
+  });
+
+  it('reuses active run for same user and provider', async () => {
+    const { service, taskSyncRunRepository } = createService();
+    taskSyncRunRepository.findOne.mockResolvedValue({
+      id: 'run-active',
+      userId: 'user-1',
+      provider: 'jira',
+      triggerType: 'schedule',
+      status: 'running',
+      connectionsTotal: 1,
+      connectionsDone: 0,
+      tasksUpserted: 0,
+      tasksDeleted: 0,
+      errorMessage: null,
+      startedAt: new Date(),
+      finishedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as TaskSyncRun);
+
+    const started = await service.startUserSync('user-1', 'jira');
+
+    expect(started).toEqual({
+      runId: 'run-active',
+      status: 'running',
+      provider: 'jira',
+      triggerType: 'schedule',
+    });
+    expect(taskSyncRunRepository.create).not.toHaveBeenCalled();
+    expect(taskSyncRunRepository.save).not.toHaveBeenCalled();
   });
 
   it('lists scopes grouped by provider', async () => {
@@ -234,11 +276,15 @@ describe('TaskSyncService', () => {
 
     taskSyncRunRepository.create.mockReturnValue({
       userId: 'user-1',
+      provider: 'jira',
+      triggerType: 'manual',
       status: 'queued',
     } as TaskSyncRun);
     taskSyncRunRepository.save.mockResolvedValue({
       id: 'run-1',
       userId: 'user-1',
+      provider: 'jira',
+      triggerType: 'manual',
       status: 'queued',
       connectionsTotal: 0,
       connectionsDone: 0,
@@ -250,20 +296,24 @@ describe('TaskSyncService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     } as TaskSyncRun);
-    taskSyncRunRepository.findOne.mockResolvedValue({
-      id: 'run-1',
-      userId: 'user-1',
-      status: 'queued',
-      connectionsTotal: 0,
-      connectionsDone: 0,
-      tasksUpserted: 0,
-      tasksDeleted: 0,
-      errorMessage: null,
-      startedAt: null,
-      finishedAt: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    } as TaskSyncRun);
+    taskSyncRunRepository.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'run-1',
+        userId: 'user-1',
+        provider: 'jira',
+        triggerType: 'manual',
+        status: 'queued',
+        connectionsTotal: 0,
+        connectionsDone: 0,
+        tasksUpserted: 0,
+        tasksDeleted: 0,
+        errorMessage: null,
+        startedAt: null,
+        finishedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as TaskSyncRun);
     connectionRepository.find.mockResolvedValue([
       {
         id: 'connection-1',
@@ -302,5 +352,86 @@ describe('TaskSyncService', () => {
           '[jira:connection-1] Unable to fetch Jira tasks for project SCRUM: Browse projects permission is missing',
       }),
     );
+  });
+
+  it('lists sync runs for user with optional filters', async () => {
+    const { service, taskSyncRunRepository } = createService();
+    const createdAt = new Date('2026-03-06T10:00:00.000Z');
+
+    taskSyncRunRepository.find.mockResolvedValue([
+      {
+        id: 'run-1',
+        userId: 'user-1',
+        provider: 'asana',
+        triggerType: 'schedule',
+        status: 'completed',
+        connectionsTotal: 1,
+        connectionsDone: 1,
+        tasksUpserted: 5,
+        tasksDeleted: 1,
+        errorMessage: null,
+        startedAt: createdAt,
+        finishedAt: createdAt,
+        createdAt,
+        updatedAt: createdAt,
+      } as TaskSyncRun,
+    ]);
+
+    const runs = await service.listSyncRunsForUser('user-1', {
+      provider: 'asana',
+      triggerType: 'schedule',
+      status: 'completed',
+      limit: 5,
+    });
+
+    expect(taskSyncRunRepository.find).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        provider: 'asana',
+        triggerType: 'schedule',
+        status: 'completed',
+      },
+      order: {
+        createdAt: 'DESC',
+      },
+      take: 5,
+    });
+    expect(runs).toEqual([
+      expect.objectContaining({
+        id: 'run-1',
+        provider: 'asana',
+        triggerType: 'schedule',
+        status: 'completed',
+      }),
+    ]);
+  });
+
+  it('skips scheduled sync when interval has not elapsed yet', async () => {
+    const { service, taskSyncRunRepository } = createService();
+    const now = new Date();
+
+    taskSyncRunRepository.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'run-latest',
+        userId: 'user-1',
+        provider: 'asana',
+        triggerType: 'schedule',
+        status: 'completed',
+        connectionsTotal: 1,
+        connectionsDone: 1,
+        tasksUpserted: 5,
+        tasksDeleted: 0,
+        errorMessage: null,
+        startedAt: now,
+        finishedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as TaskSyncRun);
+
+    const result = await service.startScheduledSyncIfDue('user-1', 'asana', 30);
+
+    expect(result).toBeNull();
+    expect(taskSyncRunRepository.create).not.toHaveBeenCalled();
   });
 });

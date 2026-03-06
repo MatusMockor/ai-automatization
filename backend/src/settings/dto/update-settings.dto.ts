@@ -12,6 +12,11 @@ import {
 } from 'class-validator';
 import { parseOptionalInteger } from '../../common/utils/parse.utils';
 import { PreCommitChecksProfileDto } from '../../executions/pre-commit/dto/pre-commit-check-profile.dto';
+import {
+  MAX_SYNC_INTERVAL_MINUTES,
+  MIN_SYNC_INTERVAL_MINUTES,
+} from '../task-sync-settings.constants';
+import { TaskSyncProvidersEnabledDto } from './task-sync-providers-enabled.dto';
 
 const normalizeNullableString = (value: unknown): unknown => {
   if (typeof value !== 'string') {
@@ -74,4 +79,37 @@ export class UpdateSettingsDto {
   })
   @IsBoolean()
   aiReviewEnabled?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'true') {
+        return true;
+      }
+      if (normalized === 'false') {
+        return false;
+      }
+    }
+
+    return value;
+  })
+  @IsBoolean()
+  syncEnabled?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => toOptionalIntegerOrNull(value))
+  @ValidateIf((_, value: unknown) => value !== null)
+  @IsInt()
+  @Min(MIN_SYNC_INTERVAL_MINUTES)
+  @Max(MAX_SYNC_INTERVAL_MINUTES)
+  syncIntervalMinutes?: number | null;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => TaskSyncProvidersEnabledDto)
+  syncProvidersEnabled?: TaskSyncProvidersEnabledDto;
 }
