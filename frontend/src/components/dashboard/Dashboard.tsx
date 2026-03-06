@@ -15,7 +15,7 @@ import { api, getApiErrorMessage } from '@/lib/api';
 import { useRepo } from '@/context/RepoContext';
 import { useExecutionStream } from '@/lib/useExecutionStream';
 import { toast } from 'sonner';
-import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, ExecutionAction, Execution, CreateExecutionRequest, TaskManagerProvider } from '@/types';
+import type { TaskFeedItem, TaskFeedConnectionError, TaskFeedResponse, ExecutionAction, Execution, CreateExecutionRequest, TaskManagerProvider, ReviewGateStatus } from '@/types';
 import { Search, AlertTriangle } from 'lucide-react';
 
 const createIdempotencyKey = (): string => {
@@ -173,6 +173,15 @@ export function Dashboard() {
         ),
       );
     }
+    if (event.type === 'review') {
+      const reviewUpdate = {
+        reviewGateStatus: event.reviewGateStatus as ReviewGateStatus,
+        reviewPendingDecisionUntil: event.pendingDecisionUntil ?? null,
+      };
+      setExecutions((prev) =>
+        prev.map((e) => (e.id === event.executionId ? { ...e, ...reviewUpdate } : e)),
+      );
+    }
     if (event.type === 'publication') {
       setExecutions((prev) =>
         prev.map((e) =>
@@ -192,7 +201,7 @@ export function Dashboard() {
     }
   }, []);
 
-  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage, automationStatus: streamAutomationStatus } = useExecutionStream({
+  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage, automationStatus: streamAutomationStatus, reviewGateStatus: streamReviewGateStatus } = useExecutionStream({
     executionId: activeExecutionId,
     onEvent: handleStreamEvent,
   });
@@ -208,8 +217,9 @@ export function Dashboard() {
       status: streamStatus ?? base.status,
       errorMessage: streamErrorMessage ?? base.errorMessage,
       automationStatus: streamAutomationStatus ?? base.automationStatus,
+      reviewGateStatus: streamReviewGateStatus ?? base.reviewGateStatus,
     };
-  }, [activeExecutionId, executions, streamOutput, streamStatus, streamErrorMessage, streamAutomationStatus]);
+  }, [activeExecutionId, executions, streamOutput, streamStatus, streamErrorMessage, streamAutomationStatus, streamReviewGateStatus]);
 
   const runningCount = executions.filter((e) => e.status === 'running').length;
   const completedCount = executions.filter((e) => e.status === 'completed').length;

@@ -18,11 +18,13 @@ export function SettingsPage() {
     githubToken: null,
     executionTimeoutMs: null,
     preCommitChecksDefault: null,
+    aiReviewEnabled: true,
   });
 
   // Execution settings (controlled state, not react-hook-form)
   const [timeoutInput, setTimeoutInput] = useState('');
   const [profileDefault, setProfileDefault] = useState<PreCommitChecksProfile | null>(null);
+  const [aiReviewEnabled, setAiReviewEnabled] = useState(true);
   const [savingExecution, setSavingExecution] = useState(false);
 
   const {
@@ -39,6 +41,7 @@ export function SettingsPage() {
       setMaskedValues(data);
       setTimeoutInput(data.executionTimeoutMs != null ? String(data.executionTimeoutMs) : '');
       setProfileDefault(data.preCommitChecksDefault);
+      setAiReviewEnabled(data.aiReviewEnabled ?? true);
     } catch {
       // silently ignore — masked placeholders stay empty
     }
@@ -104,6 +107,10 @@ export function SettingsPage() {
 
       if (JSON.stringify(profileDefault) !== JSON.stringify(maskedValues.preCommitChecksDefault)) {
         payload.preCommitChecksDefault = profileDefault;
+      }
+
+      if (aiReviewEnabled !== maskedValues.aiReviewEnabled) {
+        payload.aiReviewEnabled = aiReviewEnabled;
       }
 
       if (Object.keys(payload).length === 0) {
@@ -234,6 +241,21 @@ export function SettingsPage() {
               className="h-9 w-full rounded-lg border border-border bg-background px-3 font-mono text-sm outline-none placeholder:font-sans focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
             />
           </div>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={aiReviewEnabled}
+              onChange={(e) => setAiReviewEnabled(e.target.checked)}
+              className="h-4 w-4 rounded border-border bg-background text-primary accent-primary"
+            />
+            <span className="text-xs font-medium text-muted-foreground">
+              AI Review Gate
+            </span>
+            <span className="text-[10px] text-muted-foreground/60">
+              A second Claude reviews implementation output before publication
+            </span>
+          </label>
 
           <div>
             <label className="mb-1.5 block text-xs font-medium text-muted-foreground">

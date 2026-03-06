@@ -1,9 +1,21 @@
 export type TaskSource = 'jira' | 'asana' | 'manual';
 export type TaskStatus = 'open' | 'in_progress' | 'done' | 'closed';
 export type ExecutionAction = 'fix' | 'feature' | 'plan';
+export type ExecutionRole = 'implementation' | 'review' | 'remediation';
 export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type ExecutionOrchestrationState = 'queued' | 'running' | 'finalizing' | 'done' | 'failed';
+export type ExecutionOrchestrationState = 'queued' | 'running' | 'finalizing' | 'awaiting_review_decision' | 'done' | 'failed';
 export type AutomationStatus = 'not_applicable' | 'pending' | 'publishing' | 'no_changes' | 'published' | 'failed';
+export type ReviewGateStatus =
+  | 'not_applicable'
+  | 'review_running'
+  | 'awaiting_decision'
+  | 'decision_continue'
+  | 'decision_block'
+  | 'remediation_running'
+  | 'review_passed'
+  | 'timeout_continue';
+export type ReviewDecision = 'continue' | 'block' | 'fix';
+export type ReviewVerdict = 'pass' | 'fail' | 'error';
 
 export interface Execution {
   id: string;
@@ -24,6 +36,11 @@ export interface Execution {
   publishPullRequest: boolean;
   requireCodeChanges: boolean;
   implementationAttempts: number;
+  executionRole: ExecutionRole;
+  parentExecutionId: string | null;
+  rootExecutionId: string;
+  reviewGateStatus: ReviewGateStatus;
+  reviewPendingDecisionUntil: string | null;
   orchestrationState: ExecutionOrchestrationState;
   automationStatus: AutomationStatus;
   automationErrorMessage: string | null;
@@ -49,10 +66,21 @@ export interface CreateExecutionRequest {
   requireCodeChanges?: boolean;
 }
 
+export interface ReviewStateResponse {
+  status: ReviewGateStatus;
+  cycle: number | null;
+  findingsMarkdown: string | null;
+  verdict: ReviewVerdict | null;
+  pendingDecisionUntil: string | null;
+  reviewExecutionId: string | null;
+  remediationExecutionId: string | null;
+}
+
 export type ExecutionStreamEvent =
   | { type: 'snapshot'; executionId: string; status: ExecutionStatus; automationStatus?: AutomationStatus; output: string; outputTruncated: boolean; lastSequence?: number; sequence?: number; sentAt?: string }
   | { type: 'stdout' | 'stderr'; executionId: string; chunk: string; sequence?: number; sentAt?: string }
   | { type: 'status'; executionId: string; status: ExecutionStatus; errorMessage?: string; sequence?: number; sentAt?: string }
+  | { type: 'review'; executionId: string; reviewGateStatus: ReviewGateStatus; cycle: number; message?: string; pendingDecisionUntil?: string; reviewExecutionId?: string; remediationExecutionId?: string; sequence?: number; sentAt?: string }
   | { type: 'publication'; executionId: string; automationStatus: AutomationStatus; branchName?: string; pullRequestUrl?: string; message?: string; sequence?: number; sentAt?: string }
   | { type: 'completed' | 'error'; executionId: string; status: ExecutionStatus; exitCode: number | null; errorMessage?: string; sequence?: number; sentAt?: string };
 
@@ -100,6 +128,7 @@ export interface SettingsResponse {
   claudeOauthToken: string | null;
   executionTimeoutMs: number | null;
   preCommitChecksDefault: PreCommitChecksProfile | null;
+  aiReviewEnabled: boolean;
 }
 
 export type TaskManagerProvider = 'asana' | 'jira';

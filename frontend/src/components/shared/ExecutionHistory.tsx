@@ -1,4 +1,5 @@
 import { ExecutionStatusIcon } from './StatusIcon';
+import { ReviewGateStatusBadge } from './ReviewGateStatusBadge';
 import { timeAgo } from '@/lib/time';
 import type { Execution } from '@/types';
 
@@ -49,6 +50,14 @@ export function ExecutionHistory({ executions, compact = false }: ExecutionHisto
           <ExecutionStatusIcon status={exec.status} />
           <span className="text-sm font-medium">{actionLabels[exec.action]}</span>
           <span className="text-xs text-muted-foreground">{exec.taskExternalId}</span>
+          {exec.executionRole && exec.executionRole !== 'implementation' && (
+            <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-indigo-500/10 text-indigo-400 capitalize">
+              {exec.executionRole}
+            </span>
+          )}
+          {exec.reviewGateStatus && exec.reviewGateStatus !== 'not_applicable' && (
+            <ReviewGateStatusBadge status={exec.reviewGateStatus} />
+          )}
           <span className="ml-auto text-xs text-muted-foreground">{timeAgo(exec.createdAt)}</span>
           {exec.automationStatus === 'published' && exec.pullRequestUrl && isSafeExternalUrl(exec.pullRequestUrl) && (
             <a href={exec.pullRequestUrl} target="_blank" rel="noopener noreferrer"

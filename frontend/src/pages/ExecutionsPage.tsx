@@ -5,9 +5,11 @@ import { timeAgo } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { toast } from 'sonner';
-import type { Execution, ExecutionStreamEvent } from '@/types';
+import type { Execution, ExecutionStreamEvent, ReviewGateStatus } from '@/types';
 import { Square, Copy, X, ExternalLink } from 'lucide-react';
 import { useExecutionStream } from '@/lib/useExecutionStream';
+import { ReviewGateStatusBadge } from '@/components/shared/ReviewGateStatusBadge';
+import { ReviewGatePanel } from '@/components/shared/ReviewGatePanel';
 
 const actionColors: Record<string, string> = {
   fix: 'bg-red-500/15 text-red-400',
@@ -146,6 +148,21 @@ export function ExecutionsPage() {
           : prev,
       );
     }
+    if (event.type === 'review') {
+      const reviewUpdate = {
+        reviewGateStatus: event.reviewGateStatus as ReviewGateStatus,
+        reviewPendingDecisionUntil: event.pendingDecisionUntil ?? null,
+      };
+      setExecutions((prev) =>
+        prev.map((e) => (e.id === event.executionId ? { ...e, ...reviewUpdate } : e)),
+      );
+      setSelected((prev) =>
+        prev?.id === event.executionId ? { ...prev, ...reviewUpdate } : prev,
+      );
+      setSelectedDetail((prev) =>
+        prev?.id === event.executionId ? { ...prev, ...reviewUpdate } : prev,
+      );
+    }
     if (event.type === 'publication') {
       const errorMsg = event.automationStatus === 'failed' || event.automationStatus === 'no_changes' ? (event.message ?? null) : null;
       setExecutions((prev) =>
@@ -183,7 +200,7 @@ export function ExecutionsPage() {
     }
   }, []);
 
-  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage, automationStatus: streamAutomationStatus } = useExecutionStream({
+  const { output: streamOutput, status: streamStatus, errorMessage: streamErrorMessage, automationStatus: streamAutomationStatus, reviewGateStatus: streamReviewGateStatus } = useExecutionStream({
     executionId: selected?.id ?? null,
     onEvent: handleStreamEvent,
   });
@@ -197,8 +214,9 @@ export function ExecutionsPage() {
       status: streamStatus ?? base.status,
       errorMessage: streamErrorMessage ?? base.errorMessage,
       automationStatus: streamAutomationStatus ?? base.automationStatus,
+      reviewGateStatus: streamReviewGateStatus ?? base.reviewGateStatus,
     };
-  }, [selected, selectedDetail, streamOutput, streamStatus, streamErrorMessage, streamAutomationStatus]);
+  }, [selected, selectedDetail, streamOutput, streamStatus, streamErrorMessage, streamAutomationStatus, streamReviewGateStatus]);
 
   return (
     <div className="flex h-full">
@@ -271,6 +289,14 @@ export function ExecutionsPage() {
                       )}
                       {exec.automationStatus === 'failed' && exec.publishPullRequest && (
                         <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-500/10 text-red-400">PR Failed</span>
+                      )}
+                      {exec.executionRole && exec.executionRole !== 'implementation' && (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-indigo-500/10 text-indigo-400 capitalize">
+                          {exec.executionRole}
+                        </span>
+                      )}
+                      {exec.reviewGateStatus && exec.reviewGateStatus !== 'not_applicable' && (
+                        <ReviewGateStatusBadge status={exec.reviewGateStatus} />
                       )}
                     </div>
                     <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
@@ -359,6 +385,20 @@ export function ExecutionsPage() {
                   <div className="mb-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-500 ring-1 ring-amber-500/20">
                     <span className="font-medium">{detail.automationStatus === 'no_changes' ? 'No changes detected:' : 'Publication failed:'}</span> {detail.automationErrorMessage}
                   </div>
+                )}
+                {detail.reviewGateStatus && detail.reviewGateStatus !== 'not_applicable' && (
+                  <ReviewGatePanel
+                    executionId={detail.id}
+                    reviewGateStatus={detail.reviewGateStatus}
+                    pendingDecisionUntil={detail.reviewPendingDecisionUntil}
+                    onDecisionApplied={async () => {
+                      try {
+                        const { data } = await api.get<Execution>(`/executions/${detail.id}`);
+                        setSelectedDetail(data);
+                        setExecutions((prev) => prev.map((e) => (e.id === data.id ? { ...e, reviewGateStatus: data.reviewGateStatus, reviewPendingDecisionUntil: data.reviewPendingDecisionUntil } : e)));
+                      } catch { /* ignore */ }
+                    }}
+                  />
                 )}
                 <pre className="whitespace-pre-wrap dark:text-emerald-300/80 text-emerald-700">{detail.output}</pre>
                 {detail.status === 'running' && (

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { ExecutionStatusIcon } from "@/components/shared/StatusIcon";
 import { cn } from "@/lib/utils";
 import type { Execution } from "@/types";
+import { ReviewGateStatusBadge } from "@/components/shared/ReviewGateStatusBadge";
 import { ChevronDown, ChevronUp, Square, Copy, ExternalLink } from "lucide-react";
 
 interface TerminalPanelProps {
@@ -123,6 +124,9 @@ export function TerminalPanel({
             <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', automationBadgeConfig[execution.automationStatus].className)}>
               {automationBadgeConfig[execution.automationStatus].label}
             </span>
+          )}
+          {execution.reviewGateStatus && execution.reviewGateStatus !== 'not_applicable' && (
+            <ReviewGateStatusBadge status={execution.reviewGateStatus} />
           )}
         </div>
 
