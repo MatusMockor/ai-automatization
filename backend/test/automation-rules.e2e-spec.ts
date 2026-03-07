@@ -232,6 +232,29 @@ describe('AutomationRules (e2e)', () => {
     expect(emptyStringResponse.statusCode).toBe(400);
   });
 
+  it('should reject priority values above the PostgreSQL integer range', async () => {
+    const session = await createLoginSession();
+    const repository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/automation-rules',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        name: 'Priority too high',
+        provider: 'asana',
+        repositoryId: repository.id,
+        priority: 2147483648,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
   it('should enforce repository ownership', async () => {
     const ownerSession = await createLoginSession();
     const attackerSession = await createLoginSession();

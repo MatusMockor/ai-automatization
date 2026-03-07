@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -40,6 +41,7 @@ export class CreateAutomationRuleDto {
   @ValidateIf((_, value: unknown) => value !== undefined)
   @IsInt()
   @Min(0)
+  @Max(2147483647)
   priority?: number;
 
   @IsIn(['asana', 'jira'])

@@ -145,7 +145,6 @@ export class CreateAutomationRulesTable1742212800000 implements MigrationInterfa
           }),
         ],
       }),
-      true,
     );
   }
 
