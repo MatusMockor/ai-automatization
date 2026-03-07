@@ -28,11 +28,16 @@ export class TaskFeedItemDto {
   primaryScopeName!: string | null;
   suggestedRepositoryId!: string | null;
   repositorySelectionSource!:
+    | 'automation_rule'
     | 'asana_project'
     | 'asana_workspace'
     | 'jira_project'
     | 'provider_default'
     | null;
+  matchedRuleId!: string | null;
+  matchedRuleName!: string | null;
+  suggestedAction!: 'fix' | 'feature' | 'plan' | null;
+  automationState!: 'none' | 'matched';
   hasMultipleScopes!: boolean;
   updatedAt!: string;
 }

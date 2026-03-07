@@ -27,6 +27,7 @@ type DatabaseError = QueryFailedError & {
 };
 
 export type RepositorySelectionSource =
+  | 'automation_rule'
   | 'asana_project'
   | 'asana_workspace'
   | 'jira_project'

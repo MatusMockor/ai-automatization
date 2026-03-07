@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { join } from 'path';
 import { AppController } from './app.controller';
+import { AutomationRulesModule } from './automation-rules/automation-rules.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { parsePositiveInteger } from './common/utils/parse.utils';
@@ -82,6 +83,7 @@ const toBoolean = (
     RepositoriesModule,
     ExecutionsModule,
     ObservabilityModule,
+    AutomationRulesModule,
     TaskManagersModule,
     TasksModule,
     ManualTasksModule,

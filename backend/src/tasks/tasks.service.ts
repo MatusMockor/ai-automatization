@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { AutomationRulesService } from '../automation-rules/automation-rules.service';
 import { parsePositiveInteger } from '../common/utils/parse.utils';
 import { RepositoriesService } from '../repositories/repositories.service';
 import { TaskManagersService } from '../task-managers/task-managers.service';
@@ -41,6 +42,7 @@ export class TasksService {
   constructor(
     @InjectRepository(SyncedTask)
     private readonly syncedTaskRepository: Repository<SyncedTask>,
+    private readonly automationRulesService: AutomationRulesService,
     private readonly taskManagersService: TaskManagersService,
     private readonly taskSyncService: TaskSyncService,
     private readonly taskRepositoryDefaultsService: TaskRepositoryDefaultsService,
@@ -110,11 +112,14 @@ export class TasksService {
 
     const repositoryDefaultsLookup =
       await this.taskRepositoryDefaultsService.buildLookupForUser(userId);
+    const activeRules =
+      await this.automationRulesService.listActiveRulesForUser(userId);
 
     const feedItems = this.buildFeedItems(
       scopeFilteredTasks,
       connectionById,
       repositoryDefaultsLookup,
+      activeRules,
     );
 
     const sortedItems = feedItems.sort((a, b) => this.compareItems(a, b));
@@ -261,6 +266,9 @@ export class TasksService {
     repositoryDefaultsLookup: Awaited<
       ReturnType<TaskRepositoryDefaultsService['buildLookupForUser']>
     >,
+    activeRules: Awaited<
+      ReturnType<AutomationRulesService['listActiveRulesForUser']>
+    >,
   ): TaskFeedItemDto[] {
     const groupedByConnection = new Map<string, SyncedTask[]>();
 
@@ -286,12 +294,23 @@ export class TasksService {
 
       for (const persistedTask of connectionTasks) {
         const primaryScope = this.resolvePrimaryScope(persistedTask.scopes);
-        const suggestedRepository =
+        const automationMatch = this.automationRulesService.resolveTaskMatch(
+          persistedTask,
+          activeRules,
+        );
+        const repositoryDefaultSuggestion =
           this.taskRepositoryDefaultsService.resolveSuggestedRepository(
             persistedTask.provider,
             persistedTask.scopes,
             repositoryDefaultsLookup,
           );
+
+        const suggestedRepositoryId =
+          automationMatch?.repositoryId ??
+          repositoryDefaultSuggestion.repositoryId;
+        const repositorySelectionSource = automationMatch
+          ? 'automation_rule'
+          : repositoryDefaultSuggestion.source;
         items.push({
           id: `${connectionId}:${persistedTask.provider}:${persistedTask.externalId}`,
           connectionId,
@@ -305,8 +324,12 @@ export class TasksService {
           primaryScopeType: primaryScope?.scopeType ?? null,
           primaryScopeId: primaryScope?.scopeId ?? null,
           primaryScopeName: primaryScope?.scopeName ?? null,
-          suggestedRepositoryId: suggestedRepository.repositoryId,
-          repositorySelectionSource: suggestedRepository.source,
+          suggestedRepositoryId,
+          repositorySelectionSource,
+          matchedRuleId: automationMatch?.ruleId ?? null,
+          matchedRuleName: automationMatch?.ruleName ?? null,
+          suggestedAction: automationMatch?.suggestedAction ?? null,
+          automationState: automationMatch ? 'matched' : 'none',
           hasMultipleScopes: persistedTask.scopes.length > 1,
           updatedAt: this.taskUpdatedAt(persistedTask),
         });
