@@ -28,6 +28,7 @@ import {
   TaskSyncRun,
   TaskSyncTriggerType,
 } from './entities/task-sync-run.entity';
+import { TaskAutomationOrchestratorService } from './task-automation-orchestrator.service';
 
 type AggregatedTask = {
   task: ProviderTask;
@@ -63,6 +64,7 @@ export class TaskSyncService {
     private readonly taskSyncRunRepository: Repository<TaskSyncRun>,
     private readonly encryptionService: EncryptionService,
     private readonly providerRegistry: TaskManagerProviderRegistry,
+    private readonly taskAutomationOrchestratorService: TaskAutomationOrchestratorService,
     private readonly configService: ConfigService,
   ) {
     this.pageLimit = parsePositiveInteger(
@@ -362,12 +364,16 @@ export class TaskSyncService {
       let tasksDeleted = 0;
       let connectionsDone = 0;
       const connectionErrors: string[] = [];
+      const changedTaskIds = new Set<string>();
 
       for (const connection of connections) {
         try {
           const synced = await this.syncConnection(connection);
           tasksUpserted += synced.tasksUpserted;
           tasksDeleted += synced.tasksDeleted;
+          for (const taskId of synced.taskIds) {
+            changedTaskIds.add(taskId);
+          }
 
           await this.connectionRepository.update(
             { id: connection.id },
@@ -404,6 +410,13 @@ export class TaskSyncService {
         }
       }
 
+      if (changedTaskIds.size > 0) {
+        await this.taskAutomationOrchestratorService.processSyncedTasks(
+          run.userId,
+          [...changedTaskIds],
+        );
+      }
+
       await this.taskSyncRunRepository.update(
         { id: run.id },
         {
@@ -430,9 +443,11 @@ export class TaskSyncService {
     }
   }
 
-  private async syncConnection(
-    connection: TaskManagerConnection,
-  ): Promise<{ tasksUpserted: number; tasksDeleted: number }> {
+  private async syncConnection(connection: TaskManagerConnection): Promise<{
+    tasksUpserted: number;
+    tasksDeleted: number;
+    taskIds: string[];
+  }> {
     const config = this.toConnectionConfig(connection);
     const providerType = this.toProviderType(connection.provider);
     const provider = this.providerRegistry.getProvider(providerType);
@@ -457,6 +472,7 @@ export class TaskSyncService {
       return {
         tasksUpserted: 0,
         tasksDeleted: deleted,
+        taskIds: [],
       };
     }
 
@@ -489,9 +505,16 @@ export class TaskSyncService {
         ),
     );
 
+    const persistedTasks = await this.findPersistedTasks(
+      this.syncedTaskRepository,
+      connection.id,
+      externalIds,
+    );
+
     return {
       tasksUpserted: upsertRows.length,
       tasksDeleted: deleted,
+      taskIds: persistedTasks.map((task) => task.id),
     };
   }
 

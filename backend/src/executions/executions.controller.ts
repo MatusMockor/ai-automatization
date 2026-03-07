@@ -143,6 +143,15 @@ export class ExecutionsController {
   }
 
   @HttpCode(200)
+  @Post(':id/start')
+  startDraftExecution(
+    @CurrentUser() user: RequestUser,
+    @Param('id', new ParseUUIDPipe()) executionId: string,
+  ): Promise<ExecutionSummaryResponseDto> {
+    return this.executionsService.startDraftForUser(user.id, executionId);
+  }
+
+  @HttpCode(200)
   @Post(':id/cancel')
   cancelExecution(
     @CurrentUser() user: RequestUser,

@@ -51,6 +51,7 @@ export class ExecutionOrchestratorService {
         id: executionId,
         status: 'pending',
         orchestrationState: 'queued',
+        isDraft: false,
       },
       {
         orchestrationState: 'running',

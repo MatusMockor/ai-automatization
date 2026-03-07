@@ -4,6 +4,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AutomationRulesService } from '../automation-rules/automation-rules.service';
 import { parsePositiveInteger } from '../common/utils/parse.utils';
+import {
+  ExecutionDraftLookupItem,
+  ExecutionsService,
+} from '../executions/executions.service';
 import { RepositoriesService } from '../repositories/repositories.service';
 import { TaskManagersService } from '../task-managers/task-managers.service';
 import type { TaskManagerProviderType } from '../task-managers/interfaces/task-manager-provider.interface';
@@ -43,6 +47,7 @@ export class TasksService {
     @InjectRepository(SyncedTask)
     private readonly syncedTaskRepository: Repository<SyncedTask>,
     private readonly automationRulesService: AutomationRulesService,
+    private readonly executionsService: ExecutionsService,
     private readonly taskManagersService: TaskManagersService,
     private readonly taskSyncService: TaskSyncService,
     private readonly taskRepositoryDefaultsService: TaskRepositoryDefaultsService,
@@ -114,12 +119,19 @@ export class TasksService {
       await this.taskRepositoryDefaultsService.buildLookupForUser(userId);
     const activeRules =
       await this.automationRulesService.listActiveRulesForUser(userId);
+    const draftLookup = this.buildDraftLookup(
+      await this.executionsService.listDraftsForTaskIds(
+        userId,
+        scopeFilteredTasks.map((task) => this.buildTaskFeedId(task)),
+      ),
+    );
 
     const feedItems = this.buildFeedItems(
       scopeFilteredTasks,
       connectionById,
       repositoryDefaultsLookup,
       activeRules,
+      draftLookup,
     );
 
     const sortedItems = feedItems.sort((a, b) => this.compareItems(a, b));
@@ -269,6 +281,7 @@ export class TasksService {
     activeRules: Awaited<
       ReturnType<AutomationRulesService['listActiveRulesForUser']>
     >,
+    draftLookup: Map<string, ExecutionDraftLookupItem[]>,
   ): TaskFeedItemDto[] {
     const groupedByConnection = new Map<string, SyncedTask[]>();
 
@@ -298,6 +311,12 @@ export class TasksService {
           persistedTask,
           activeRules,
         );
+        const taskId = this.buildTaskFeedId(persistedTask);
+        const draftOutcome = this.resolveDraftOutcome(
+          draftLookup.get(taskId) ?? [],
+          automationMatch,
+          persistedTask,
+        );
         const repositoryDefaultSuggestion =
           this.taskRepositoryDefaultsService.resolveSuggestedRepository(
             persistedTask.provider,
@@ -312,7 +331,7 @@ export class TasksService {
           ? 'automation_rule'
           : repositoryDefaultSuggestion.source;
         items.push({
-          id: `${connectionId}:${persistedTask.provider}:${persistedTask.externalId}`,
+          id: taskId,
           connectionId,
           externalId: persistedTask.externalId,
           title: persistedTask.title,
@@ -328,8 +347,11 @@ export class TasksService {
           repositorySelectionSource,
           matchedRuleId: automationMatch?.ruleId ?? null,
           matchedRuleName: automationMatch?.ruleName ?? null,
-          suggestedAction: automationMatch?.suggestedAction ?? null,
-          automationState: automationMatch ? 'matched' : 'none',
+          suggestedAction: automationMatch?.executionAction ?? null,
+          automationMode: automationMatch?.mode ?? null,
+          draftExecutionId: draftOutcome.executionId,
+          draftStatus: draftOutcome.status,
+          automationState: draftOutcome.automationState,
           hasMultipleScopes: persistedTask.scopes.length > 1,
           updatedAt: this.taskUpdatedAt(persistedTask),
         });
@@ -356,6 +378,97 @@ export class TasksService {
         `${b.scopeType}:${b.scopeId}`,
       ),
     )[0];
+  }
+
+  private buildTaskFeedId(
+    task: Pick<SyncedTask, 'connectionId' | 'provider' | 'externalId'>,
+  ): string {
+    return `${task.connectionId}:${task.provider}:${task.externalId}`;
+  }
+
+  private buildDraftLookup(
+    drafts: ExecutionDraftLookupItem[],
+  ): Map<string, ExecutionDraftLookupItem[]> {
+    const draftLookup = new Map<string, ExecutionDraftLookupItem[]>();
+
+    for (const draft of drafts) {
+      const existing = draftLookup.get(draft.taskId) ?? [];
+      existing.push(draft);
+      draftLookup.set(draft.taskId, existing);
+    }
+
+    return draftLookup;
+  }
+
+  private resolveDraftOutcome(
+    drafts: ExecutionDraftLookupItem[],
+    automationMatch: ReturnType<AutomationRulesService['resolveTaskMatch']>,
+    task: Pick<
+      SyncedTask,
+      | 'connectionId'
+      | 'provider'
+      | 'externalId'
+      | 'sourceUpdatedAt'
+      | 'updatedAt'
+    >,
+  ): {
+    executionId: string | null;
+    status: 'ready' | 'superseded' | null;
+    automationState: 'none' | 'matched' | 'drafted';
+  } {
+    if (!automationMatch) {
+      return {
+        executionId: null,
+        status: null,
+        automationState: 'none',
+      };
+    }
+
+    if (automationMatch.mode !== 'draft') {
+      return {
+        executionId: null,
+        status: null,
+        automationState: 'matched',
+      };
+    }
+
+    const snapshotUpdatedAt = (
+      task.sourceUpdatedAt ?? task.updatedAt
+    ).getTime();
+    const relevantDrafts = drafts.filter(
+      (draft) =>
+        draft.originRuleId === automationMatch.ruleId &&
+        draft.repositoryId === automationMatch.repositoryId,
+    );
+
+    const readyDraft = relevantDrafts.find(
+      (draft) =>
+        draft.draftStatus === 'ready' &&
+        draft.sourceTaskSnapshotUpdatedAt !== null &&
+        draft.sourceTaskSnapshotUpdatedAt.getTime() === snapshotUpdatedAt,
+    );
+
+    if (readyDraft) {
+      return {
+        executionId: readyDraft.id,
+        status: 'ready',
+        automationState: 'drafted',
+      };
+    }
+
+    if (relevantDrafts.length > 0) {
+      return {
+        executionId: null,
+        status: 'superseded',
+        automationState: 'matched',
+      };
+    }
+
+    return {
+      executionId: null,
+      status: null,
+      automationState: 'matched',
+    };
   }
 
   private taskUpdatedAt(

@@ -5,6 +5,7 @@ import { EncryptionService } from '../common/encryption/encryption.service';
 import { TaskManagerConnection } from '../task-managers/entities/task-manager-connection.entity';
 import { TaskManagerProviderRequestError } from '../task-managers/errors/task-manager-provider.errors';
 import { TaskManagerProviderRegistry } from '../task-managers/task-manager-provider.registry';
+import { TaskAutomationOrchestratorService } from './task-automation-orchestrator.service';
 import { SyncedTaskScope } from './entities/synced-task-scope.entity';
 import { SyncedTask } from './entities/synced-task.entity';
 import { TaskSyncRun } from './entities/task-sync-run.entity';
@@ -45,6 +46,10 @@ describe('TaskSyncService', () => {
       getProvider: jest.fn(),
     } as unknown as jest.Mocked<TaskManagerProviderRegistry>;
 
+    const taskAutomationOrchestratorService = {
+      processSyncedTasks: jest.fn(),
+    } as unknown as jest.Mocked<TaskAutomationOrchestratorService>;
+
     const configService = {
       get: jest.fn((_: string, defaultValue?: string) => defaultValue),
     } as unknown as jest.Mocked<ConfigService>;
@@ -56,6 +61,7 @@ describe('TaskSyncService', () => {
       taskSyncRunRepository,
       encryptionService,
       providerRegistry,
+      taskAutomationOrchestratorService,
       configService,
     );
 
@@ -64,6 +70,7 @@ describe('TaskSyncService', () => {
       connectionRepository,
       encryptionService,
       providerRegistry,
+      taskAutomationOrchestratorService,
       syncedTaskScopeRepository,
       taskSyncRunRepository,
     };

@@ -15,6 +15,7 @@ export const TASK_ITEM_STATUSES = [
 ] as const;
 
 export const AUTOMATION_RULE_ACTIONS = ['fix', 'feature', 'plan'] as const;
+export const AUTOMATION_RULE_MODES = ['suggest', 'draft'] as const;
 
 export const normalizeOptionalString = (
   value: unknown,

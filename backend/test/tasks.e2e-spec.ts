@@ -2,6 +2,7 @@ import { faker } from '@faker-js/faker';
 import { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DataSource } from 'typeorm';
 import { EncryptionService } from '../src/common/encryption/encryption.service';
+import { Execution } from '../src/executions/entities/execution.entity';
 import { TASK_MANAGER_PROVIDERS } from '../src/task-managers/constants/task-managers.tokens';
 import {
   TaskManagerProviderAuthError,
@@ -1323,6 +1324,159 @@ describe('Tasks (e2e)', () => {
       },
     });
     expect(response.json<{ items: unknown[] }>().items).toEqual([]);
+  });
+
+  it('sync should create and refresh draft executions for matched draft-mode rules', async () => {
+    const session = await createLoginSession();
+    const workspaceId = faker.string.numeric(8);
+    const projectId = faker.string.numeric(8);
+
+    await connectionFactory.create({
+      userId: session.userId,
+      provider: 'asana',
+      workspaceId,
+      projectId,
+      scopeKey: `asana:${workspaceId}:${projectId}`,
+    });
+
+    const repository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+
+    const createRuleResponse = await app.inject({
+      method: 'POST',
+      url: '/api/automation-rules',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        name: 'Draft backend fixes',
+        provider: 'asana',
+        scopeType: 'asana_project',
+        scopeId: projectId,
+        repositoryId: repository.id,
+        mode: 'draft',
+        executionAction: 'fix',
+        titleContains: ['backend', 'fix'],
+      },
+    });
+    expect(createRuleResponse.statusCode).toBe(201);
+
+    fakeAsanaProvider.seedTasks(workspaceId, projectId, [
+      buildProviderTask({
+        externalId: 'DRAFT-1',
+        title: 'Backend fix one',
+        updatedAt: '2026-03-20T10:00:00.000Z',
+      }),
+    ]);
+
+    let run = await startAndAwaitSync(session);
+    expect(run.status).toBe('completed');
+
+    const executionRepository = dataSource.getRepository(Execution);
+    let drafts = await executionRepository.find({
+      where: {
+        userId: session.userId,
+        isDraft: true,
+      },
+      order: {
+        createdAt: 'ASC',
+      },
+    });
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]?.draftStatus).toBe('ready');
+
+    let tasksResponse = await app.inject({
+      method: 'GET',
+      url: '/api/tasks?provider=asana',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(tasksResponse.statusCode).toBe(200);
+    expect(
+      tasksResponse
+        .json<{
+          items: Array<{
+            matchedRuleName: string | null;
+            suggestedAction: string | null;
+            automationMode: string | null;
+            draftExecutionId: string | null;
+            draftStatus: string | null;
+            automationState: string;
+          }>;
+        }>()
+        .items.at(0),
+    ).toEqual(
+      expect.objectContaining({
+        matchedRuleName: 'Draft backend fixes',
+        suggestedAction: 'fix',
+        automationMode: 'draft',
+        draftExecutionId: drafts[0]?.id ?? null,
+        draftStatus: 'ready',
+        automationState: 'drafted',
+      }),
+    );
+
+    run = await startAndAwaitSync(session);
+    expect(run.status).toBe('completed');
+    drafts = await executionRepository.find({
+      where: {
+        userId: session.userId,
+        isDraft: true,
+      },
+    });
+    expect(drafts).toHaveLength(1);
+
+    fakeAsanaProvider.seedTasks(workspaceId, projectId, [
+      buildProviderTask({
+        externalId: 'DRAFT-1',
+        title: 'Backend fix one updated',
+        updatedAt: '2026-03-20T11:00:00.000Z',
+      }),
+    ]);
+
+    run = await startAndAwaitSync(session);
+    expect(run.status).toBe('completed');
+
+    drafts = await executionRepository.find({
+      where: {
+        userId: session.userId,
+        isDraft: true,
+      },
+      order: {
+        createdAt: 'ASC',
+      },
+    });
+    expect(drafts).toHaveLength(2);
+    expect(drafts[0]?.draftStatus).toBe('superseded');
+    expect(drafts[1]?.draftStatus).toBe('ready');
+
+    tasksResponse = await app.inject({
+      method: 'GET',
+      url: '/api/tasks?provider=asana',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    expect(tasksResponse.statusCode).toBe(200);
+    expect(
+      tasksResponse
+        .json<{
+          items: Array<{
+            draftExecutionId: string | null;
+            draftStatus: string | null;
+            automationState: string;
+          }>;
+        }>()
+        .items.at(0),
+    ).toEqual(
+      expect.objectContaining({
+        draftExecutionId: drafts[1]?.id ?? null,
+        draftStatus: 'ready',
+        automationState: 'drafted',
+      }),
+    );
   });
 
   it('repository defaults API should drive suggested repository priority (project > workspace > provider)', async () => {

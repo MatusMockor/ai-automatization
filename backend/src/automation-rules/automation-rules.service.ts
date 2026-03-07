@@ -15,6 +15,7 @@ import { CreateAutomationRuleDto } from './dto/create-automation-rule.dto';
 import { UpdateAutomationRuleDto } from './dto/update-automation-rule.dto';
 import {
   AutomationRule,
+  AutomationRuleMode,
   AutomationRuleScopeType,
 } from './entities/automation-rule.entity';
 
@@ -22,7 +23,8 @@ export type AutomationRuleMatch = {
   ruleId: string;
   ruleName: string;
   repositoryId: string;
-  suggestedAction: ExecutionAction | null;
+  mode: AutomationRuleMode;
+  executionAction: ExecutionAction | null;
 };
 
 type TaskSnapshotLike = Pick<SyncedTask, 'provider' | 'title' | 'status'> & {
@@ -89,8 +91,11 @@ export class AutomationRulesService {
       titleContains: dto.titleContains ?? null,
       taskStatuses: dto.taskStatuses ?? null,
       repositoryId: dto.repositoryId,
-      suggestedAction: dto.suggestedAction ?? null,
+      mode: dto.mode ?? 'suggest',
+      suggestedAction: this.resolveExecutionAction(dto),
     });
+
+    this.validateModeAndAction(rule.mode, rule.suggestedAction);
 
     const savedRule = await this.automationRulesRepository.save(rule);
     return this.mapToResponse(savedRule);
@@ -121,6 +126,9 @@ export class AutomationRulesService {
     if (dto.provider !== undefined) {
       rule.provider = dto.provider;
     }
+    if (dto.mode !== undefined) {
+      rule.mode = dto.mode;
+    }
     if (dto.scopeType !== undefined) {
       rule.scopeType = dto.scopeType ?? null;
     }
@@ -140,8 +148,11 @@ export class AutomationRulesService {
       );
       rule.repositoryId = dto.repositoryId;
     }
-    if (dto.suggestedAction !== undefined) {
-      rule.suggestedAction = dto.suggestedAction ?? null;
+    if (
+      dto.executionAction !== undefined ||
+      dto.suggestedAction !== undefined
+    ) {
+      rule.suggestedAction = this.resolveExecutionAction(dto);
     }
 
     this.validateScopeCompatibility(
@@ -149,6 +160,7 @@ export class AutomationRulesService {
       rule.scopeType,
       rule.scopeId,
     );
+    this.validateModeAndAction(rule.mode, rule.suggestedAction);
 
     const savedRule = await this.automationRulesRepository.save(rule);
     return this.mapToResponse(savedRule);
@@ -178,7 +190,8 @@ export class AutomationRulesService {
         ruleId: rule.id,
         ruleName: rule.name,
         repositoryId: rule.repositoryId,
-        suggestedAction: rule.suggestedAction,
+        mode: rule.mode,
+        executionAction: rule.suggestedAction,
       };
     }
 
@@ -279,6 +292,17 @@ export class AutomationRulesService {
     }
   }
 
+  private validateModeAndAction(
+    mode: AutomationRuleMode,
+    executionAction: ExecutionAction | null,
+  ): void {
+    if (mode === 'draft' && executionAction === null) {
+      throw new BadRequestException(
+        'executionAction is required when mode is draft',
+      );
+    }
+  }
+
   private async getOwnedRule(
     userId: string,
     ruleId: string,
@@ -301,13 +325,42 @@ export class AutomationRulesService {
       dto.enabled === undefined &&
       dto.priority === undefined &&
       dto.provider === undefined &&
+      dto.mode === undefined &&
       dto.scopeType === undefined &&
       dto.scopeId === undefined &&
       dto.titleContains === undefined &&
       dto.taskStatuses === undefined &&
       dto.repositoryId === undefined &&
+      dto.executionAction === undefined &&
       dto.suggestedAction === undefined
     );
+  }
+
+  private resolveExecutionAction(
+    dto: Pick<
+      CreateAutomationRuleDto | UpdateAutomationRuleDto,
+      'executionAction' | 'suggestedAction'
+    >,
+  ): ExecutionAction | null {
+    if (
+      dto.executionAction !== undefined &&
+      dto.suggestedAction !== undefined &&
+      dto.executionAction !== dto.suggestedAction
+    ) {
+      throw new BadRequestException(
+        'executionAction and suggestedAction must match when both are provided',
+      );
+    }
+
+    if (dto.executionAction !== undefined) {
+      return dto.executionAction ?? null;
+    }
+
+    if (dto.suggestedAction !== undefined) {
+      return dto.suggestedAction ?? null;
+    }
+
+    return null;
   }
 
   private mapToResponse(rule: AutomationRule): AutomationRuleResponseDto {
@@ -322,6 +375,8 @@ export class AutomationRulesService {
       titleContains: rule.titleContains,
       taskStatuses: rule.taskStatuses,
       repositoryId: rule.repositoryId,
+      mode: rule.mode,
+      executionAction: rule.suggestedAction,
       suggestedAction: rule.suggestedAction,
       createdAt: rule.createdAt,
       updatedAt: rule.updatedAt,

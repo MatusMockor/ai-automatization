@@ -4,9 +4,11 @@ import { Execution } from '../../src/executions/entities/execution.entity';
 import type {
   AutomationStatus,
   ExecutionAction,
+  ExecutionDraftStatus,
   ExecutionOrchestrationState,
   ExecutionRole,
   ExecutionStatus,
+  ExecutionTriggerType,
   ReviewGateStatus,
   TaskSource,
 } from '../../src/executions/interfaces/execution.types';
@@ -26,9 +28,14 @@ type CreateExecutionInput = {
   taskDescription?: string | null;
   taskSource?: TaskSource;
   action?: ExecutionAction;
+  triggerType?: ExecutionTriggerType;
   executionRole?: ExecutionRole;
   parentExecutionId?: string | null;
   rootExecutionId?: string;
+  originRuleId?: string | null;
+  sourceTaskSnapshotUpdatedAt?: Date | null;
+  isDraft?: boolean;
+  draftStatus?: ExecutionDraftStatus | null;
   reviewGateStatus?: ReviewGateStatus;
   reviewPendingDecisionUntil?: Date | null;
   prompt?: string;
@@ -97,10 +104,19 @@ export class ExecutionFactory {
           : input.taskDescription,
       taskSource: input.taskSource ?? 'jira',
       action,
+      triggerType: input.triggerType ?? 'manual',
       executionRole: input.executionRole ?? 'implementation',
       parentExecutionId:
         input.parentExecutionId === undefined ? null : input.parentExecutionId,
       rootExecutionId: input.rootExecutionId ?? faker.string.uuid(),
+      originRuleId:
+        input.originRuleId === undefined ? null : input.originRuleId,
+      sourceTaskSnapshotUpdatedAt:
+        input.sourceTaskSnapshotUpdatedAt === undefined
+          ? null
+          : input.sourceTaskSnapshotUpdatedAt,
+      isDraft: input.isDraft ?? false,
+      draftStatus: input.draftStatus === undefined ? null : input.draftStatus,
       reviewGateStatus: input.reviewGateStatus ?? 'not_applicable',
       reviewPendingDecisionUntil:
         input.reviewPendingDecisionUntil === undefined

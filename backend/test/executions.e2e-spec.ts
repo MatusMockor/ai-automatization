@@ -538,6 +538,67 @@ describe('Executions (e2e)', () => {
     expect(execution.taskSource).toBe('manual');
   });
 
+  it('POST /api/executions/:id/start should start a ready draft execution explicitly', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    const draftExecution = await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      taskId: 'connection-1:asana:DRAFT-100',
+      taskExternalId: 'DRAFT-100',
+      taskTitle: 'Drafted backend fix',
+      taskDescription: 'Prepared from automation rule',
+      taskSource: 'asana',
+      action: 'fix',
+      triggerType: 'automation_rule',
+      originRuleId: faker.string.uuid(),
+      sourceTaskSnapshotUpdatedAt: new Date('2026-03-21T10:00:00.000Z'),
+      isDraft: true,
+      draftStatus: 'ready',
+      status: 'pending',
+      orchestrationState: 'queued',
+      output: '',
+    });
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['draft execution started'],
+      delayMs: 10,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/executions/${draftExecution.id}/start`,
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      response.json<{
+        id: string;
+        isDraft: boolean;
+        draftStatus: string | null;
+        triggerType: string;
+      }>(),
+    ).toEqual(
+      expect.objectContaining({
+        id: draftExecution.id,
+        isDraft: false,
+        draftStatus: null,
+        triggerType: 'automation_rule',
+      }),
+    );
+
+    const startedExecution = await waitForExecution(
+      draftExecution.id,
+      (current) => current.status === 'completed',
+    );
+    expect(startedExecution.isDraft).toBe(false);
+    expect(startedExecution.draftStatus).toBeNull();
+  });
+
   it('POST /api/executions should return 403 when manual task belongs to another user', async () => {
     const owner = await createLoginSession();
     const attacker = await createLoginSession();

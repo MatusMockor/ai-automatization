@@ -10,8 +10,8 @@ describe('AutomationRulesService', () => {
     const automationRulesRepository = {
       find: jest.fn(),
       findOneBy: jest.fn(),
-      create: jest.fn(),
-      save: jest.fn(),
+      create: jest.fn((input: Partial<AutomationRule>) => input),
+      save: jest.fn(async (input: Partial<AutomationRule>) => input),
       remove: jest.fn(),
     } as unknown as jest.Mocked<Repository<AutomationRule>>;
 
@@ -63,6 +63,7 @@ describe('AutomationRulesService', () => {
     taskStatuses: ['open'],
     repositoryId: 'repo-1',
     repository: {} as never,
+    mode: 'suggest',
     suggestedAction: 'fix',
     createdAt: new Date('2026-03-01T10:00:00.000Z'),
     updatedAt: new Date('2026-03-01T10:00:00.000Z'),
@@ -112,7 +113,8 @@ describe('AutomationRulesService', () => {
       ruleId: 'rule-workspace',
       ruleName: 'Rule 1',
       repositoryId: 'repo-1',
-      suggestedAction: 'fix',
+      mode: 'suggest',
+      executionAction: 'fix',
     });
   });
 
@@ -175,7 +177,8 @@ describe('AutomationRulesService', () => {
       ruleId: 'winning-rule',
       ruleName: 'Winning rule',
       repositoryId: 'repo-winning',
-      suggestedAction: 'feature',
+      mode: 'suggest',
+      executionAction: 'feature',
     });
   });
 
@@ -222,7 +225,8 @@ describe('AutomationRulesService', () => {
       ruleId: 'rule-1',
       ruleName: 'Rule 1',
       repositoryId: 'repo-1',
-      suggestedAction: 'fix',
+      mode: 'suggest',
+      executionAction: 'fix',
     });
   });
 
@@ -248,7 +252,8 @@ describe('AutomationRulesService', () => {
       ruleId: 'rule-1',
       ruleName: 'Rule 1',
       repositoryId: 'repo-1',
-      suggestedAction: 'fix',
+      mode: 'suggest',
+      executionAction: 'fix',
     });
   });
 
@@ -262,6 +267,35 @@ describe('AutomationRulesService', () => {
         scopeType: 'asana_project',
         scopeId: 'proj-1',
         repositoryId: '4d5d9f85-8d13-4db8-b84c-6564e1e8ce21',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('requires executionAction when draft mode is used', async () => {
+    const { service, repositoriesService } = createService();
+    repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);
+
+    await expect(
+      service.createForUser('user-1', {
+        name: 'Draft rule without action',
+        provider: 'asana',
+        repositoryId: '4d5d9f85-8d13-4db8-b84c-6564e1e8ce21',
+        mode: 'draft',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects conflicting executionAction and suggestedAction aliases', async () => {
+    const { service, repositoriesService } = createService();
+    repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);
+
+    await expect(
+      service.createForUser('user-1', {
+        name: 'Conflicting aliases',
+        provider: 'asana',
+        repositoryId: '4d5d9f85-8d13-4db8-b84c-6564e1e8ce21',
+        executionAction: 'fix',
+        suggestedAction: 'plan',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });

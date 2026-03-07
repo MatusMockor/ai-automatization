@@ -92,9 +92,13 @@ export class ExecutionWorkerService implements OnModuleInit, OnModuleDestroy {
   private async recoverOrphans(): Promise<void> {
     const candidates = await this.executionRepository.find({
       where: [
-        { orchestrationState: 'queued', status: 'pending' },
-        { orchestrationState: 'running', status: 'running' },
-        { orchestrationState: 'finalizing', status: 'running' },
+        { orchestrationState: 'queued', status: 'pending', isDraft: false },
+        { orchestrationState: 'running', status: 'running', isDraft: false },
+        {
+          orchestrationState: 'finalizing',
+          status: 'running',
+          isDraft: false,
+        },
       ],
       order: { createdAt: 'ASC' },
     });

@@ -1,6 +1,9 @@
 import type { ExecutionAction } from '../../executions/interfaces/execution.types';
 import type { TaskItemStatus } from '../../task-managers/interfaces/task-manager-provider.interface';
-import type { AutomationRuleScopeType } from '../entities/automation-rule.entity';
+import type {
+  AutomationRuleMode,
+  AutomationRuleScopeType,
+} from '../entities/automation-rule.entity';
 
 export class AutomationRuleResponseDto {
   id!: string;
@@ -13,6 +16,8 @@ export class AutomationRuleResponseDto {
   titleContains!: string[] | null;
   taskStatuses!: TaskItemStatus[] | null;
   repositoryId!: string;
+  mode!: AutomationRuleMode;
+  executionAction!: ExecutionAction | null;
   suggestedAction!: ExecutionAction | null;
   createdAt!: Date;
   updatedAt!: Date;

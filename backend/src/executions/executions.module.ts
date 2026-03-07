@@ -84,5 +84,6 @@ import { ComposeServiceCheckRunner } from './pre-commit/runners/compose-service-
       useClass: GithubApiPullRequestsGateway,
     },
   ],
+  exports: [ExecutionsService],
 })
 export class ExecutionsModule {}

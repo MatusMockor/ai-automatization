@@ -37,7 +37,10 @@ export class TaskFeedItemDto {
   matchedRuleId!: string | null;
   matchedRuleName!: string | null;
   suggestedAction!: 'fix' | 'feature' | 'plan' | null;
-  automationState!: 'none' | 'matched';
+  automationMode!: 'suggest' | 'draft' | null;
+  draftExecutionId!: string | null;
+  draftStatus!: 'ready' | 'superseded' | null;
+  automationState!: 'none' | 'matched' | 'drafted';
   hasMultipleScopes!: boolean;
   updatedAt!: string;
 }
