@@ -36,6 +36,10 @@ export type AutomationRuleScopeType =
   `scope_type IS NULL OR scope_type IN ('asana_workspace', 'asana_project', 'jira_project')`,
 )
 @Check(
+  'CHK_automation_rules_provider_scope_compat',
+  `scope_type IS NULL OR (provider = 'asana' AND scope_type IN ('asana_workspace', 'asana_project')) OR (provider = 'jira' AND scope_type = 'jira_project')`,
+)
+@Check(
   'CHK_automation_rules_suggested_action',
   `suggested_action IS NULL OR suggested_action IN ('fix', 'feature', 'plan')`,
 )

@@ -164,6 +164,8 @@ export class AutomationRulesService {
     rules: AutomationRule[],
   ): AutomationRuleMatch | null {
     for (const rule of rules) {
+      // resolveTaskMatch expects rules from listActiveRulesForUser, where
+      // rule.enabled should already be true; keep the extra check for robustness.
       if (!rule.enabled) {
         continue;
       }
