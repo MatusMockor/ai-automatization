@@ -174,7 +174,12 @@ export interface TaskFeedItem {
     | 'asana_workspace'
     | 'jira_project'
     | 'provider_default'
+    | 'automation_rule'
     | null;
+  matchedRuleId: string | null;
+  matchedRuleName: string | null;
+  suggestedAction: ExecutionAction | null;
+  automationState: 'none' | 'matched';
   updatedAt: string;
 }
 
@@ -273,4 +278,50 @@ export interface DeleteRepositoryDefaultRequest {
   provider: TaskManagerProvider;
   scopeType?: RepositoryDefaultScopeType;
   scopeId?: string;
+}
+
+// Automation Rules
+
+export type AutomationRuleScopeType = 'asana_workspace' | 'asana_project' | 'jira_project';
+
+export interface AutomationRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  provider: TaskManagerProvider;
+  scopeType: AutomationRuleScopeType | null;
+  scopeId: string | null;
+  titleContains: string[] | null;
+  taskStatuses: TaskFeedStatus[] | null;
+  repositoryId: string;
+  suggestedAction: ExecutionAction | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAutomationRuleRequest {
+  name: string;
+  provider: TaskManagerProvider;
+  repositoryId: string;
+  enabled?: boolean;
+  priority?: number;
+  scopeType?: AutomationRuleScopeType;
+  scopeId?: string;
+  titleContains?: string[] | null;
+  taskStatuses?: TaskFeedStatus[] | null;
+  suggestedAction?: ExecutionAction | null;
+}
+
+export interface UpdateAutomationRuleRequest {
+  name?: string;
+  enabled?: boolean;
+  priority?: number;
+  provider?: TaskManagerProvider;
+  scopeType?: AutomationRuleScopeType | null;
+  scopeId?: string | null;
+  titleContains?: string[] | null;
+  taskStatuses?: TaskFeedStatus[] | null;
+  repositoryId?: string;
+  suggestedAction?: ExecutionAction | null;
 }

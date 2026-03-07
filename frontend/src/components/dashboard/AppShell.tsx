@@ -10,6 +10,7 @@ import {
   Link2,
   GitBranch,
   ClipboardList,
+  Zap,
   Settings,
 
   LogOut,
@@ -26,6 +27,7 @@ const navItems = [
   { to: '/connections', icon: Link2, label: 'Connections' },
   { to: '/repositories', icon: GitBranch, label: 'Repositories' },
   { to: '/manual-tasks', icon: ClipboardList, label: 'Manual Tasks' },
+  { to: '/automation-rules', icon: Zap, label: 'Automation Rules' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
