@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Repository } from 'typeorm';
+import { ExecutionsService } from '../executions/executions.service';
 import { RepositoriesService } from '../repositories/repositories.service';
 import { SyncedTaskScope } from '../tasks/entities/synced-task-scope.entity';
 import { AutomationRulesService } from './automation-rules.service';
@@ -19,15 +20,21 @@ describe('AutomationRulesService', () => {
       assertOwnedRepository: jest.fn(),
     } as unknown as jest.Mocked<RepositoriesService>;
 
+    const executionsService = {
+      supersedeReadyDraftsForRule: jest.fn(),
+    } as unknown as jest.Mocked<ExecutionsService>;
+
     const service = new AutomationRulesService(
       automationRulesRepository,
       repositoriesService,
+      executionsService,
     );
 
     return {
       service,
       automationRulesRepository,
       repositoriesService,
+      executionsService,
     };
   };
 
@@ -298,5 +305,74 @@ describe('AutomationRulesService', () => {
         suggestedAction: 'plan',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('supersedes ready drafts when a rule update changes execution semantics', async () => {
+    const {
+      service,
+      automationRulesRepository,
+      repositoriesService,
+      executionsService,
+    } = createService();
+    const rule = createRule();
+
+    automationRulesRepository.findOneBy.mockResolvedValue(rule);
+    repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);
+    automationRulesRepository.save.mockImplementation(
+      async (input: Partial<AutomationRule>) =>
+        ({
+          ...rule,
+          ...input,
+        }) as AutomationRule,
+    );
+
+    await service.updateForUser('user-1', rule.id, {
+      repositoryId: 'repo-2',
+    });
+
+    expect(executionsService.supersedeReadyDraftsForRule).toHaveBeenCalledWith(
+      'user-1',
+      rule.id,
+    );
+  });
+
+  it('does not supersede ready drafts when a rule rename keeps semantics unchanged', async () => {
+    const { service, automationRulesRepository, executionsService } =
+      createService();
+    const rule = createRule();
+
+    automationRulesRepository.findOneBy.mockResolvedValue(rule);
+    automationRulesRepository.save.mockImplementation(
+      async (input: Partial<AutomationRule>) =>
+        ({
+          ...rule,
+          ...input,
+        }) as AutomationRule,
+    );
+
+    await service.updateForUser('user-1', rule.id, {
+      name: 'Renamed rule',
+    });
+
+    expect(
+      executionsService.supersedeReadyDraftsForRule,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('supersedes ready drafts before deleting a rule', async () => {
+    const { service, automationRulesRepository, executionsService } =
+      createService();
+    const rule = createRule();
+
+    automationRulesRepository.findOneBy.mockResolvedValue(rule);
+    automationRulesRepository.remove.mockResolvedValue(rule);
+
+    await service.deleteForUser('user-1', rule.id);
+
+    expect(executionsService.supersedeReadyDraftsForRule).toHaveBeenCalledWith(
+      'user-1',
+      rule.id,
+    );
+    expect(automationRulesRepository.remove).toHaveBeenCalledWith(rule);
   });
 });

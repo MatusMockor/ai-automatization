@@ -47,6 +47,18 @@ type AggregatedTask = {
   >;
 };
 
+type SyncedTaskFeedIdentity = Pick<
+  SyncedTask,
+  'connectionId' | 'provider' | 'externalId'
+>;
+
+type SyncConnectionResult = {
+  tasksUpserted: number;
+  tasksDeleted: number;
+  taskIds: string[];
+  deletedTaskFeedIds: string[];
+};
+
 @Injectable()
 export class TaskSyncService {
   private readonly logger = new Logger(TaskSyncService.name);
@@ -365,6 +377,7 @@ export class TaskSyncService {
       let connectionsDone = 0;
       const connectionErrors: string[] = [];
       const changedTaskIds = new Set<string>();
+      const deletedTaskFeedIds = new Set<string>();
 
       for (const connection of connections) {
         try {
@@ -373,6 +386,9 @@ export class TaskSyncService {
           tasksDeleted += synced.tasksDeleted;
           for (const taskId of synced.taskIds) {
             changedTaskIds.add(taskId);
+          }
+          for (const taskId of synced.deletedTaskFeedIds) {
+            deletedTaskFeedIds.add(taskId);
           }
 
           await this.connectionRepository.update(
@@ -417,6 +433,13 @@ export class TaskSyncService {
         );
       }
 
+      if (deletedTaskFeedIds.size > 0) {
+        await this.taskAutomationOrchestratorService.supersedeDraftsForTaskIds(
+          run.userId,
+          [...deletedTaskFeedIds],
+        );
+      }
+
       await this.taskSyncRunRepository.update(
         { id: run.id },
         {
@@ -443,11 +466,9 @@ export class TaskSyncService {
     }
   }
 
-  private async syncConnection(connection: TaskManagerConnection): Promise<{
-    tasksUpserted: number;
-    tasksDeleted: number;
-    taskIds: string[];
-  }> {
+  private async syncConnection(
+    connection: TaskManagerConnection,
+  ): Promise<SyncConnectionResult> {
     const config = this.toConnectionConfig(connection);
     const providerType = this.toProviderType(connection.provider);
     const provider = this.providerRegistry.getProvider(providerType);
@@ -471,8 +492,9 @@ export class TaskSyncService {
 
       return {
         tasksUpserted: 0,
-        tasksDeleted: deleted,
+        tasksDeleted: deleted.count,
         taskIds: [],
+        deletedTaskFeedIds: deleted.taskFeedIds,
       };
     }
 
@@ -513,8 +535,9 @@ export class TaskSyncService {
 
     return {
       tasksUpserted: upsertRows.length,
-      tasksDeleted: deleted,
+      tasksDeleted: deleted.count,
       taskIds: persistedTasks.map((task) => task.id),
+      deletedTaskFeedIds: deleted.taskFeedIds,
     };
   }
 
@@ -635,7 +658,7 @@ export class TaskSyncService {
     >,
     externalIds: string[],
     tasksByExternalId: Map<string, AggregatedTask>,
-  ): Promise<number> {
+  ): Promise<{ count: number; taskFeedIds: string[] }> {
     const syncedTaskRepository = manager.getRepository(SyncedTask);
     const syncedTaskScopeRepository = manager.getRepository(SyncedTaskScope);
 
@@ -778,24 +801,75 @@ export class TaskSyncService {
   private async deleteAllTasksForConnection(
     syncedTaskRepository: Repository<SyncedTask>,
     connectionId: string,
-  ): Promise<number> {
+  ): Promise<{ count: number; taskFeedIds: string[] }> {
+    const deletedTasks = await syncedTaskRepository.find({
+      where: { connectionId },
+      select: {
+        connectionId: true,
+        provider: true,
+        externalId: true,
+      },
+    });
+
     const result = await syncedTaskRepository.delete({ connectionId });
-    return result.affected ?? 0;
+
+    return {
+      count: result.affected ?? 0,
+      taskFeedIds: deletedTasks.map((task) => this.buildTaskFeedId(task)),
+    };
   }
 
   private async deleteStaleTasks(
     syncedTaskRepository: Repository<SyncedTask>,
     connectionId: string,
     syncTimestamp: Date,
-  ): Promise<number> {
-    const result = await syncedTaskRepository
-      .createQueryBuilder()
-      .delete()
-      .where('"connection_id" = :connectionId', { connectionId })
-      .andWhere('"last_synced_at" < :syncTimestamp', { syncTimestamp })
-      .execute();
+  ): Promise<{ count: number; taskFeedIds: string[] }> {
+    const staleTasks = await syncedTaskRepository.find({
+      where: {
+        connectionId,
+      },
+      select: {
+        id: true,
+        connectionId: true,
+        provider: true,
+        externalId: true,
+        lastSyncedAt: true,
+      },
+    });
+    const staleTaskRows = staleTasks.filter((task) => {
+      const lastSyncedAt =
+        task.lastSyncedAt instanceof Date
+          ? task.lastSyncedAt
+          : task.lastSyncedAt
+            ? new Date(task.lastSyncedAt)
+            : null;
 
-    return result.affected ?? 0;
+      return (
+        lastSyncedAt !== null &&
+        Number.isFinite(lastSyncedAt.getTime()) &&
+        lastSyncedAt.getTime() < syncTimestamp.getTime()
+      );
+    });
+
+    if (staleTaskRows.length === 0) {
+      return {
+        count: 0,
+        taskFeedIds: [],
+      };
+    }
+
+    const result = await syncedTaskRepository.delete({
+      id: In(staleTaskRows.map((task) => task.id)),
+    });
+
+    return {
+      count: result.affected ?? 0,
+      taskFeedIds: staleTaskRows.map((task) => this.buildTaskFeedId(task)),
+    };
+  }
+
+  private buildTaskFeedId(task: SyncedTaskFeedIdentity): string {
+    return `${task.connectionId}:${task.provider}:${task.externalId}`;
   }
 
   private toConnectionConfig(

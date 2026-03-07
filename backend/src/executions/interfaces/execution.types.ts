@@ -2,6 +2,8 @@ export type ExecutionAction = 'fix' | 'feature' | 'plan';
 export type ExecutionRole = 'implementation' | 'review' | 'remediation';
 export type ExecutionTriggerType = 'manual' | 'automation_rule' | 'schedule';
 export type ExecutionDraftStatus = 'ready' | 'superseded';
+export type TaskAutomationMode = 'suggest' | 'draft';
+export type TaskAutomationState = 'none' | 'matched' | 'drafted';
 
 export type ExecutionStatus =
   | 'pending'

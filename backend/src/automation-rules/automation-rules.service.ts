@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { ExecutionAction } from '../executions/interfaces/execution.types';
+import { ExecutionsService } from '../executions/executions.service';
 import { RepositoriesService } from '../repositories/repositories.service';
 import type { TaskItemStatus } from '../task-managers/interfaces/task-manager-provider.interface';
 import { SyncedTaskScope } from '../tasks/entities/synced-task-scope.entity';
@@ -37,6 +38,7 @@ export class AutomationRulesService {
     @InjectRepository(AutomationRule)
     private readonly automationRulesRepository: Repository<AutomationRule>,
     private readonly repositoriesService: RepositoriesService,
+    private readonly executionsService: ExecutionsService,
   ) {}
 
   async listForUser(userId: string): Promise<AutomationRuleResponseDto[]> {
@@ -113,6 +115,7 @@ export class AutomationRulesService {
     }
 
     const rule = await this.getOwnedRule(userId, ruleId);
+    const previousRule = this.cloneRule(rule);
 
     if (dto.name !== undefined) {
       rule.name = dto.name;
@@ -163,11 +166,19 @@ export class AutomationRulesService {
     this.validateModeAndAction(rule.mode, rule.suggestedAction);
 
     const savedRule = await this.automationRulesRepository.save(rule);
+    if (this.shouldSupersedeDrafts(previousRule, savedRule)) {
+      await this.executionsService.supersedeReadyDraftsForRule(
+        userId,
+        savedRule.id,
+      );
+    }
+
     return this.mapToResponse(savedRule);
   }
 
   async deleteForUser(userId: string, ruleId: string): Promise<void> {
     const rule = await this.getOwnedRule(userId, ruleId);
+    await this.executionsService.supersedeReadyDraftsForRule(userId, rule.id);
     await this.automationRulesRepository.remove(rule);
   }
 
@@ -317,6 +328,52 @@ export class AutomationRulesService {
     }
 
     return rule;
+  }
+
+  private cloneRule(rule: AutomationRule): AutomationRule {
+    return {
+      ...rule,
+      titleContains: rule.titleContains ? [...rule.titleContains] : null,
+      taskStatuses: rule.taskStatuses ? [...rule.taskStatuses] : null,
+    };
+  }
+
+  private shouldSupersedeDrafts(
+    previousRule: AutomationRule,
+    nextRule: AutomationRule,
+  ): boolean {
+    return (
+      previousRule.enabled !== nextRule.enabled ||
+      previousRule.provider !== nextRule.provider ||
+      previousRule.scopeType !== nextRule.scopeType ||
+      previousRule.scopeId !== nextRule.scopeId ||
+      previousRule.repositoryId !== nextRule.repositoryId ||
+      previousRule.mode !== nextRule.mode ||
+      previousRule.suggestedAction !== nextRule.suggestedAction ||
+      !this.areStringArraysEqual(
+        previousRule.titleContains,
+        nextRule.titleContains,
+      ) ||
+      !this.areStringArraysEqual(
+        previousRule.taskStatuses,
+        nextRule.taskStatuses,
+      )
+    );
+  }
+
+  private areStringArraysEqual(
+    left: string[] | null,
+    right: string[] | null,
+  ): boolean {
+    if (left === null || right === null) {
+      return left === right;
+    }
+
+    if (left.length !== right.length) {
+      return false;
+    }
+
+    return left.every((value, index) => value === right[index]);
   }
 
   private isPatchEmpty(dto: UpdateAutomationRuleDto): boolean {

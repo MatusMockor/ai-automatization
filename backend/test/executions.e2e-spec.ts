@@ -599,6 +599,77 @@ describe('Executions (e2e)', () => {
     expect(startedExecution.draftStatus).toBeNull();
   });
 
+  it('POST /api/executions/:id/start should return 404 for a draft owned by another user', async () => {
+    const owner = await createLoginSession();
+    const attacker = await createLoginSession();
+    const repository = await createRunnableRepository(owner.userId);
+
+    const draftExecution = await executionFactory.create({
+      userId: owner.userId,
+      repositoryId: repository.id,
+      taskId: 'connection-1:jira:DRAFT-404',
+      taskExternalId: 'DRAFT-404',
+      taskTitle: 'Foreign draft',
+      taskSource: 'jira',
+      action: 'fix',
+      triggerType: 'automation_rule',
+      originRuleId: faker.string.uuid(),
+      sourceTaskSnapshotUpdatedAt: new Date('2026-03-21T11:00:00.000Z'),
+      isDraft: true,
+      draftStatus: 'ready',
+      status: 'pending',
+      orchestrationState: 'queued',
+      output: '',
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/executions/${draftExecution.id}/start`,
+      headers: { authorization: `Bearer ${attacker.accessToken}` },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('POST /api/executions/:id/start should return 409 for a superseded draft', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+
+    const draftExecution = await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      taskId: 'connection-1:asana:DRAFT-409',
+      taskExternalId: 'DRAFT-409',
+      taskTitle: 'Superseded draft',
+      taskSource: 'asana',
+      action: 'fix',
+      triggerType: 'automation_rule',
+      originRuleId: faker.string.uuid(),
+      sourceTaskSnapshotUpdatedAt: new Date('2026-03-21T12:00:00.000Z'),
+      isDraft: true,
+      draftStatus: 'superseded',
+      status: 'pending',
+      orchestrationState: 'queued',
+      output: '',
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/executions/${draftExecution.id}/start`,
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+
+    expect(response.statusCode).toBe(409);
+
+    const persistedDraft = await dataSource
+      .getRepository(Execution)
+      .findOneByOrFail({ id: draftExecution.id });
+    expect(persistedDraft.isDraft).toBe(true);
+    expect(persistedDraft.draftStatus).toBe('superseded');
+    expect(persistedDraft.status).toBe('pending');
+  });
+
   it('POST /api/executions should return 403 when manual task belongs to another user', async () => {
     const owner = await createLoginSession();
     const attacker = await createLoginSession();
@@ -1335,6 +1406,16 @@ describe('Executions (e2e)', () => {
       });
     }
     await executionFactory.create({
+      userId: owner.userId,
+      repositoryId: ownerRepo.id,
+      isDraft: true,
+      draftStatus: 'ready',
+      triggerType: 'automation_rule',
+      status: 'pending',
+      orchestrationState: 'queued',
+      output: '',
+    });
+    await executionFactory.create({
       userId: other.userId,
       repositoryId: otherRepo.id,
     });
@@ -1352,6 +1433,7 @@ describe('Executions (e2e)', () => {
         publishPullRequest: boolean;
         requireCodeChanges: boolean;
         implementationAttempts: number;
+        isDraft: boolean;
       }>
     >();
     expect(body).toHaveLength(2);
@@ -1359,6 +1441,7 @@ describe('Executions (e2e)', () => {
     expect(body.every((item) => item.publishPullRequest)).toBe(true);
     expect(body.every((item) => item.requireCodeChanges)).toBe(true);
     expect(body.every((item) => item.implementationAttempts >= 1)).toBe(true);
+    expect(body.every((item) => item.isDraft === false)).toBe(true);
   });
 
   it('GET /api/executions/:id should include publication and implementation fields', async () => {

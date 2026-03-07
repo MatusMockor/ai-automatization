@@ -319,8 +319,8 @@ export class ExecutionsService {
     const executions = await this.executionsRepository.find({
       where: {
         userId,
+        isDraft: query.isDraft ?? false,
         ...(query.triggerType ? { triggerType: query.triggerType } : {}),
-        ...(query.isDraft !== undefined ? { isDraft: query.isDraft } : {}),
       },
       order: { createdAt: 'DESC' },
       take: limit,
@@ -551,17 +551,48 @@ export class ExecutionsService {
     userId: string,
     taskId: string,
   ): Promise<number> {
-    const result = await this.executionsRepository.update(
-      {
-        userId,
-        taskId,
-        isDraft: true,
-        draftStatus: 'ready',
-      },
-      {
-        draftStatus: 'superseded',
-      },
-    );
+    return this.supersedeReadyDraftsForTaskIds(userId, [taskId]);
+  }
+
+  async supersedeReadyDraftsForTaskIds(
+    userId: string,
+    taskIds: string[],
+  ): Promise<number> {
+    const normalizedTaskIds = [...new Set(taskIds)];
+    if (normalizedTaskIds.length === 0) {
+      return 0;
+    }
+
+    const result = await this.executionsRepository
+      .createQueryBuilder()
+      .update(Execution)
+      .set({
+        draftStatus: 'superseded' satisfies ExecutionDraftStatus,
+      })
+      .where('user_id = :userId', { userId })
+      .andWhere('task_id IN (:...taskIds)', { taskIds: normalizedTaskIds })
+      .andWhere('is_draft = :isDraft', { isDraft: true })
+      .andWhere('draft_status = :draftStatus', { draftStatus: 'ready' })
+      .execute();
+
+    return result.affected ?? 0;
+  }
+
+  async supersedeReadyDraftsForRule(
+    userId: string,
+    ruleId: string,
+  ): Promise<number> {
+    const result = await this.executionsRepository
+      .createQueryBuilder()
+      .update(Execution)
+      .set({
+        draftStatus: 'superseded' satisfies ExecutionDraftStatus,
+      })
+      .where('user_id = :userId', { userId })
+      .andWhere('origin_rule_id = :ruleId', { ruleId })
+      .andWhere('is_draft = :isDraft', { isDraft: true })
+      .andWhere('draft_status = :draftStatus', { draftStatus: 'ready' })
+      .execute();
 
     return result.affected ?? 0;
   }

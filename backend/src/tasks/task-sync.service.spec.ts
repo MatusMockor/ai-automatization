@@ -48,6 +48,7 @@ describe('TaskSyncService', () => {
 
     const taskAutomationOrchestratorService = {
       processSyncedTasks: jest.fn(),
+      supersedeDraftsForTaskIds: jest.fn(),
     } as unknown as jest.Mocked<TaskAutomationOrchestratorService>;
 
     const configService = {
@@ -180,6 +181,55 @@ describe('TaskSyncService', () => {
     });
     expect(taskSyncRunRepository.create).not.toHaveBeenCalled();
     expect(taskSyncRunRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('hands changed and deleted task ids to the automation orchestrator after a sync run', async () => {
+    const {
+      service,
+      connectionRepository,
+      taskAutomationOrchestratorService,
+      taskSyncRunRepository,
+    } = createService();
+
+    taskSyncRunRepository.findOne.mockResolvedValue({
+      id: 'run-1',
+      userId: 'user-1',
+      provider: 'asana',
+      triggerType: 'manual',
+      status: 'queued',
+      connectionsTotal: 0,
+      connectionsDone: 0,
+      tasksUpserted: 0,
+      tasksDeleted: 0,
+      errorMessage: null,
+      startedAt: null,
+      finishedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as TaskSyncRun);
+    connectionRepository.find.mockResolvedValue([
+      {
+        id: 'connection-1',
+        userId: 'user-1',
+        provider: 'asana',
+        createdAt: new Date(),
+      } as TaskManagerConnection,
+    ]);
+    jest.spyOn(service as any, 'syncConnection').mockResolvedValue({
+      tasksUpserted: 2,
+      tasksDeleted: 1,
+      taskIds: ['task-db-1', 'task-db-2'],
+      deletedTaskFeedIds: ['connection-1:asana:TASK-3'],
+    });
+
+    await (service as any).executeRun('run-1', 'asana');
+
+    expect(
+      taskAutomationOrchestratorService.processSyncedTasks,
+    ).toHaveBeenCalledWith('user-1', ['task-db-1', 'task-db-2']);
+    expect(
+      taskAutomationOrchestratorService.supersedeDraftsForTaskIds,
+    ).toHaveBeenCalledWith('user-1', ['connection-1:asana:TASK-3']);
   });
 
   it('lists scopes grouped by provider', async () => {

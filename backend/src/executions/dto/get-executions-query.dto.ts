@@ -1,6 +1,9 @@
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, Min } from 'class-validator';
-import { parseOptionalInteger } from '../../common/utils/parse.utils';
+import {
+  parseOptionalBoolean,
+  parseOptionalInteger,
+} from '../../common/utils/parse.utils';
 import type { ExecutionTriggerType } from '../interfaces/execution.types';
 
 const toOptionalInteger = (value: unknown): unknown => {
@@ -10,25 +13,9 @@ const toOptionalInteger = (value: unknown): unknown => {
 };
 
 const toOptionalBoolean = (value: unknown): unknown => {
-  if (value === undefined || value === null || value === '') {
-    return undefined;
-  }
-
-  if (typeof value === 'boolean') {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === 'true') {
-      return true;
-    }
-    if (normalized === 'false') {
-      return false;
-    }
-  }
-
-  return value;
+  return parseOptionalBoolean(value, {
+    nullAsUndefined: true,
+  });
 };
 
 export class GetExecutionsQueryDto {
@@ -38,7 +25,6 @@ export class GetExecutionsQueryDto {
   @Min(1)
   limit?: number;
 
-  @Transform(({ value }: { value: unknown }) => value)
   @IsOptional()
   @IsIn(['manual', 'automation_rule', 'schedule'])
   triggerType?: ExecutionTriggerType;

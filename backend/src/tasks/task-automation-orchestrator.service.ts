@@ -83,6 +83,21 @@ export class TaskAutomationOrchestratorService {
     }
   }
 
+  async supersedeDraftsForTaskIds(
+    userId: string,
+    taskIds: string[],
+  ): Promise<void> {
+    const normalizedTaskIds = [...new Set(taskIds)];
+    if (normalizedTaskIds.length === 0) {
+      return;
+    }
+
+    await this.executionsService.supersedeReadyDraftsForTaskIds(
+      userId,
+      normalizedTaskIds,
+    );
+  }
+
   private buildTaskFeedId(
     task: Pick<SyncedTask, 'connectionId' | 'provider' | 'externalId'>,
   ): string {

@@ -1,4 +1,10 @@
 import type {
+  ExecutionAction,
+  ExecutionDraftStatus,
+  TaskAutomationMode,
+  TaskAutomationState,
+} from '../../executions/interfaces/execution.types';
+import type {
   TaskItemStatus,
   TaskManagerProviderType,
 } from '../../task-managers/interfaces/task-manager-provider.interface';
@@ -36,11 +42,11 @@ export class TaskFeedItemDto {
     | null;
   matchedRuleId!: string | null;
   matchedRuleName!: string | null;
-  suggestedAction!: 'fix' | 'feature' | 'plan' | null;
-  automationMode!: 'suggest' | 'draft' | null;
+  suggestedAction!: ExecutionAction | null;
+  automationMode!: TaskAutomationMode | null;
   draftExecutionId!: string | null;
-  draftStatus!: 'ready' | 'superseded' | null;
-  automationState!: 'none' | 'matched' | 'drafted';
+  draftStatus!: ExecutionDraftStatus | null;
+  automationState!: TaskAutomationState;
   hasMultipleScopes!: boolean;
   updatedAt!: string;
 }

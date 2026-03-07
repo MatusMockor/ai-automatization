@@ -1,4 +1,8 @@
 import { TransformFnParams } from 'class-transformer';
+import {
+  parseOptionalBoolean,
+  parseOptionalInteger,
+} from '../../common/utils/parse.utils';
 
 export const AUTOMATION_RULE_SCOPE_TYPES = [
   'asana_workspace',
@@ -44,42 +48,11 @@ export const normalizeNullableString = (
 };
 
 export const toOptionalInteger = (value: unknown): unknown => {
-  if (value === undefined || value === null || value === '') {
-    return value === null ? null : undefined;
-  }
-
-  if (typeof value !== 'string') {
-    return value;
-  }
-
-  const normalized = value.trim();
-  if (normalized.length === 0) {
-    return undefined;
-  }
-
-  if (!/^[+-]?\d+$/.test(normalized)) {
-    return value;
-  }
-
-  return Number.parseInt(normalized, 10);
+  return parseOptionalInteger(value);
 };
 
 export const toOptionalBoolean = (value: unknown): boolean | unknown => {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === 'true') {
-      return true;
-    }
-    if (normalized === 'false') {
-      return false;
-    }
-  }
-
-  return value;
+  return parseOptionalBoolean(value) as boolean | unknown;
 };
 
 export const normalizeStringArray = (

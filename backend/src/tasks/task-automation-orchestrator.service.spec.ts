@@ -21,6 +21,7 @@ describe('TaskAutomationOrchestratorService', () => {
     const executionsService = {
       createOrRefreshDraftForTask: jest.fn(),
       supersedeReadyDraftsForTask: jest.fn(),
+      supersedeReadyDraftsForTaskIds: jest.fn(),
     } as unknown as jest.Mocked<ExecutionsService>;
 
     const service = new TaskAutomationOrchestratorService(
@@ -117,6 +118,32 @@ describe('TaskAutomationOrchestratorService', () => {
       mode: 'suggest',
       executionAction: 'fix',
     });
+
+    await service.processSyncedTasks('user-1', ['task-db-1']);
+
+    expect(executionsService.supersedeReadyDraftsForTask).toHaveBeenCalledWith(
+      'user-1',
+      'connection-1:asana:TASK-1',
+    );
+    expect(
+      executionsService.createOrRefreshDraftForTask,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('supersedes drafts when a synced task no longer matches any active rule', async () => {
+    const {
+      service,
+      syncedTaskRepository,
+      automationRulesService,
+      executionsService,
+    } = createService();
+    const task = createTask();
+
+    syncedTaskRepository.find.mockResolvedValue([task]);
+    automationRulesService.listActiveRulesForUser.mockResolvedValue(
+      [] as never,
+    );
+    automationRulesService.resolveTaskMatch.mockReturnValue(null);
 
     await service.processSyncedTasks('user-1', ['task-db-1']);
 

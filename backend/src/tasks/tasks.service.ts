@@ -8,6 +8,10 @@ import {
   ExecutionDraftLookupItem,
   ExecutionsService,
 } from '../executions/executions.service';
+import type {
+  ExecutionDraftStatus,
+  TaskAutomationState,
+} from '../executions/interfaces/execution.types';
 import { RepositoriesService } from '../repositories/repositories.service';
 import { TaskManagersService } from '../task-managers/task-managers.service';
 import type { TaskManagerProviderType } from '../task-managers/interfaces/task-manager-provider.interface';
@@ -413,8 +417,8 @@ export class TasksService {
     >,
   ): {
     executionId: string | null;
-    status: 'ready' | 'superseded' | null;
-    automationState: 'none' | 'matched' | 'drafted';
+    status: ExecutionDraftStatus | null;
+    automationState: TaskAutomationState;
   } {
     if (!automationMatch) {
       return {

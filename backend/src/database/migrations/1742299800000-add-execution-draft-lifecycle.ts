@@ -5,11 +5,13 @@ import {
   TableColumn,
   TableIndex,
 } from 'typeorm';
+import { getTimestampColumnType } from '../../common/utils/database-column.utils';
 
 export class AddExecutionDraftLifecycle1742299800000 implements MigrationInterface {
   name = 'AddExecutionDraftLifecycle1742299800000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    const timestampType = getTimestampColumnType();
     const table = await queryRunner.getTable('executions');
     if (!table) {
       return;
@@ -32,7 +34,7 @@ export class AddExecutionDraftLifecycle1742299800000 implements MigrationInterfa
       !table.findColumnByName('source_task_snapshot_updated_at') &&
         new TableColumn({
           name: 'source_task_snapshot_updated_at',
-          type: 'timestamptz',
+          type: timestampType,
           isNullable: true,
         }),
       !table.findColumnByName('is_draft') &&

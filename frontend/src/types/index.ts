@@ -1,6 +1,9 @@
 export type TaskSource = 'jira' | 'asana' | 'manual';
 export type TaskStatus = 'open' | 'in_progress' | 'done' | 'closed';
 export type ExecutionAction = 'fix' | 'feature' | 'plan';
+export type ExecutionDraftStatus = 'ready' | 'superseded';
+export type AutomationRuleMode = 'suggest' | 'draft';
+export type TaskAutomationState = 'none' | 'matched' | 'drafted';
 export type ExecutionRole = 'implementation' | 'review' | 'remediation';
 export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type ExecutionOrchestrationState = 'queued' | 'running' | 'finalizing' | 'awaiting_review_decision' | 'done' | 'failed';
@@ -179,7 +182,10 @@ export interface TaskFeedItem {
   matchedRuleId: string | null;
   matchedRuleName: string | null;
   suggestedAction: ExecutionAction | null;
-  automationState: 'none' | 'matched';
+  automationMode: AutomationRuleMode | null;
+  draftExecutionId: string | null;
+  draftStatus: ExecutionDraftStatus | null;
+  automationState: TaskAutomationState;
   updatedAt: string;
 }
 
@@ -295,6 +301,8 @@ export interface AutomationRule {
   titleContains: string[] | null;
   taskStatuses: TaskFeedStatus[] | null;
   repositoryId: string;
+  mode: AutomationRuleMode;
+  executionAction: ExecutionAction | null;
   suggestedAction: ExecutionAction | null;
   createdAt: string;
   updatedAt: string;
@@ -310,6 +318,8 @@ export interface CreateAutomationRuleRequest {
   scopeId?: string;
   titleContains?: string[] | null;
   taskStatuses?: TaskFeedStatus[] | null;
+  mode?: AutomationRuleMode;
+  executionAction?: ExecutionAction | null;
   suggestedAction?: ExecutionAction | null;
 }
 
@@ -323,5 +333,7 @@ export interface UpdateAutomationRuleRequest {
   titleContains?: string[] | null;
   taskStatuses?: TaskFeedStatus[] | null;
   repositoryId?: string;
+  mode?: AutomationRuleMode;
+  executionAction?: ExecutionAction | null;
   suggestedAction?: ExecutionAction | null;
 }
