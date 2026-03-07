@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AutomationRulesModule } from '../automation-rules/automation-rules.module';
 import { RepositoriesModule } from '../repositories/repositories.module';
 import { EncryptionModule } from '../common/encryption/encryption.module';
 import { UserSettings } from '../settings/entities/user-settings.entity';
@@ -17,6 +18,7 @@ import { TasksService } from './tasks.service';
 
 @Module({
   imports: [
+    AutomationRulesModule,
     TaskManagersModule,
     RepositoriesModule,
     EncryptionModule,

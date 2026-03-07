@@ -1,0 +1,216 @@
+import { BadRequestException } from '@nestjs/common';
+import { Repository } from 'typeorm';
+import { RepositoriesService } from '../repositories/repositories.service';
+import { SyncedTaskScope } from '../tasks/entities/synced-task-scope.entity';
+import { AutomationRulesService } from './automation-rules.service';
+import { AutomationRule } from './entities/automation-rule.entity';
+
+describe('AutomationRulesService', () => {
+  const createService = () => {
+    const automationRulesRepository = {
+      find: jest.fn(),
+      findOneBy: jest.fn(),
+      create: jest.fn(),
+      save: jest.fn(),
+      remove: jest.fn(),
+    } as unknown as jest.Mocked<Repository<AutomationRule>>;
+
+    const repositoriesService = {
+      assertOwnedRepository: jest.fn(),
+    } as unknown as jest.Mocked<RepositoriesService>;
+
+    const service = new AutomationRulesService(
+      automationRulesRepository,
+      repositoriesService,
+    );
+
+    return {
+      service,
+      automationRulesRepository,
+      repositoriesService,
+    };
+  };
+
+  const createTaskScope = (
+    overrides: Partial<SyncedTaskScope> = {},
+  ): SyncedTaskScope => ({
+    id: 'scope-1',
+    taskId: 'task-1',
+    task: {} as never,
+    scopeType: 'asana_project',
+    scopeId: 'proj-1',
+    scopeName: 'Project 1',
+    parentScopeType: 'asana_workspace',
+    parentScopeId: 'ws-1',
+    parentScopeName: 'Workspace 1',
+    isPrimary: true,
+    ...overrides,
+  });
+
+  const createRule = (
+    overrides: Partial<AutomationRule> = {},
+  ): AutomationRule => ({
+    id: 'rule-1',
+    userId: 'user-1',
+    user: {} as never,
+    name: 'Rule 1',
+    enabled: true,
+    priority: 100,
+    provider: 'asana',
+    scopeType: 'asana_project',
+    scopeId: 'proj-1',
+    titleContains: ['backend'],
+    taskStatuses: ['open'],
+    repositoryId: 'repo-1',
+    repository: {} as never,
+    suggestedAction: 'fix',
+    createdAt: new Date('2026-03-01T10:00:00.000Z'),
+    updatedAt: new Date('2026-03-01T10:00:00.000Z'),
+    ...overrides,
+  });
+
+  it('lists active rules with deterministic priority ordering', async () => {
+    const { service, automationRulesRepository } = createService();
+    automationRulesRepository.find.mockResolvedValue([]);
+
+    await service.listActiveRulesForUser('user-1');
+
+    expect(automationRulesRepository.find).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        enabled: true,
+      },
+      order: {
+        priority: 'DESC',
+        createdAt: 'ASC',
+        id: 'ASC',
+      },
+    });
+  });
+
+  it('matches workspace-scoped Asana rules through project parent scope', () => {
+    const { service } = createService();
+
+    const match = service.resolveTaskMatch(
+      {
+        provider: 'asana',
+        title: 'Backend API regression fix',
+        status: 'open',
+        scopes: [createTaskScope()],
+      },
+      [
+        createRule({
+          id: 'rule-workspace',
+          scopeType: 'asana_workspace',
+          scopeId: 'ws-1',
+          titleContains: ['backend', 'fix'],
+        }),
+      ],
+    );
+
+    expect(match).toEqual({
+      ruleId: 'rule-workspace',
+      ruleName: 'Rule 1',
+      repositoryId: 'repo-1',
+      suggestedAction: 'fix',
+    });
+  });
+
+  it('returns the first matching rule from the ordered list and ignores disabled rules', () => {
+    const { service } = createService();
+
+    const match = service.resolveTaskMatch(
+      {
+        provider: 'jira',
+        title: 'API bug fix',
+        status: 'in_progress',
+        scopes: [
+          createTaskScope({
+            scopeType: 'jira_project',
+            scopeId: 'SCRUM',
+            scopeName: 'SCRUM',
+            parentScopeType: null,
+            parentScopeId: null,
+            parentScopeName: null,
+          }),
+        ],
+      },
+      [
+        createRule({
+          id: 'disabled-rule',
+          provider: 'jira',
+          enabled: false,
+          scopeType: 'jira_project',
+          scopeId: 'SCRUM',
+          titleContains: ['api'],
+          taskStatuses: ['in_progress'],
+          repositoryId: 'repo-disabled',
+        }),
+        createRule({
+          id: 'winning-rule',
+          name: 'Winning rule',
+          provider: 'jira',
+          scopeType: 'jira_project',
+          scopeId: 'SCRUM',
+          titleContains: ['api'],
+          taskStatuses: ['in_progress'],
+          repositoryId: 'repo-winning',
+          suggestedAction: 'feature',
+        }),
+        createRule({
+          id: 'later-rule',
+          name: 'Later rule',
+          provider: 'jira',
+          scopeType: 'jira_project',
+          scopeId: 'SCRUM',
+          titleContains: ['api'],
+          taskStatuses: ['in_progress'],
+          repositoryId: 'repo-later',
+          suggestedAction: 'plan',
+        }),
+      ],
+    );
+
+    expect(match).toEqual({
+      ruleId: 'winning-rule',
+      ruleName: 'Winning rule',
+      repositoryId: 'repo-winning',
+      suggestedAction: 'feature',
+    });
+  });
+
+  it('requires all title phrases and matching status', () => {
+    const { service } = createService();
+
+    const noMatch = service.resolveTaskMatch(
+      {
+        provider: 'asana',
+        title: 'Frontend polish',
+        status: 'done',
+        scopes: [createTaskScope()],
+      },
+      [
+        createRule({
+          titleContains: ['frontend', 'backend'],
+          taskStatuses: ['open'],
+        }),
+      ],
+    );
+
+    expect(noMatch).toBeNull();
+  });
+
+  it('rejects incompatible provider and scope combinations on create', async () => {
+    const { service } = createService();
+
+    await expect(
+      service.createForUser('user-1', {
+        name: 'Invalid Jira scope',
+        provider: 'jira',
+        scopeType: 'asana_project',
+        scopeId: 'proj-1',
+        repositoryId: '4d5d9f85-8d13-4db8-b84c-6564e1e8ce21',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
