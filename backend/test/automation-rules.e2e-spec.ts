@@ -195,6 +195,43 @@ describe('AutomationRules (e2e)', () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it('should reject malformed array filters instead of normalizing them away', async () => {
+    const session = await createLoginSession();
+    const repository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+
+    const nonStringResponse = await app.inject({
+      method: 'POST',
+      url: '/api/automation-rules',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        name: 'Invalid titleContains types',
+        provider: 'asana',
+        repositoryId: repository.id,
+        titleContains: ['backend', 123],
+      },
+    });
+    expect(nonStringResponse.statusCode).toBe(400);
+
+    const emptyStringResponse = await app.inject({
+      method: 'POST',
+      url: '/api/automation-rules',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        name: 'Invalid titleContains empties',
+        provider: 'asana',
+        repositoryId: repository.id,
+        titleContains: ['backend', '   '],
+      },
+    });
+    expect(emptyStringResponse.statusCode).toBe(400);
+  });
+
   it('should enforce repository ownership', async () => {
     const ownerSession = await createLoginSession();
     const attackerSession = await createLoginSession();

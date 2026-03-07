@@ -63,6 +63,7 @@ export class CreateAutomationRuleDto {
   @ValidateIf((_, value: unknown) => value !== undefined && value !== null)
   @IsArray()
   @IsString({ each: true })
+  @MinLength(1, { each: true })
   @MaxLength(255, { each: true })
   titleContains?: string[] | null;
 

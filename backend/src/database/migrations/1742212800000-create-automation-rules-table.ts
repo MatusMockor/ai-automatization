@@ -134,6 +134,11 @@ export class CreateAutomationRulesTable1742212800000 implements MigrationInterfa
               "scope_type IS NULL OR scope_type IN ('asana_workspace', 'asana_project', 'jira_project')",
           }),
           new TableCheck({
+            name: 'CHK_automation_rules_provider_scope_compat',
+            expression:
+              "scope_type IS NULL OR (provider = 'asana' AND scope_type IN ('asana_workspace', 'asana_project')) OR (provider = 'jira' AND scope_type = 'jira_project')",
+          }),
+          new TableCheck({
             name: 'CHK_automation_rules_suggested_action',
             expression:
               "suggested_action IS NULL OR suggested_action IN ('fix', 'feature', 'plan')",

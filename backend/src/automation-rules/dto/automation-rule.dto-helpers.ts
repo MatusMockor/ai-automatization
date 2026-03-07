@@ -96,13 +96,23 @@ export const normalizeStringArray = (
     return value;
   }
 
-  const normalized = value
-    .map((entry) => (typeof entry === 'string' ? entry.trim() : entry))
-    .filter(
-      (entry): entry is string => typeof entry === 'string' && entry.length > 0,
-    );
+  const normalized = value.map((entry) =>
+    typeof entry === 'string' ? entry.trim() : entry,
+  );
 
-  return normalized.length > 0 ? normalized : null;
+  if (normalized.some((entry) => typeof entry !== 'string')) {
+    return normalized;
+  }
+
+  if (normalized.every((entry) => entry.length === 0)) {
+    return null;
+  }
+
+  if (normalized.some((entry) => entry.length === 0)) {
+    return normalized;
+  }
+
+  return normalized;
 };
 
 export const normalizeStringArrayTransform = ({

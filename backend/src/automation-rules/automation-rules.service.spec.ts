@@ -200,6 +200,58 @@ describe('AutomationRulesService', () => {
     expect(noMatch).toBeNull();
   });
 
+  it('treats empty titleContains and taskStatuses arrays as wildcard filters', () => {
+    const { service } = createService();
+
+    const match = service.resolveTaskMatch(
+      {
+        provider: 'asana',
+        title: 'Any task title',
+        status: 'done',
+        scopes: [createTaskScope()],
+      },
+      [
+        createRule({
+          titleContains: [],
+          taskStatuses: [],
+        }),
+      ],
+    );
+
+    expect(match).toEqual({
+      ruleId: 'rule-1',
+      ruleName: 'Rule 1',
+      repositoryId: 'repo-1',
+      suggestedAction: 'fix',
+    });
+  });
+
+  it('treats null optional filters as wildcard filters', () => {
+    const { service } = createService();
+
+    const match = service.resolveTaskMatch(
+      {
+        provider: 'asana',
+        title: 'Another task title',
+        status: 'closed',
+        scopes: [createTaskScope()],
+      },
+      [
+        createRule({
+          titleContains: null,
+          taskStatuses: null,
+        }),
+      ],
+    );
+
+    expect(match).toEqual({
+      ruleId: 'rule-1',
+      ruleName: 'Rule 1',
+      repositoryId: 'repo-1',
+      suggestedAction: 'fix',
+    });
+  });
+
   it('rejects incompatible provider and scope combinations on create', async () => {
     const { service } = createService();
 
