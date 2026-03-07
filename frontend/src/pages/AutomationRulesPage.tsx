@@ -706,6 +706,7 @@ export function AutomationRulesPage() {
                     {deleting === rule.id ? (
                       <>
                         <button
+                          type="button"
                           onClick={() => handleDelete(rule.id)}
                           disabled={deletingInFlight}
                           className="rounded-lg px-2 py-1 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
