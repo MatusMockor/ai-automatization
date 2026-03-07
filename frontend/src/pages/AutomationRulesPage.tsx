@@ -8,6 +8,7 @@ import {
   Pencil,
   Clock,
   X,
+  AlertCircle,
 } from 'lucide-react';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { timeAgo } from '@/lib/time';
@@ -24,12 +25,11 @@ import type {
 } from '@/types';
 
 const ALL_STATUSES: TaskFeedStatus[] = ['open', 'in_progress', 'done', 'closed'];
-const STATUS_LABELS: Record<TaskFeedStatus, string> = {
+const STATUS_LABELS: Record<string, string> = {
   open: 'Open',
   in_progress: 'In Progress',
   done: 'Done',
   closed: 'Closed',
-  unknown: 'Unknown',
 };
 
 const ACTION_OPTIONS: { value: ExecutionAction; label: string }[] = [
@@ -99,6 +99,7 @@ export function AutomationRulesPage() {
 
   const [rules, setRules] = useState<AutomationRule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   // Add form
   const [showAddForm, setShowAddForm] = useState(false);
@@ -121,8 +122,10 @@ export function AutomationRulesPage() {
     try {
       const { data } = await api.get<AutomationRule[]>('/automation-rules');
       setRules(data);
+      setLoadError(false);
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to load automation rules'));
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -282,6 +285,7 @@ export function AutomationRulesPage() {
   const renderFormFields = (
     form: AddForm | EditForm,
     setForm: React.Dispatch<React.SetStateAction<AddForm>> | React.Dispatch<React.SetStateAction<EditForm>>,
+    idPrefix: string,
   ) => {
     const scopeIdOptions = getScopeIdOptions(form.scopeType as AutomationRuleScopeType | '', scopes);
 
@@ -314,8 +318,9 @@ export function AutomationRulesPage() {
       <>
         {/* Name */}
         <div className="mb-3">
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Name</label>
+          <label htmlFor={`${idPrefix}-name`} className="mb-1.5 block text-xs font-medium text-muted-foreground">Name</label>
           <input
+            id={`${idPrefix}-name`}
             type="text"
             required
             value={form.name}
@@ -327,8 +332,9 @@ export function AutomationRulesPage() {
 
         {/* Provider */}
         <div className="mb-3">
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Provider</label>
+          <label htmlFor={`${idPrefix}-provider`} className="mb-1.5 block text-xs font-medium text-muted-foreground">Provider</label>
           <select
+            id={`${idPrefix}-provider`}
             required
             value={form.provider}
             onChange={(e) => {
@@ -345,8 +351,9 @@ export function AutomationRulesPage() {
 
         {/* Repository */}
         <div className="mb-3">
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Repository</label>
+          <label htmlFor={`${idPrefix}-repo`} className="mb-1.5 block text-xs font-medium text-muted-foreground">Repository</label>
           <select
+            id={`${idPrefix}-repo`}
             required
             value={form.repositoryId}
             onChange={(e) => updateField('repositoryId', e.target.value)}
@@ -362,8 +369,9 @@ export function AutomationRulesPage() {
         {/* Priority + Enabled row */}
         <div className="mb-3 flex items-end gap-4">
           <div className="flex-1">
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Priority</label>
+            <label htmlFor={`${idPrefix}-priority`} className="mb-1.5 block text-xs font-medium text-muted-foreground">Priority</label>
             <input
+              id={`${idPrefix}-priority`}
               type="number"
               min={0}
               value={form.priority}
@@ -384,10 +392,11 @@ export function AutomationRulesPage() {
 
         {/* Scope Type */}
         <div className="mb-3">
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+          <label htmlFor={`${idPrefix}-scope-type`} className="mb-1.5 block text-xs font-medium text-muted-foreground">
             Scope Type <span className="text-muted-foreground/50">(optional)</span>
           </label>
           <select
+            id={`${idPrefix}-scope-type`}
             value={form.scopeType}
             onChange={(e) => {
               updateField('scopeType', e.target.value as AutomationRuleScopeType | '');
@@ -405,9 +414,10 @@ export function AutomationRulesPage() {
         {/* Scope ID */}
         {form.scopeType && (
           <div className="mb-3">
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Scope ID</label>
+            <label htmlFor={`${idPrefix}-scope-id`} className="mb-1.5 block text-xs font-medium text-muted-foreground">Scope ID</label>
             {scopeIdOptions ? (
               <select
+                id={`${idPrefix}-scope-id`}
                 value={form.scopeId}
                 onChange={(e) => updateField('scopeId', e.target.value)}
                 className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
@@ -419,6 +429,7 @@ export function AutomationRulesPage() {
               </select>
             ) : (
               <input
+                id={`${idPrefix}-scope-id`}
                 type="text"
                 value={form.scopeId}
                 onChange={(e) => updateField('scopeId', e.target.value)}
@@ -431,7 +442,7 @@ export function AutomationRulesPage() {
 
         {/* Title Contains */}
         <div className="mb-3">
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+          <label htmlFor={`${idPrefix}-title-contains`} className="mb-1.5 block text-xs font-medium text-muted-foreground">
             Title Contains <span className="text-muted-foreground/50">(optional)</span>
           </label>
           <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
@@ -452,6 +463,7 @@ export function AutomationRulesPage() {
             ))}
           </div>
           <input
+            id={`${idPrefix}-title-contains`}
             type="text"
             value={form.titleContainsInput}
             onChange={(e) => updateField('titleContainsInput', e.target.value)}
@@ -488,10 +500,11 @@ export function AutomationRulesPage() {
 
         {/* Suggested Action */}
         <div className="mb-3">
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+          <label htmlFor={`${idPrefix}-action`} className="mb-1.5 block text-xs font-medium text-muted-foreground">
             Suggested Action <span className="text-muted-foreground/50">(optional)</span>
           </label>
           <select
+            id={`${idPrefix}-action`}
             value={form.suggestedAction}
             onChange={(e) => updateField('suggestedAction', e.target.value as ExecutionAction | '')}
             className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
@@ -544,7 +557,7 @@ export function AutomationRulesPage() {
             </button>
           </div>
 
-          {renderFormFields(addForm, setAddForm)}
+          {renderFormFields(addForm, setAddForm, 'add')}
 
           <button
             type="submit"
@@ -584,7 +597,7 @@ export function AutomationRulesPage() {
             >
               {editingId === rule.id ? (
                 <form onSubmit={(e) => handleEdit(e, rule.id)}>
-                  {renderFormFields(editForm, setEditForm)}
+                  {renderFormFields(editForm, setEditForm, 'edit')}
                   <div className="flex items-center gap-2">
                     <button
                       type="submit"
@@ -662,7 +675,7 @@ export function AutomationRulesPage() {
                             key={s}
                             className="rounded-md bg-foreground/5 px-1.5 py-0.5 text-[10px] ring-1 ring-foreground/10"
                           >
-                            {STATUS_LABELS[s]}
+                            {STATUS_LABELS[s] ?? s}
                           </span>
                         ))}
                       </div>
@@ -742,8 +755,23 @@ export function AutomationRulesPage() {
         </div>
       )}
 
+      {/* Load error */}
+      {!loading && loadError && (
+        <div className="rounded-xl border border-dashed border-border p-8 text-center">
+          <AlertCircle className="mx-auto mb-3 h-8 w-8 text-red-400/60" />
+          <p className="text-sm font-medium text-muted-foreground">Failed to load automation rules</p>
+          <button
+            type="button"
+            onClick={() => { setLoading(true); fetchRules(); }}
+            className="mt-2 text-xs font-medium text-primary hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Empty state */}
-      {!loading && rules.length === 0 && !showAddForm && (
+      {!loading && !loadError && rules.length === 0 && !showAddForm && (
         <div className="rounded-xl border border-dashed border-border p-8 text-center">
           <Zap className="mx-auto mb-3 h-8 w-8 text-muted-foreground/30" />
           <p className="text-sm font-medium text-muted-foreground">No automation rules yet</p>
