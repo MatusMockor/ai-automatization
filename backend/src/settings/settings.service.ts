@@ -83,6 +83,8 @@ export class SettingsService {
     userId: string,
     dto: UpdateSettingsDto,
   ): Promise<SettingsResponseDto> {
+    this.validateNonNullableDtoFields(dto);
+
     const settings =
       (await this.settingsRepository.findOneBy({ userId })) ??
       this.settingsRepository.create({
@@ -216,6 +218,21 @@ export class SettingsService {
       throw new BadRequestException(
         'At least one sync provider must be enabled when automatic sync is enabled',
       );
+    }
+  }
+
+  private validateNonNullableDtoFields(dto: UpdateSettingsDto): void {
+    const rawDto = dto as UpdateSettingsDto & {
+      syncEnabled?: unknown;
+      syncProvidersEnabled?: unknown;
+    };
+
+    if (rawDto.syncEnabled === null) {
+      throw new BadRequestException('syncEnabled must be a boolean value');
+    }
+
+    if (rawDto.syncProvidersEnabled === null) {
+      throw new BadRequestException('syncProvidersEnabled must be an object');
     }
   }
 }

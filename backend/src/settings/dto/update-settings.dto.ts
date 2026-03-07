@@ -2,11 +2,13 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Max,
   MaxLength,
   Min,
+  NotEquals,
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
@@ -60,7 +62,7 @@ export class UpdateSettingsDto {
   @Type(() => PreCommitChecksProfileDto)
   preCommitChecksDefault?: PreCommitChecksProfileDto | null;
 
-  @IsOptional()
+  @ValidateIf((_, value: unknown) => value !== undefined)
   @Transform(({ value }: { value: unknown }) => {
     if (typeof value === 'boolean') {
       return value;
@@ -97,6 +99,7 @@ export class UpdateSettingsDto {
 
     return value;
   })
+  @NotEquals(null, { message: 'syncEnabled must be a boolean value' })
   @IsBoolean()
   syncEnabled?: boolean;
 
@@ -108,7 +111,8 @@ export class UpdateSettingsDto {
   @Max(MAX_SYNC_INTERVAL_MINUTES)
   syncIntervalMinutes?: number | null;
 
-  @IsOptional()
+  @ValidateIf((_, value: unknown) => value !== undefined)
+  @IsObject()
   @ValidateNested()
   @Type(() => TaskSyncProvidersEnabledDto)
   syncProvidersEnabled?: TaskSyncProvidersEnabledDto;
