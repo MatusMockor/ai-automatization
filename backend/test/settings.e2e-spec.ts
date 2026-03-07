@@ -377,6 +377,54 @@ describe('Settings (e2e)', () => {
     );
   });
 
+  it('PATCH /api/settings should reject null for sync-specific fields', async () => {
+    const session = await createLoginSession();
+
+    const syncEnabledResponse = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        syncEnabled: null,
+      },
+    });
+
+    expect(syncEnabledResponse.statusCode).toBe(400);
+    const syncEnabledMessage = syncEnabledResponse.json<{
+      message: string | string[];
+    }>().message;
+    const normalizedSyncEnabledMessage = Array.isArray(syncEnabledMessage)
+      ? syncEnabledMessage.join('; ')
+      : syncEnabledMessage;
+    expect(normalizedSyncEnabledMessage).toContain(
+      'syncEnabled must be a boolean value',
+    );
+
+    const syncProvidersResponse = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        syncProvidersEnabled: null,
+      },
+    });
+
+    expect(syncProvidersResponse.statusCode).toBe(400);
+    const syncProvidersMessage = syncProvidersResponse.json<{
+      message: string | string[];
+    }>().message;
+    const normalizedSyncProvidersMessage = Array.isArray(syncProvidersMessage)
+      ? syncProvidersMessage.join('; ')
+      : syncProvidersMessage;
+    expect(normalizedSyncProvidersMessage).toContain(
+      'syncProvidersEnabled must be an object',
+    );
+  });
+
   it('PATCH /api/settings should validate executionTimeoutMs bounds and support null reset', async () => {
     const session = await createLoginSession();
 
