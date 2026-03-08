@@ -699,28 +699,30 @@ describe('Executions (e2e)', () => {
       .spyOn(dispatchService, 'dispatch')
       .mockRejectedValueOnce(new Error('queue unavailable'));
 
-    const response = await app.inject({
-      method: 'POST',
-      url: `/api/executions/${draftExecution.id}/start`,
-      headers: { authorization: `Bearer ${session.accessToken}` },
-    });
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/executions/${draftExecution.id}/start`,
+        headers: { authorization: `Bearer ${session.accessToken}` },
+      });
 
-    expect(response.statusCode).toBe(500);
+      expect(response.statusCode).toBe(500);
 
-    const persistedDraft = await dataSource
-      .getRepository(Execution)
-      .findOneByOrFail({ id: draftExecution.id });
-    expect(persistedDraft.isDraft).toBe(true);
-    expect(persistedDraft.draftStatus).toBe('ready');
-    expect(persistedDraft.status).toBe('pending');
-    expect(persistedDraft.orchestrationState).toBe('queued');
-    expect(persistedDraft.errorMessage).toBeNull();
-    expect(persistedDraft.finishedAt).toBeNull();
-    expect(persistedDraft.automationErrorMessage).toBe(
-      'Failed to enqueue execution',
-    );
-
-    dispatchSpy.mockRestore();
+      const persistedDraft = await dataSource
+        .getRepository(Execution)
+        .findOneByOrFail({ id: draftExecution.id });
+      expect(persistedDraft.isDraft).toBe(true);
+      expect(persistedDraft.draftStatus).toBe('ready');
+      expect(persistedDraft.status).toBe('pending');
+      expect(persistedDraft.orchestrationState).toBe('queued');
+      expect(persistedDraft.errorMessage).toBeNull();
+      expect(persistedDraft.finishedAt).toBeNull();
+      expect(persistedDraft.automationErrorMessage).toBe(
+        'Failed to enqueue execution',
+      );
+    } finally {
+      dispatchSpy.mockRestore();
+    }
   });
 
   it('POST /api/executions should return 403 when manual task belongs to another user', async () => {

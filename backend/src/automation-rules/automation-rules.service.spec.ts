@@ -324,6 +324,49 @@ describe('AutomationRulesService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('backfills matching synced tasks when creating an enabled draft rule', async () => {
+    const {
+      service,
+      automationRulesRepository,
+      syncedTaskRepository,
+      repositoriesService,
+      executionsService,
+    } = createService();
+    const rule = createRule({
+      mode: 'draft',
+      suggestedAction: 'feature',
+    });
+    const task = createSyncedTask();
+
+    repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);
+    automationRulesRepository.save.mockResolvedValue(rule);
+    automationRulesRepository.find.mockResolvedValue([rule]);
+    syncedTaskRepository.find.mockResolvedValue([task]);
+    executionsService.createOrRefreshDraftForTask.mockResolvedValue(
+      {} as never,
+    );
+    executionsService.listReadyDraftTaskIdsForUser.mockResolvedValue([]);
+
+    await service.createForUser('user-1', {
+      name: 'Draft rule',
+      provider: 'asana',
+      repositoryId: 'repo-1',
+      mode: 'draft',
+      executionAction: 'feature',
+      enabled: true,
+    });
+
+    expect(executionsService.createOrRefreshDraftForTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        repositoryId: 'repo-1',
+        taskId: 'connection-1:asana:TASK-1',
+        action: 'feature',
+        originRuleId: 'rule-1',
+      }),
+    );
+  });
+
   it('rejects conflicting executionAction and suggestedAction aliases', async () => {
     const { service, repositoriesService } = createService();
     repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);

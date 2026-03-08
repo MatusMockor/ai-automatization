@@ -35,6 +35,7 @@ import { TaskRepositoryDefaultsService } from './task-repository-defaults.servic
 import { TaskSyncService } from './task-sync.service';
 import { UpsertTaskRepositoryDefaultDto } from './dto/upsert-task-repository-default.dto';
 import { buildTaskFeedId } from './utils/task-feed-id.utils';
+import { resolveTaskSnapshotVersion } from './utils/task-snapshot-version.utils';
 
 type ScopeFilter = {
   provider?: TaskManagerProviderType;
@@ -431,9 +432,7 @@ export class TasksService {
       };
     }
 
-    const snapshotUpdatedAt = (
-      task.sourceUpdatedAt ?? task.updatedAt
-    ).getTime();
+    const snapshotVersion = resolveTaskSnapshotVersion(task);
     const relevantDrafts = drafts.filter(
       (draft) =>
         draft.originRuleId === automationMatch.ruleId &&
@@ -443,8 +442,10 @@ export class TasksService {
     const readyDraft = relevantDrafts.find(
       (draft) =>
         draft.draftStatus === 'ready' &&
-        draft.sourceTaskSnapshotUpdatedAt !== null &&
-        draft.sourceTaskSnapshotUpdatedAt.getTime() === snapshotUpdatedAt,
+        this.sameSnapshotVersion(
+          draft.sourceTaskSnapshotUpdatedAt,
+          snapshotVersion,
+        ),
     );
 
     if (readyDraft) {
@@ -468,6 +469,14 @@ export class TasksService {
       status: null,
       automationState: 'matched',
     };
+  }
+
+  private sameSnapshotVersion(left: Date | null, right: Date | null): boolean {
+    if (left === null || right === null) {
+      return left === right;
+    }
+
+    return left.getTime() === right.getTime();
   }
 
   private taskUpdatedAt(

@@ -5,6 +5,7 @@ import { AutomationRulesService } from '../automation-rules/automation-rules.ser
 import { ExecutionsService } from '../executions/executions.service';
 import { SyncedTask } from './entities/synced-task.entity';
 import { buildTaskFeedId } from './utils/task-feed-id.utils';
+import { resolveTaskSnapshotVersion } from './utils/task-snapshot-version.utils';
 
 @Injectable()
 export class TaskAutomationOrchestratorService {
@@ -73,7 +74,7 @@ export class TaskAutomationOrchestratorService {
           taskSource: task.provider,
           action: match.executionAction,
           originRuleId: match.ruleId,
-          sourceTaskSnapshotUpdatedAt: task.sourceUpdatedAt ?? task.updatedAt,
+          sourceTaskSnapshotUpdatedAt: resolveTaskSnapshotVersion(task),
         });
       } catch (error) {
         this.logger.error(

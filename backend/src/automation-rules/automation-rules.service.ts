@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -12,6 +13,7 @@ import type { TaskItemStatus } from '../task-managers/interfaces/task-manager-pr
 import { SyncedTaskScope } from '../tasks/entities/synced-task-scope.entity';
 import { SyncedTask } from '../tasks/entities/synced-task.entity';
 import { buildTaskFeedId } from '../tasks/utils/task-feed-id.utils';
+import { resolveTaskSnapshotVersion } from '../tasks/utils/task-snapshot-version.utils';
 import { AutomationRuleResponseDto } from './dto/automation-rule-response.dto';
 import { CreateAutomationRuleDto } from './dto/create-automation-rule.dto';
 import { UpdateAutomationRuleDto } from './dto/update-automation-rule.dto';
@@ -35,6 +37,8 @@ type TaskSnapshotLike = Pick<SyncedTask, 'provider' | 'title' | 'status'> & {
 
 @Injectable()
 export class AutomationRulesService {
+  private readonly logger = new Logger(AutomationRulesService.name);
+
   constructor(
     @InjectRepository(AutomationRule)
     private readonly automationRulesRepository: Repository<AutomationRule>,
@@ -103,6 +107,9 @@ export class AutomationRulesService {
     this.validateModeAndAction(rule.mode, rule.suggestedAction);
 
     const savedRule = await this.automationRulesRepository.save(rule);
+    if (savedRule.enabled && savedRule.mode === 'draft') {
+      await this.tryReconcileDraftsForUser(userId, [savedRule.provider]);
+    }
     return this.mapToResponse(savedRule);
   }
 
@@ -170,7 +177,7 @@ export class AutomationRulesService {
 
     const savedRule = await this.automationRulesRepository.save(rule);
     if (this.shouldReconcileDrafts(previousRule, savedRule)) {
-      await this.reconcileReadyDraftsForUser(userId, [
+      await this.tryReconcileDraftsForUser(userId, [
         previousRule.provider,
         savedRule.provider,
       ]);
@@ -182,7 +189,7 @@ export class AutomationRulesService {
   async deleteForUser(userId: string, ruleId: string): Promise<void> {
     const rule = await this.getOwnedRule(userId, ruleId);
     await this.automationRulesRepository.remove(rule);
-    await this.reconcileReadyDraftsForUser(userId, [rule.provider]);
+    await this.tryReconcileDraftsForUser(userId, [rule.provider]);
   }
 
   resolveTaskMatch(
@@ -369,21 +376,12 @@ export class AutomationRulesService {
     userId: string,
     providers: Array<AutomationRule['provider']>,
   ): Promise<void> {
-    const readyDraftTaskIds =
-      await this.executionsService.listReadyDraftTaskIdsForUser(userId, [
-        ...new Set(providers),
-      ]);
-
-    if (readyDraftTaskIds.length === 0) {
-      return;
-    }
-
+    const normalizedProviders = [...new Set(providers)];
     const activeRules = await this.listActiveRulesForUser(userId);
-    const readyDraftTaskIdSet = new Set(readyDraftTaskIds);
     const tasks = await this.syncedTaskRepository.find({
       where: {
         userId,
-        provider: In([...new Set(providers)]),
+        provider: In(normalizedProviders),
       },
       relations: {
         scopes: true,
@@ -393,16 +391,8 @@ export class AutomationRulesService {
       },
     });
 
-    const processedTaskIds = new Set<string>();
-
     for (const task of tasks) {
       const taskId = buildTaskFeedId(task);
-      if (!readyDraftTaskIdSet.has(taskId)) {
-        continue;
-      }
-
-      processedTaskIds.add(taskId);
-
       const match = this.resolveTaskMatch(task, activeRules);
       if (!match || match.mode !== 'draft' || match.executionAction === null) {
         await this.executionsService.supersedeReadyDraftsForTask(
@@ -422,10 +412,18 @@ export class AutomationRulesService {
         taskSource: task.provider,
         action: match.executionAction,
         originRuleId: match.ruleId,
-        sourceTaskSnapshotUpdatedAt: task.sourceUpdatedAt ?? task.updatedAt,
+        sourceTaskSnapshotUpdatedAt: resolveTaskSnapshotVersion(task),
       });
     }
 
+    const readyDraftTaskIds =
+      await this.executionsService.listReadyDraftTaskIdsForUser(
+        userId,
+        normalizedProviders,
+      );
+    const processedTaskIds = new Set(
+      tasks.map((task) => buildTaskFeedId(task)),
+    );
     const staleTaskIds = readyDraftTaskIds.filter(
       (taskId) => !processedTaskIds.has(taskId),
     );
@@ -433,6 +431,20 @@ export class AutomationRulesService {
       await this.executionsService.supersedeReadyDraftsForTaskIds(
         userId,
         staleTaskIds,
+      );
+    }
+  }
+
+  private async tryReconcileDraftsForUser(
+    userId: string,
+    providers: Array<AutomationRule['provider']>,
+  ): Promise<void> {
+    try {
+      await this.reconcileReadyDraftsForUser(userId, providers);
+    } catch (error) {
+      this.logger.error(
+        `Failed to reconcile automation drafts for user ${userId}`,
+        error instanceof Error ? error.stack : String(error),
       );
     }
   }
