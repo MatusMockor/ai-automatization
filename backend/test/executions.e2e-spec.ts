@@ -1444,6 +1444,34 @@ describe('Executions (e2e)', () => {
     expect(body.every((item) => item.isDraft === false)).toBe(true);
   });
 
+  it('GET /api/executions should treat blank triggerType as an omitted filter', async () => {
+    const session = await createLoginSession();
+    const repository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+
+    await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      triggerType: 'manual',
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/executions?triggerType=',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<Array<{ repositoryId: string }>>()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          repositoryId: repository.id,
+        }),
+      ]),
+    );
+  });
+
   it('GET /api/executions/:id should include publication and implementation fields', async () => {
     const session = await createLoginSession();
     const repository = await repositoryFactory.create({

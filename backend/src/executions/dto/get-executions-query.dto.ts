@@ -18,6 +18,15 @@ const toOptionalBoolean = (value: unknown): unknown => {
   });
 };
 
+const toOptionalTriggerType = (value: unknown): unknown => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const normalizedValue = value.trim();
+  return normalizedValue === '' ? undefined : normalizedValue;
+};
+
 export class GetExecutionsQueryDto {
   @Transform(({ value }: { value: unknown }) => toOptionalInteger(value))
   @IsOptional()
@@ -25,6 +34,7 @@ export class GetExecutionsQueryDto {
   @Min(1)
   limit?: number;
 
+  @Transform(({ value }: { value: unknown }) => toOptionalTriggerType(value))
   @IsOptional()
   @IsIn(['manual', 'automation_rule', 'schedule'])
   triggerType?: ExecutionTriggerType;
