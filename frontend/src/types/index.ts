@@ -19,6 +19,7 @@ export type ReviewGateStatus =
   | 'timeout_continue';
 export type ReviewDecision = 'continue' | 'block' | 'fix';
 export type ReviewVerdict = 'pass' | 'fail' | 'error';
+export type ExecutionTriggerType = 'manual' | 'automation_rule' | 'schedule';
 
 export interface Execution {
   id: string;
@@ -55,6 +56,11 @@ export interface Execution {
   pullRequestTitle: string | null;
   automationCompletedAt: string | null;
   idempotencyKey: string | null;
+  triggerType: ExecutionTriggerType;
+  originRuleId: string | null;
+  sourceTaskSnapshotUpdatedAt: string | null;
+  isDraft: boolean;
+  draftStatus: ExecutionDraftStatus | null;
 }
 
 export interface CreateExecutionRequest {
@@ -314,11 +320,11 @@ export interface CreateAutomationRuleRequest {
   repositoryId: string;
   enabled?: boolean;
   priority?: number;
+  mode?: AutomationRuleMode;
   scopeType?: AutomationRuleScopeType;
   scopeId?: string;
   titleContains?: string[] | null;
   taskStatuses?: TaskFeedStatus[] | null;
-  mode?: AutomationRuleMode;
   executionAction?: ExecutionAction | null;
   suggestedAction?: ExecutionAction | null;
 }

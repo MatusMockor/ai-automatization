@@ -16,6 +16,7 @@ import { useRepo } from '@/context/RepoContext';
 import { useTaskScopes } from '@/lib/useTaskScopes';
 import type {
   AutomationRule,
+  AutomationRuleMode,
   AutomationRuleScopeType,
   CreateAutomationRuleRequest,
   UpdateAutomationRuleRequest,
@@ -44,12 +45,14 @@ interface AddForm {
   repositoryId: string;
   priority: number;
   enabled: boolean;
+  mode: AutomationRuleMode;
   scopeType: AutomationRuleScopeType | '';
   scopeId: string;
   titleContainsInput: string;
   titleContains: string[];
   taskStatuses: TaskFeedStatus[];
   suggestedAction: ExecutionAction | '';
+  executionAction: ExecutionAction | '';
 }
 
 const defaultAddForm: AddForm = {
@@ -58,12 +61,14 @@ const defaultAddForm: AddForm = {
   repositoryId: '',
   priority: 0,
   enabled: true,
+  mode: 'suggest',
   scopeType: '',
   scopeId: '',
   titleContainsInput: '',
   titleContains: [],
   taskStatuses: [],
   suggestedAction: '',
+  executionAction: '',
 };
 
 type EditForm = AddForm;
@@ -172,12 +177,14 @@ export function AutomationRulesPage() {
         repositoryId: addForm.repositoryId,
         enabled: addForm.enabled,
         priority: addForm.priority,
+        mode: addForm.mode,
       };
       if (addForm.scopeType) body.scopeType = addForm.scopeType;
       if (addForm.scopeId) body.scopeId = addForm.scopeId;
       if (addForm.titleContains.length > 0) body.titleContains = addForm.titleContains;
       if (addForm.taskStatuses.length > 0) body.taskStatuses = addForm.taskStatuses;
       if (addForm.suggestedAction) body.suggestedAction = addForm.suggestedAction;
+      if (addForm.executionAction) body.executionAction = addForm.executionAction;
 
       const { data } = await api.post<AutomationRule>('/automation-rules', body);
       setRules((prev) => [data, ...prev]);
@@ -201,12 +208,14 @@ export function AutomationRulesPage() {
       repositoryId: rule.repositoryId,
       priority: rule.priority,
       enabled: rule.enabled,
+      mode: rule.mode,
       scopeType: rule.scopeType ?? '',
       scopeId: rule.scopeId ?? '',
       titleContainsInput: '',
       titleContains: rule.titleContains ?? [],
       taskStatuses: rule.taskStatuses ?? [],
       suggestedAction: rule.suggestedAction ?? '',
+      executionAction: rule.executionAction ?? '',
     });
   };
 
@@ -227,11 +236,13 @@ export function AutomationRulesPage() {
         repositoryId: editForm.repositoryId,
         enabled: editForm.enabled,
         priority: editForm.priority,
+        mode: editForm.mode,
         scopeType: editForm.scopeType || null,
         scopeId: editForm.scopeId || null,
         titleContains: editForm.titleContains.length > 0 ? editForm.titleContains : null,
         taskStatuses: editForm.taskStatuses.length > 0 ? editForm.taskStatuses : null,
         suggestedAction: editForm.suggestedAction || null,
+        executionAction: editForm.executionAction || null,
       };
 
       const { data } = await api.patch<AutomationRule>(`/automation-rules/${ruleId}`, body);
@@ -389,6 +400,45 @@ export function AutomationRulesPage() {
             Enabled
           </label>
         </div>
+
+        {/* Mode */}
+        <div className="mb-3">
+          <label htmlFor={`${idPrefix}-mode`} className="mb-1.5 block text-xs font-medium text-muted-foreground">Mode</label>
+          <select
+            id={`${idPrefix}-mode`}
+            value={form.mode}
+            onChange={(e) => {
+              const newMode = e.target.value as AutomationRuleMode;
+              updateField('mode', newMode);
+              if (newMode === 'suggest') updateField('executionAction', '');
+            }}
+            className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
+          >
+            <option value="suggest">Suggest</option>
+            <option value="draft">Draft</option>
+          </select>
+        </div>
+
+        {/* Execution Action (required for draft mode) */}
+        {form.mode === 'draft' && (
+          <div className="mb-3">
+            <label htmlFor={`${idPrefix}-exec-action`} className="mb-1.5 block text-xs font-medium text-muted-foreground">
+              Execution Action
+            </label>
+            <select
+              id={`${idPrefix}-exec-action`}
+              required
+              value={form.executionAction}
+              onChange={(e) => updateField('executionAction', e.target.value as ExecutionAction | '')}
+              className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
+            >
+              <option value="">Select action</option>
+              {ACTION_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Scope Type */}
         <div className="mb-3">
@@ -633,6 +683,15 @@ export function AutomationRulesPage() {
                       >
                         {rule.enabled ? 'Enabled' : 'Disabled'}
                       </span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          rule.mode === 'draft'
+                            ? 'bg-amber-500/10 text-amber-500'
+                            : 'bg-blue-500/10 text-blue-400'
+                        }`}
+                      >
+                        {rule.mode === 'draft' ? 'Draft' : 'Suggest'}
+                      </span>
                     </div>
 
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -650,7 +709,12 @@ export function AutomationRulesPage() {
                       )}
                       {rule.suggestedAction && (
                         <span className="rounded bg-foreground/5 px-1.5 py-0.5 ring-1 ring-foreground/10">
-                          {rule.suggestedAction.charAt(0).toUpperCase() + rule.suggestedAction.slice(1)}
+                          Suggest: {rule.suggestedAction.charAt(0).toUpperCase() + rule.suggestedAction.slice(1)}
+                        </span>
+                      )}
+                      {rule.executionAction && (
+                        <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-500 ring-1 ring-amber-500/20">
+                          Execute: {rule.executionAction.charAt(0).toUpperCase() + rule.executionAction.slice(1)}
                         </span>
                       )}
                     </div>

@@ -1450,10 +1450,15 @@ describe('Executions (e2e)', () => {
       userId: session.userId,
     });
 
-    await executionFactory.create({
+    const manualExecution = await executionFactory.create({
       userId: session.userId,
       repositoryId: repository.id,
       triggerType: 'manual',
+    });
+    const automationExecution = await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      triggerType: 'automation_rule',
     });
 
     const response = await app.inject({
@@ -1463,10 +1468,13 @@ describe('Executions (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json<Array<{ repositoryId: string }>>()).toEqual(
+    expect(response.json<Array<{ id: string }>>()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          repositoryId: repository.id,
+          id: manualExecution.id,
+        }),
+        expect.objectContaining({
+          id: automationExecution.id,
         }),
       ]),
     );
