@@ -258,6 +258,45 @@ describe('AutomationRules (e2e)', () => {
     expect(invalidScopedManualRuleResponse.statusCode).toBe(400);
   });
 
+  it('should reject incompatible provider and scope combinations on update', async () => {
+    const session = await createLoginSession();
+    const repository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+
+    const createRuleResponse = await app.inject({
+      method: 'POST',
+      url: '/api/automation-rules',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        name: 'Asana scoped rule',
+        provider: 'asana',
+        scopeType: 'asana_project',
+        scopeId: 'proj-1',
+        repositoryId: repository.id,
+      },
+    });
+    expect(createRuleResponse.statusCode).toBe(201);
+    const createdRule = createRuleResponse.json<{ id: string }>();
+
+    const updateResponse = await app.inject({
+      method: 'PATCH',
+      url: `/api/automation-rules/${createdRule.id}`,
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        provider: 'manual',
+        scopeType: 'asana_project',
+        scopeId: 'proj-1',
+      },
+    });
+
+    expect(updateResponse.statusCode).toBe(400);
+  });
+
   it('should reject malformed array filters instead of normalizing them away', async () => {
     const session = await createLoginSession();
     const repository = await repositoryFactory.create({

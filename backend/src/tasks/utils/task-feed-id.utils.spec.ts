@@ -22,4 +22,10 @@ describe('buildTaskFeedId', () => {
     expect(extractManualTaskId(taskId)).toBe('manual-task-1');
     expect(extractManualTaskId('connection-123:jira:SCRUM-42')).toBeNull();
   });
+
+  it('rejects empty manual task identifiers', () => {
+    expect(() => buildManualTaskFeedId('   ')).toThrow(
+      'Manual task id must not be empty',
+    );
+  });
 });

@@ -581,6 +581,23 @@ describe('Tasks (e2e)', () => {
     ]);
   });
 
+  it('GET /api/tasks should reject manual provider with scoped filters', async () => {
+    const session = await createLoginSession();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tasks?provider=manual&jiraProjectKey=SCRUM',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ message: string[] }>().message).toContain(
+      'Scope filters cannot be used with manual provider filter',
+    );
+  });
+
   it('manual task creation should trigger draft automation and appear in the unified task feed', async () => {
     const session = await createLoginSession();
     const repository = await repositoryFactory.create({
@@ -1857,6 +1874,44 @@ describe('Tasks (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(404);
+  });
+
+  it('repository defaults API should reject manual scoped defaults', async () => {
+    const session = await createLoginSession();
+    const repository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+
+    const upsertResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/tasks/repository-defaults',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        provider: 'manual',
+        repositoryId: repository.id,
+        scopeType: 'jira_project',
+        scopeId: 'SCRUM',
+      },
+    });
+
+    expect(upsertResponse.statusCode).toBe(400);
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: '/api/tasks/repository-defaults',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        provider: 'manual',
+        scopeType: 'jira_project',
+        scopeId: 'SCRUM',
+      },
+    });
+
+    expect(deleteResponse.statusCode).toBe(400);
   });
 
   it('GET /api/tasks should return 400 for invalid limit values', async () => {

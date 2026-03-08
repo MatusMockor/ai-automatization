@@ -17,6 +17,7 @@ import type { RequestUser } from '../auth/interfaces/request-user.interface';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CreateExecutionDto } from './dto/create-execution.dto';
 import { BatchDraftExecutionIdsDto } from './dto/batch-draft-execution-ids.dto';
+import { BatchDraftExecutionResponseDto } from './dto/batch-draft-execution-response.dto';
 import {
   ExecutionDetailResponseDto,
   ExecutionSummaryResponseDto,
@@ -157,7 +158,7 @@ export class ExecutionsController {
   startDraftExecutions(
     @CurrentUser() user: RequestUser,
     @Body() dto: BatchDraftExecutionIdsDto,
-  ): Promise<ExecutionSummaryResponseDto[]> {
+  ): Promise<BatchDraftExecutionResponseDto> {
     return this.executionsService.startDraftsForUser(user.id, dto.executionIds);
   }
 
@@ -166,7 +167,7 @@ export class ExecutionsController {
   supersedeDraftExecutions(
     @CurrentUser() user: RequestUser,
     @Body() dto: BatchDraftExecutionIdsDto,
-  ): Promise<ExecutionSummaryResponseDto[]> {
+  ): Promise<BatchDraftExecutionResponseDto> {
     return this.executionsService.supersedeDraftsForUser(
       user.id,
       dto.executionIds,

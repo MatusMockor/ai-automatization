@@ -90,7 +90,7 @@ export class ManualTaskAutomationStateService {
   }
 
   private async resolveWorkflowState(
-    task: Pick<ManualTask, 'id' | 'userId' | 'updatedAt'>,
+    task: Pick<ManualTask, 'id' | 'userId' | 'contentUpdatedAt'>,
   ): Promise<ManualTaskWorkflowState> {
     const executions = await this.executionRepository.find({
       where: {
@@ -119,8 +119,7 @@ export class ManualTaskAutomationStateService {
           execution.status === 'running' ||
           execution.orchestrationState === 'queued' ||
           execution.orchestrationState === 'running' ||
-          execution.orchestrationState === 'finalizing' ||
-          execution.orchestrationState === 'awaiting_review_decision'),
+          execution.orchestrationState === 'finalizing'),
     );
     if (activeExecution) {
       return 'in_progress';
@@ -148,9 +147,12 @@ export class ManualTaskAutomationStateService {
     }
 
     if (
+      latestFinishedExecution.orchestrationState ===
+        'awaiting_review_decision' ||
+      latestFinishedExecution.reviewGateStatus === 'awaiting_decision' ||
+      latestFinishedExecution.reviewGateStatus === 'decision_block' ||
       latestFinishedExecution.status === 'failed' ||
-      latestFinishedExecution.status === 'cancelled' ||
-      latestFinishedExecution.reviewGateStatus === 'decision_block'
+      latestFinishedExecution.status === 'cancelled'
     ) {
       return 'blocked';
     }

@@ -9,6 +9,7 @@ type CreateManualTaskInput = {
   userId: string;
   title?: string;
   description?: string | null;
+  contentUpdatedAt?: Date;
   workflowState?: ManualTaskWorkflowState;
 };
 
@@ -24,6 +25,7 @@ export class ManualTaskFactory {
         input.description === undefined
           ? faker.lorem.paragraph({ min: 1, max: 2 })
           : input.description,
+      contentUpdatedAt: input.contentUpdatedAt ?? new Date(),
       workflowState: input.workflowState ?? 'inbox',
     });
 

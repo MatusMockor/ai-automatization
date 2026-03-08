@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -8,6 +9,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { getTimestampColumnType } from '../../common/utils/database-column.utils';
 import { User } from '../../users/entities/user.entity';
 
 export type ManualTaskWorkflowState =
@@ -18,7 +20,13 @@ export type ManualTaskWorkflowState =
   | 'done'
   | 'archived';
 
+const MANUAL_TASK_TIMESTAMP_COLUMN_TYPE = getTimestampColumnType();
+
 @Entity({ name: 'manual_tasks' })
+@Check(
+  'CHK_manual_tasks_workflow_state',
+  `"workflow_state" IS NOT NULL AND "workflow_state" IN ('inbox', 'drafted', 'in_progress', 'blocked', 'done', 'archived')`,
+)
 @Index('IDX_manual_tasks_user_id', ['userId'])
 export class ManualTask {
   @PrimaryGeneratedColumn('uuid')
@@ -36,6 +44,13 @@ export class ManualTask {
 
   @Column({ type: 'text', nullable: true })
   description!: string | null;
+
+  @Column({
+    name: 'content_updated_at',
+    type: MANUAL_TASK_TIMESTAMP_COLUMN_TYPE,
+    default: () => 'CURRENT_TIMESTAMP',
+  })
+  contentUpdatedAt!: Date;
 
   @Column({
     name: 'workflow_state',

@@ -11,7 +11,12 @@ export function buildTaskFeedId(task: TaskFeedIdentity): string {
 }
 
 export function buildManualTaskFeedId(taskId: string): string {
-  return `manual:${taskId}`;
+  const normalizedTaskId = taskId.trim();
+  if (normalizedTaskId.length === 0) {
+    throw new Error('Manual task id must not be empty');
+  }
+
+  return `manual:${normalizedTaskId}`;
 }
 
 export function extractManualTaskId(taskId: string): string | null {

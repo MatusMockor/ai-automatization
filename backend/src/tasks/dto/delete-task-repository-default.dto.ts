@@ -1,6 +1,16 @@
-import { IsIn, IsString, MaxLength, ValidateIf } from 'class-validator';
+import {
+  IsIn,
+  IsString,
+  MaxLength,
+  Validate,
+  ValidateIf,
+} from 'class-validator';
+import { ProviderScopeCompatibilityConstraint } from '../../common/validation/provider-scope.validation';
 
 export class DeleteTaskRepositoryDefaultDto {
+  @Validate(ProviderScopeCompatibilityConstraint)
+  private readonly providerScopeCompatibility = true;
+
   @IsIn(['asana', 'jira', 'manual'])
   provider!: 'asana' | 'jira' | 'manual';
 

@@ -22,13 +22,13 @@ describe('resolveTaskSnapshotVersion', () => {
     ).toBeNull();
   });
 
-  it('uses manual task updatedAt as the snapshot version', () => {
-    const updatedAt = new Date('2026-03-21T11:30:00.000Z');
+  it('uses manual task contentUpdatedAt as the snapshot version', () => {
+    const contentUpdatedAt = new Date('2026-03-21T11:30:00.000Z');
 
     expect(
       resolveManualTaskSnapshotVersion({
-        updatedAt,
+        contentUpdatedAt,
       }),
-    ).toEqual(updatedAt);
+    ).toEqual(contentUpdatedAt);
   });
 });

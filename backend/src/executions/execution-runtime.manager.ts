@@ -564,9 +564,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
           );
 
         if (gateOutcome.action === 'review_started') {
-          await this.manualTaskAutomationStateService.reconcileFromExecution(
-            executionId,
-          );
+          await this.reconcileManualTaskStateBestEffort(executionId);
           this.publish({
             type: 'review',
             payload: {
@@ -641,9 +639,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     }
 
     if (publicationResult.outcome === 'requeued') {
-      await this.manualTaskAutomationStateService.reconcileFromExecution(
-        executionId,
-      );
+      await this.reconcileManualTaskStateBestEffort(executionId);
       this.publish({
         type: 'status',
         payload: {
@@ -666,9 +662,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
           orchestrationState: 'done',
         },
       );
-      await this.manualTaskAutomationStateService.reconcileFromExecution(
-        executionId,
-      );
+      await this.reconcileManualTaskStateBestEffort(executionId);
       this.metricsService.incrementExecutionsCompleted();
       this.publish(
         {
@@ -710,9 +704,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
         automationErrorMessage: publicationFailureMessage,
       },
     );
-    await this.manualTaskAutomationStateService.reconcileFromExecution(
-      executionId,
-    );
+    await this.reconcileManualTaskStateBestEffort(executionId);
     this.metricsService.incrementExecutionsFailed();
     this.publish(
       {
@@ -747,9 +739,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
         },
       );
     }
-    await this.manualTaskAutomationStateService.reconcileFromExecution(
-      executionId,
-    );
+    await this.reconcileManualTaskStateBestEffort(executionId);
     this.publish(
       {
         type: 'error',
@@ -845,9 +835,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     }
 
     if (outcome.action === 'awaiting_decision') {
-      await this.manualTaskAutomationStateService.reconcileFromExecution(
-        outcome.parentExecutionId,
-      );
+      await this.reconcileManualTaskStateBestEffort(outcome.parentExecutionId);
       this.publish({
         type: 'review',
         payload: {
@@ -864,9 +852,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     }
 
     if (outcome.action === 'review_started') {
-      await this.manualTaskAutomationStateService.reconcileFromExecution(
-        outcome.parentExecutionId,
-      );
+      await this.reconcileManualTaskStateBestEffort(outcome.parentExecutionId);
       this.publish({
         type: 'review',
         payload: {
@@ -881,9 +867,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       return;
     }
 
-    await this.manualTaskAutomationStateService.reconcileFromExecution(
-      outcome.parentExecutionId,
-    );
+    await this.reconcileManualTaskStateBestEffort(outcome.parentExecutionId);
     this.publish(
       {
         type: 'error',
@@ -901,6 +885,21 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
 
   private publish(event: ExecutionStreamEventDto, terminal = false): void {
     this.streamHub.publish(event.payload.executionId, event, terminal);
+  }
+
+  private async reconcileManualTaskStateBestEffort(
+    executionId: string,
+  ): Promise<void> {
+    try {
+      await this.manualTaskAutomationStateService.reconcileFromExecution(
+        executionId,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to reconcile manual task state for execution ${executionId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
   private async syncCancellationRequest(executionId: string): Promise<void> {

@@ -4,10 +4,15 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  Validate,
   ValidateIf,
 } from 'class-validator';
+import { ProviderScopeCompatibilityConstraint } from '../../common/validation/provider-scope.validation';
 
 export class UpsertTaskRepositoryDefaultDto {
+  @Validate(ProviderScopeCompatibilityConstraint)
+  private readonly providerScopeCompatibility = true;
+
   @IsIn(['asana', 'jira', 'manual'])
   provider!: 'asana' | 'jira' | 'manual';
 

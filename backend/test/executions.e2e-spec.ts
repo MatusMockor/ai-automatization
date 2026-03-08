@@ -750,7 +750,7 @@ describe('Executions (e2e)', () => {
       action: 'fix',
       triggerType: 'automation_rule',
       originRuleId: faker.string.uuid(),
-      sourceTaskSnapshotUpdatedAt: manualTaskOne.updatedAt,
+      sourceTaskSnapshotUpdatedAt: manualTaskOne.contentUpdatedAt,
       isDraft: true,
       draftStatus: 'ready',
       status: 'pending',
@@ -768,7 +768,7 @@ describe('Executions (e2e)', () => {
       action: 'fix',
       triggerType: 'automation_rule',
       originRuleId: faker.string.uuid(),
-      sourceTaskSnapshotUpdatedAt: manualTaskTwo.updatedAt,
+      sourceTaskSnapshotUpdatedAt: manualTaskTwo.contentUpdatedAt,
       isDraft: true,
       draftStatus: 'ready',
       status: 'pending',
@@ -798,11 +798,16 @@ describe('Executions (e2e)', () => {
 
     expect(response.statusCode).toBe(200);
     expect(
-      response.json<
-        Array<{ id: string; isDraft: boolean; draftStatus: string | null }>
-      >(),
-    ).toEqual(
-      expect.arrayContaining([
+      response.json<{
+        succeeded: Array<{
+          id: string;
+          isDraft: boolean;
+          draftStatus: string | null;
+        }>;
+        failed: Array<{ executionId: string; statusCode: number }>;
+      }>(),
+    ).toEqual({
+      succeeded: expect.arrayContaining([
         expect.objectContaining({
           id: draftOne.id,
           isDraft: false,
@@ -814,7 +819,8 @@ describe('Executions (e2e)', () => {
           draftStatus: null,
         }),
       ]),
-    );
+      failed: [],
+    });
 
     await waitForExecution(
       draftOne.id,
@@ -824,6 +830,106 @@ describe('Executions (e2e)', () => {
       draftTwo.id,
       (current) => current.status === 'completed',
     );
+  });
+
+  it('POST /api/executions/start-drafts should report partial failures explicitly', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+    const manualTaskOne = await manualTaskFactory.create({
+      userId: session.userId,
+      title: 'Manual partial batch one',
+    });
+    const manualTaskTwo = await manualTaskFactory.create({
+      userId: session.userId,
+      title: 'Manual partial batch two',
+    });
+
+    await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      taskId: buildManualTaskFeedId(faker.string.uuid()),
+      taskExternalId: faker.string.uuid(),
+      taskTitle: 'Existing active execution',
+      taskSource: 'manual',
+      action: 'fix',
+      isDraft: false,
+      status: 'running',
+      orchestrationState: 'running',
+    });
+
+    const draftOne = await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      taskId: buildManualTaskFeedId(manualTaskOne.id),
+      taskExternalId: manualTaskOne.id,
+      taskTitle: manualTaskOne.title,
+      taskDescription: manualTaskOne.description,
+      taskSource: 'manual',
+      action: 'fix',
+      triggerType: 'automation_rule',
+      originRuleId: faker.string.uuid(),
+      sourceTaskSnapshotUpdatedAt: manualTaskOne.contentUpdatedAt,
+      isDraft: true,
+      draftStatus: 'ready',
+      status: 'pending',
+      orchestrationState: 'queued',
+      output: '',
+    });
+    const draftTwo = await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      taskId: buildManualTaskFeedId(manualTaskTwo.id),
+      taskExternalId: manualTaskTwo.id,
+      taskTitle: manualTaskTwo.title,
+      taskDescription: manualTaskTwo.description,
+      taskSource: 'manual',
+      action: 'fix',
+      triggerType: 'automation_rule',
+      originRuleId: faker.string.uuid(),
+      sourceTaskSnapshotUpdatedAt: manualTaskTwo.contentUpdatedAt,
+      isDraft: true,
+      draftStatus: 'ready',
+      status: 'pending',
+      orchestrationState: 'queued',
+      output: '',
+    });
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['partial start'],
+      delayMs: 10,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions/start-drafts',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: {
+        executionIds: [draftOne.id, draftTwo.id],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      response.json<{
+        succeeded: Array<{ id: string }>;
+        failed: Array<{
+          executionId: string;
+          statusCode: number;
+          message: string;
+        }>;
+      }>(),
+    ).toEqual({
+      succeeded: [expect.objectContaining({ id: draftOne.id })],
+      failed: [
+        expect.objectContaining({
+          executionId: draftTwo.id,
+          statusCode: 409,
+          message: expect.stringContaining('Maximum 2 concurrent executions'),
+        }),
+      ],
+    });
   });
 
   it('POST /api/executions/supersede-drafts should supersede ready manual drafts', async () => {
@@ -844,7 +950,7 @@ describe('Executions (e2e)', () => {
       action: 'fix',
       triggerType: 'automation_rule',
       originRuleId: faker.string.uuid(),
-      sourceTaskSnapshotUpdatedAt: manualTask.updatedAt,
+      sourceTaskSnapshotUpdatedAt: manualTask.contentUpdatedAt,
       isDraft: true,
       draftStatus: 'ready',
       status: 'pending',
@@ -863,16 +969,24 @@ describe('Executions (e2e)', () => {
 
     expect(response.statusCode).toBe(200);
     expect(
-      response.json<
-        Array<{ id: string; isDraft: boolean; draftStatus: string | null }>
-      >(),
-    ).toEqual([
-      expect.objectContaining({
-        id: draftExecution.id,
-        isDraft: true,
-        draftStatus: 'superseded',
-      }),
-    ]);
+      response.json<{
+        succeeded: Array<{
+          id: string;
+          isDraft: boolean;
+          draftStatus: string | null;
+        }>;
+        failed: Array<{ executionId: string; statusCode: number }>;
+      }>(),
+    ).toEqual({
+      succeeded: [
+        expect.objectContaining({
+          id: draftExecution.id,
+          isDraft: true,
+          draftStatus: 'superseded',
+        }),
+      ],
+      failed: [],
+    });
   });
 
   it('POST /api/executions should return 403 when manual task belongs to another user', async () => {
