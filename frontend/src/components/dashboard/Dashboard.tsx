@@ -132,6 +132,9 @@ export function Dashboard() {
       const { data } = await api.get<TaskFeedResponse>('/tasks', { params });
       if (requestId !== latestTasksRequestRef.current) return;
       setTasks(data.items);
+      setSelectedTask((prev) =>
+        prev ? data.items.find((item) => item.id === prev.id) ?? null : null,
+      );
       setFeedErrors(data.errors);
     } catch (err) {
       if (requestId !== latestTasksRequestRef.current) return;

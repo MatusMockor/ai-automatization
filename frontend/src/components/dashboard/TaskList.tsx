@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { RefreshCw } from 'lucide-react';
 import type { TaskFeedItem, ExecutionAction } from '@/types';
 
+
 interface TaskListProps {
   tasks: TaskFeedItem[];
   selectedTask: TaskFeedItem | null;
@@ -114,10 +115,15 @@ function TaskRow({
           <SourceBadge source={task.source} />
           {task.automationState === 'drafted' && (
             <span
-              className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500"
+              className={cn(
+                'rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+                task.draftStatus === 'superseded'
+                  ? 'bg-muted text-muted-foreground'
+                  : 'bg-amber-500/15 text-amber-500',
+              )}
               title={task.matchedRuleName ?? undefined}
             >
-              Draft ready
+              {task.draftStatus === 'superseded' ? 'Draft superseded' : 'Draft ready'}
             </span>
           )}
           {task.automationState === 'matched' && (
