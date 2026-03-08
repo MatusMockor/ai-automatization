@@ -163,7 +163,11 @@ export function TaskDetail({ task, executions, onClose, onAction, publishPullReq
                       ? 'bg-amber-500/15 text-amber-500'
                       : 'bg-muted text-muted-foreground',
                   )}>
-                    {task.draftStatus === 'ready' ? 'Ready' : 'Superseded'}
+                    {task.draftStatus === 'ready'
+                      ? 'Ready'
+                      : task.draftStatus === 'superseded'
+                        ? 'Superseded'
+                        : 'Status unknown'}
                   </span>
                 </div>
                 {task.draftStatus === 'superseded' && (
@@ -174,7 +178,7 @@ export function TaskDetail({ task, executions, onClose, onAction, publishPullReq
                 )}
                 <button
                   type="button"
-                  disabled={task.draftStatus === 'superseded'}
+                  disabled={task.draftStatus !== 'ready'}
                   onClick={() => onStartDraft?.(task)}
                   className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
