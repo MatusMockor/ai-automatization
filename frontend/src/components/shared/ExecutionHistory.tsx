@@ -50,6 +50,14 @@ export function ExecutionHistory({ executions, compact = false }: ExecutionHisto
           <ExecutionStatusIcon status={exec.status} />
           <span className="text-sm font-medium">{actionLabels[exec.action]}</span>
           <span className="text-xs text-muted-foreground">{exec.taskExternalId}</span>
+          {exec.isDraft && (
+            <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-500">
+              Draft
+            </span>
+          )}
+          {exec.triggerType === 'automation_rule' && (
+            <span className="text-[10px] text-muted-foreground">Auto</span>
+          )}
           {exec.executionRole && exec.executionRole !== 'implementation' && (
             <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-indigo-500/10 text-indigo-400 capitalize">
               {exec.executionRole}

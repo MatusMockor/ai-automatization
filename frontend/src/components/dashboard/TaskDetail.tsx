@@ -4,8 +4,9 @@ import { ActionButtons } from '@/components/shared/ActionButtons';
 import { ExecutionHistory } from '@/components/shared/ExecutionHistory';
 import { TaskStatusDot } from '@/components/shared/StatusIcon';
 import { timeAgo } from '@/lib/time';
+import { cn } from '@/lib/utils';
 import type { TaskFeedItem, Execution, ExecutionAction, Repository } from '@/types';
-import { X, ExternalLink, GitBranch } from 'lucide-react';
+import { X, ExternalLink, GitBranch, Play, AlertTriangle } from 'lucide-react';
 
 interface TaskDetailProps {
   task: TaskFeedItem;
@@ -20,9 +21,10 @@ interface TaskDetailProps {
   onExecutionRepoIdChange: (repoId: string | null) => void;
   repositories: Repository[];
   selectedRepo: Repository | null;
+  onStartDraft?: (task: TaskFeedItem) => void;
 }
 
-export function TaskDetail({ task, executions, onClose, onAction, publishPullRequest, onPublishPullRequestChange, requireCodeChanges, onRequireCodeChangesChange, executionRepoId, onExecutionRepoIdChange, repositories, selectedRepo }: TaskDetailProps) {
+export function TaskDetail({ task, executions, onClose, onAction, publishPullRequest, onPublishPullRequestChange, requireCodeChanges, onRequireCodeChangesChange, executionRepoId, onExecutionRepoIdChange, repositories, selectedRepo, onStartDraft }: TaskDetailProps) {
   useEffect(() => {
     if (executionRepoId && !repositories.some((repo) => repo.id === executionRepoId)) {
       onExecutionRepoIdChange(null);
@@ -148,6 +150,47 @@ export function TaskDetail({ task, executions, onClose, onAction, publishPullReq
                 </div>
               );
             })()}
+
+            {task.automationState === 'drafted' && task.draftExecutionId && (
+              <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Draft execution ready — created by rule &lsquo;{task.matchedRuleName}&rsquo;
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className={cn(
+                    'rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+                    task.draftStatus === 'ready'
+                      ? 'bg-amber-500/15 text-amber-500'
+                      : 'bg-muted text-muted-foreground',
+                  )}>
+                    {task.draftStatus === 'ready' ? 'Ready' : 'Superseded'}
+                  </span>
+                </div>
+                {task.draftStatus === 'superseded' && (
+                  <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <AlertTriangle className="h-3 w-3" />
+                    <span>This draft has been superseded by a newer version</span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  disabled={task.draftStatus === 'superseded'}
+                  onClick={() => onStartDraft?.(task)}
+                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  Start Draft
+                </button>
+              </div>
+            )}
+
+            {task.automationState === 'matched' && task.matchedRuleName && (
+              <div className="mb-4 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+                <p className="text-xs text-blue-600 dark:text-blue-400">
+                  Matched by rule &lsquo;{task.matchedRuleName}&rsquo;
+                </p>
+              </div>
+            )}
 
             <ActionButtons onAction={onAction} />
             <label className="mt-3 flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">

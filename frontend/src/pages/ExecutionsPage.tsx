@@ -5,7 +5,7 @@ import { timeAgo } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import { api, getApiErrorMessage } from '@/lib/api';
 import { toast } from 'sonner';
-import type { Execution, ExecutionStreamEvent, ReviewGateStatus } from '@/types';
+import type { Execution, ExecutionStreamEvent, ExecutionTriggerType, ReviewGateStatus } from '@/types';
 import { Square, Copy, X, ExternalLink } from 'lucide-react';
 import { useExecutionStream } from '@/lib/useExecutionStream';
 import { ReviewGateStatusBadge } from '@/components/shared/ReviewGateStatusBadge';
@@ -23,6 +23,8 @@ export function ExecutionsPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Execution | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<Execution | null>(null);
+  const [triggerFilter, setTriggerFilter] = useState<ExecutionTriggerType | 'all'>('all');
+  const [draftsOnly, setDraftsOnly] = useState(false);
 
   // Detail panel horizontal resize
   const DEFAULT_PANEL_WIDTH = 480;
@@ -85,7 +87,10 @@ export function ExecutionsPage() {
   useEffect(() => {
     const fetchExecutions = async () => {
       try {
-        const { data } = await api.get<Execution[]>('/executions', { params: { limit: 50 } });
+        const params: Record<string, string | number | boolean> = { limit: 50 };
+        if (triggerFilter !== 'all') params.triggerType = triggerFilter;
+        if (draftsOnly) params.isDraft = true;
+        const { data } = await api.get<Execution[]>('/executions', { params });
         setExecutions(data);
       } catch (err) {
         toast.error(getApiErrorMessage(err, 'Failed to load executions'));
@@ -94,7 +99,7 @@ export function ExecutionsPage() {
       }
     };
     fetchExecutions();
-  }, []);
+  }, [triggerFilter, draftsOnly]);
 
   const handleSelect = async (exec: Execution) => {
     setSelected(exec);
@@ -228,6 +233,36 @@ export function ExecutionsPage() {
           </p>
         </div>
 
+        {/* Filters */}
+        <div className="flex items-center gap-3 border-b border-border px-5 py-2">
+          <div className="flex items-center gap-1">
+            {(['all', 'manual', 'automation_rule', 'schedule'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => { setTriggerFilter(t); setLoading(true); }}
+                className={cn(
+                  'rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
+                  triggerFilter === t
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-foreground/5',
+                )}
+              >
+                {t === 'all' ? 'All' : t === 'manual' ? 'Manual' : t === 'automation_rule' ? 'Rule' : 'Schedule'}
+              </button>
+            ))}
+          </div>
+          <label className="ml-auto flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={draftsOnly}
+              onChange={(e) => { setDraftsOnly(e.target.checked); setLoading(true); }}
+              className="h-3 w-3 rounded border-border accent-primary"
+            />
+            Drafts only
+          </label>
+        </div>
+
         <div className="flex-1 overflow-y-auto">
           {loading && (
             <div className="flex justify-center py-12" role="status" aria-live="polite">
@@ -262,9 +297,19 @@ export function ExecutionsPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-xs text-muted-foreground">{exec.taskExternalId}</span>
-                      <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase', actionColors[exec.action])}>
+                      <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase', actionColors[exec.action], exec.draftStatus === 'superseded' && 'line-through opacity-50')}>
                         {exec.action}
                       </span>
+                      {exec.isDraft && (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-500">
+                          Draft
+                        </span>
+                      )}
+                      {exec.triggerType === 'automation_rule' && (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-indigo-500/10 text-indigo-400">
+                          Auto
+                        </span>
+                      )}
                       <span className={cn(
                         'rounded px-1.5 py-0.5 text-[10px] font-medium capitalize',
                         exec.status === 'running' && 'bg-blue-500/10 text-blue-400',
