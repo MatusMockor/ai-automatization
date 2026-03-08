@@ -1,8 +1,8 @@
-import type { TaskManagerProviderType } from '../../task-managers/interfaces/task-manager-provider.interface';
+import type { TaskSource } from '../../executions/interfaces/execution.types';
 
 export class TaskRepositoryDefaultItemDto {
   id!: string;
-  provider!: TaskManagerProviderType;
+  provider!: TaskSource;
   scopeType!: 'asana_project' | 'asana_workspace' | 'jira_project' | null;
   scopeId!: string | null;
   repositoryId!: string;

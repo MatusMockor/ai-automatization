@@ -11,34 +11,43 @@ import {
 import type {
   ExecutionDraftStatus,
   TaskAutomationState,
+  TaskSource,
 } from '../executions/interfaces/execution.types';
+import { ManualTask } from '../manual-tasks/entities/manual-task.entity';
+import { mapManualWorkflowStateToTaskStatus } from '../manual-tasks/utils/manual-task-status.utils';
 import { RepositoriesService } from '../repositories/repositories.service';
-import { TaskManagersService } from '../task-managers/task-managers.service';
 import type { TaskManagerProviderType } from '../task-managers/interfaces/task-manager-provider.interface';
+import { TaskManagersService } from '../task-managers/task-managers.service';
+import { DeleteTaskRepositoryDefaultDto } from './dto/delete-task-repository-default.dto';
+import { GetTaskSyncRunsQueryDto } from './dto/get-task-sync-runs-query.dto';
 import { GetTasksQueryDto } from './dto/get-tasks-query.dto';
 import { StartTaskSyncResponseDto } from './dto/start-task-sync-response.dto';
-import { GetTaskSyncRunsQueryDto } from './dto/get-task-sync-runs-query.dto';
 import {
   TaskFeedItemDto,
   TaskFeedResponseDto,
 } from './dto/task-feed-response.dto';
-import { TaskScopesResponseDto } from './dto/task-scopes-response.dto';
-import { TaskSyncRunResponseDto } from './dto/task-sync-run-response.dto';
-import { DeleteTaskRepositoryDefaultDto } from './dto/delete-task-repository-default.dto';
 import {
   TaskRepositoryDefaultItemDto,
   TaskRepositoryDefaultsResponseDto,
 } from './dto/task-repository-defaults-response.dto';
+import { TaskScopesResponseDto } from './dto/task-scopes-response.dto';
+import { TaskSyncRunResponseDto } from './dto/task-sync-run-response.dto';
+import { UpsertTaskRepositoryDefaultDto } from './dto/upsert-task-repository-default.dto';
 import { SyncedTaskScope } from './entities/synced-task-scope.entity';
 import { SyncedTask } from './entities/synced-task.entity';
 import { TaskRepositoryDefaultsService } from './task-repository-defaults.service';
 import { TaskSyncService } from './task-sync.service';
-import { UpsertTaskRepositoryDefaultDto } from './dto/upsert-task-repository-default.dto';
-import { buildTaskFeedId } from './utils/task-feed-id.utils';
-import { resolveTaskSnapshotVersion } from './utils/task-snapshot-version.utils';
+import {
+  buildManualTaskFeedId,
+  buildTaskFeedId,
+} from './utils/task-feed-id.utils';
+import {
+  resolveManualTaskSnapshotVersion,
+  resolveTaskSnapshotVersion,
+} from './utils/task-snapshot-version.utils';
 
 type ScopeFilter = {
-  provider?: TaskManagerProviderType;
+  provider?: TaskSource;
   asanaWorkspaceId?: string;
   asanaProjectId?: string;
   jiraProjectKey?: string;
@@ -52,6 +61,8 @@ export class TasksService {
   constructor(
     @InjectRepository(SyncedTask)
     private readonly syncedTaskRepository: Repository<SyncedTask>,
+    @InjectRepository(ManualTask)
+    private readonly manualTaskRepository: Repository<ManualTask>,
     private readonly automationRulesService: AutomationRulesService,
     private readonly executionsService: ExecutionsService,
     private readonly taskManagersService: TaskManagersService,
@@ -83,36 +94,36 @@ export class TasksService {
       );
     }
 
-    const connections =
-      await this.taskManagersService.listConnectionsForUser(userId);
+    const shouldIncludeSyncedTasks =
+      query.provider === undefined || query.provider !== 'manual';
+    const shouldIncludeManualTasks =
+      query.provider === undefined || query.provider === 'manual';
+
+    const connections = shouldIncludeSyncedTasks
+      ? await this.taskManagersService.listConnectionsForUser(userId)
+      : [];
     const filteredConnections = query.provider
       ? connections.filter(
           (connection) => connection.provider === query.provider,
         )
       : connections;
-
-    const limit = this.resolveLimit(query.limit);
-    if (filteredConnections.length === 0) {
-      return {
-        repositoryId: query.repoId ?? null,
-        total: 0,
-        items: [],
-        errors: [],
-      };
-    }
-
     const connectionById = new Map(
       filteredConnections.map((connection) => [connection.id, connection]),
     );
 
-    const persistedTasks = await this.syncedTaskRepository.find({
-      where: query.provider ? { userId, provider: query.provider } : { userId },
-      relations: { scopes: true },
-      order: {
-        sourceUpdatedAt: 'DESC',
-        externalId: 'ASC',
-      },
-    });
+    const persistedTasks = shouldIncludeSyncedTasks
+      ? await this.syncedTaskRepository.find({
+          where:
+            query.provider && query.provider !== 'manual'
+              ? { userId, provider: query.provider }
+              : { userId },
+          relations: { scopes: true },
+          order: {
+            sourceUpdatedAt: 'DESC',
+            externalId: 'ASC',
+          },
+        })
+      : [];
 
     const scopeFilteredTasks = this.filterByScope(persistedTasks, {
       provider: query.provider,
@@ -121,25 +132,48 @@ export class TasksService {
       jiraProjectKey: query.jiraProjectKey,
     });
 
+    const manualTasks = shouldIncludeManualTasks
+      ? await this.listManualTasksForQuery(userId, query)
+      : [];
+
     const repositoryDefaultsLookup =
       await this.taskRepositoryDefaultsService.buildLookupForUser(userId);
     const activeRules =
       await this.automationRulesService.listActiveRulesForUser(userId);
+    const taskIds = [
+      ...scopeFilteredTasks.map((task) => buildTaskFeedId(task)),
+      ...manualTasks.map((task) => buildManualTaskFeedId(task.id)),
+    ];
     const draftLookup = this.buildDraftLookup(
-      await this.executionsService.listDraftsForTaskIds(
-        userId,
-        scopeFilteredTasks.map((task) => buildTaskFeedId(task)),
+      await this.executionsService.listDraftsForTaskIds(userId, taskIds),
+    );
+
+    const feedItems = [
+      ...this.buildSyncedFeedItems(
+        scopeFilteredTasks,
+        connectionById,
+        repositoryDefaultsLookup,
+        activeRules,
+        draftLookup,
       ),
-    );
+      ...this.buildManualFeedItems(
+        manualTasks,
+        repositoryDefaultsLookup,
+        activeRules,
+        draftLookup,
+      ),
+    ];
 
-    const feedItems = this.buildFeedItems(
-      scopeFilteredTasks,
-      connectionById,
-      repositoryDefaultsLookup,
-      activeRules,
-      draftLookup,
-    );
+    if (feedItems.length === 0) {
+      return {
+        repositoryId: query.repoId ?? null,
+        total: 0,
+        items: [],
+        errors: [],
+      };
+    }
 
+    const limit = this.resolveLimit(query.limit);
     const sortedItems = feedItems.sort((a, b) => this.compareItems(a, b));
     const items = sortedItems.slice(0, limit);
 
@@ -199,6 +233,27 @@ export class TasksService {
     dto: DeleteTaskRepositoryDefaultDto,
   ): Promise<void> {
     await this.taskRepositoryDefaultsService.deleteForUser(userId, dto);
+  }
+
+  private async listManualTasksForQuery(
+    userId: string,
+    query: GetTasksQueryDto,
+  ): Promise<ManualTask[]> {
+    if (
+      query.asanaWorkspaceId !== undefined ||
+      query.asanaProjectId !== undefined ||
+      query.jiraProjectKey !== undefined
+    ) {
+      return [];
+    }
+
+    return this.manualTaskRepository.find({
+      where: { userId },
+      order: {
+        updatedAt: 'DESC',
+        id: 'ASC',
+      },
+    });
   }
 
   private filterByScope(
@@ -276,9 +331,20 @@ export class TasksService {
         'Jira project filter cannot be used with Asana provider filter',
       );
     }
+
+    if (
+      query.provider === 'manual' &&
+      (query.asanaWorkspaceId !== undefined ||
+        query.asanaProjectId !== undefined ||
+        query.jiraProjectKey !== undefined)
+    ) {
+      throw new BadRequestException(
+        'Scope filters cannot be used with manual provider filter',
+      );
+    }
   }
 
-  private buildFeedItems(
+  private buildSyncedFeedItems(
     tasks: SyncedTask[],
     connectionById: Map<string, { id: string }>,
     repositoryDefaultsLookup: Awaited<
@@ -321,7 +387,7 @@ export class TasksService {
         const draftOutcome = this.resolveDraftOutcome(
           draftLookup.get(taskId) ?? [],
           automationMatch,
-          persistedTask,
+          resolveTaskSnapshotVersion(persistedTask),
         );
         const repositoryDefaultSuggestion =
           this.taskRepositoryDefaultsService.resolveSuggestedRepository(
@@ -330,12 +396,6 @@ export class TasksService {
             repositoryDefaultsLookup,
           );
 
-        const suggestedRepositoryId =
-          automationMatch?.repositoryId ??
-          repositoryDefaultSuggestion.repositoryId;
-        const repositorySelectionSource = automationMatch
-          ? 'automation_rule'
-          : repositoryDefaultSuggestion.source;
         items.push({
           id: taskId,
           connectionId,
@@ -349,8 +409,12 @@ export class TasksService {
           primaryScopeType: primaryScope?.scopeType ?? null,
           primaryScopeId: primaryScope?.scopeId ?? null,
           primaryScopeName: primaryScope?.scopeName ?? null,
-          suggestedRepositoryId,
-          repositorySelectionSource,
+          suggestedRepositoryId:
+            automationMatch?.repositoryId ??
+            repositoryDefaultSuggestion.repositoryId,
+          repositorySelectionSource: automationMatch
+            ? 'automation_rule'
+            : repositoryDefaultSuggestion.source,
           matchedRuleId: automationMatch?.ruleId ?? null,
           matchedRuleName: automationMatch?.ruleName ?? null,
           suggestedAction: automationMatch?.executionAction ?? null,
@@ -358,6 +422,7 @@ export class TasksService {
           draftExecutionId: draftOutcome.executionId,
           draftStatus: draftOutcome.status,
           automationState: draftOutcome.automationState,
+          manualWorkflowState: null,
           hasMultipleScopes: persistedTask.scopes.length > 1,
           updatedAt: this.taskUpdatedAt(persistedTask),
         });
@@ -365,6 +430,76 @@ export class TasksService {
     }
 
     return items;
+  }
+
+  private buildManualFeedItems(
+    tasks: ManualTask[],
+    repositoryDefaultsLookup: Awaited<
+      ReturnType<TaskRepositoryDefaultsService['buildLookupForUser']>
+    >,
+    activeRules: Awaited<
+      ReturnType<AutomationRulesService['listActiveRulesForUser']>
+    >,
+    draftLookup: Map<string, ExecutionDraftLookupItem[]>,
+  ): TaskFeedItemDto[] {
+    return tasks.map((task) => {
+      const status = mapManualWorkflowStateToTaskStatus(task.workflowState);
+      const automationMatch = this.automationRulesService.resolveTaskMatch(
+        {
+          provider: 'manual',
+          title: task.title,
+          status,
+          scopes: [],
+        },
+        activeRules,
+      );
+      const taskId = buildManualTaskFeedId(task.id);
+      const draftOutcome = this.resolveDraftOutcome(
+        draftLookup.get(taskId) ?? [],
+        automationMatch,
+        resolveManualTaskSnapshotVersion(task),
+      );
+      const repositoryDefaultSuggestion =
+        this.taskRepositoryDefaultsService.resolveSuggestedRepository(
+          'manual',
+          [],
+          repositoryDefaultsLookup,
+        );
+
+      return {
+        id: taskId,
+        connectionId: 'manual',
+        externalId: task.id,
+        title: task.title,
+        description: task.description ?? '',
+        url: '',
+        status,
+        assignee: null,
+        source: 'manual',
+        primaryScopeType: null,
+        primaryScopeId: null,
+        primaryScopeName: null,
+        suggestedRepositoryId:
+          automationMatch?.repositoryId ??
+          repositoryDefaultSuggestion.repositoryId,
+        repositorySelectionSource: automationMatch
+          ? 'automation_rule'
+          : repositoryDefaultSuggestion.source,
+        matchedRuleId: automationMatch?.ruleId ?? null,
+        matchedRuleName: automationMatch?.ruleName ?? null,
+        suggestedAction: automationMatch?.executionAction ?? null,
+        automationMode: automationMatch?.mode ?? null,
+        draftExecutionId: draftOutcome.executionId,
+        draftStatus: draftOutcome.status,
+        automationState: draftOutcome.automationState,
+        manualWorkflowState:
+          draftOutcome.automationState === 'drafted'
+            ? 'drafted'
+            : task.workflowState,
+        hasMultipleScopes: false,
+        updatedAt: task.updatedAt.toISOString(),
+      };
+    });
   }
 
   private resolvePrimaryScope(
@@ -403,14 +538,7 @@ export class TasksService {
   private resolveDraftOutcome(
     drafts: ExecutionDraftLookupItem[],
     automationMatch: ReturnType<AutomationRulesService['resolveTaskMatch']>,
-    task: Pick<
-      SyncedTask,
-      | 'connectionId'
-      | 'provider'
-      | 'externalId'
-      | 'sourceUpdatedAt'
-      | 'updatedAt'
-    >,
+    snapshotVersion: Date | null,
   ): {
     executionId: string | null;
     status: ExecutionDraftStatus | null;
@@ -432,7 +560,6 @@ export class TasksService {
       };
     }
 
-    const snapshotVersion = resolveTaskSnapshotVersion(task);
     const relevantDrafts = drafts.filter(
       (draft) =>
         draft.originRuleId === automationMatch.ruleId &&

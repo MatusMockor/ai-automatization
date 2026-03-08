@@ -61,10 +61,16 @@ describe('Manual Tasks (e2e)', () => {
       id: string;
       title: string;
       description: string | null;
+      workflowState: string;
+      latestDraftExecutionId: string | null;
+      latestExecutionId: string | null;
     }>();
 
     expect(body.title).toBe(payload.title.trim());
     expect(body.description).toBe(payload.description.trim());
+    expect(body.workflowState).toBe('inbox');
+    expect(body.latestDraftExecutionId).toBeNull();
+    expect(body.latestExecutionId).toBeNull();
 
     const storedTask = await dataSource.getRepository(ManualTask).findOneBy({
       id: body.id,
@@ -149,10 +155,14 @@ describe('Manual Tasks (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const body = response.json<Array<{ id: string; title: string }>>();
+    const body =
+      response.json<
+        Array<{ id: string; title: string; workflowState: string }>
+      >();
 
     expect(body.map((item) => item.id)).toEqual([newerTask.id, olderTask.id]);
     expect(body.some((item) => item.title === 'Foreign task')).toBe(false);
+    expect(body.every((item) => item.workflowState === 'inbox')).toBe(true);
   });
 
   it('PATCH /api/manual-tasks/:id should update title', async () => {

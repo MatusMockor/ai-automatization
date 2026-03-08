@@ -3,11 +3,13 @@ import type {
   ExecutionDraftStatus,
   TaskAutomationMode,
   TaskAutomationState,
+  TaskSource,
 } from '../../executions/interfaces/execution.types';
 import type {
   TaskItemStatus,
   TaskManagerProviderType,
 } from '../../task-managers/interfaces/task-manager-provider.interface';
+import type { ManualTaskWorkflowState } from '../../manual-tasks/entities/manual-task.entity';
 
 export type TaskFeedErrorCode =
   | 'bad_request'
@@ -24,7 +26,7 @@ export class TaskFeedItemDto {
   url!: string;
   status!: TaskItemStatus;
   assignee!: string | null;
-  source!: TaskManagerProviderType;
+  source!: TaskSource;
   primaryScopeType!:
     | 'asana_workspace'
     | 'asana_project'
@@ -47,6 +49,7 @@ export class TaskFeedItemDto {
   draftExecutionId!: string | null;
   draftStatus!: ExecutionDraftStatus | null;
   automationState!: TaskAutomationState;
+  manualWorkflowState!: ManualTaskWorkflowState | null;
   hasMultipleScopes!: boolean;
   updatedAt!: string;
 }

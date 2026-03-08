@@ -1,11 +1,15 @@
 import { faker } from '@faker-js/faker';
 import { DataSource } from 'typeorm';
-import { ManualTask } from '../../src/manual-tasks/entities/manual-task.entity';
+import {
+  ManualTask,
+  ManualTaskWorkflowState,
+} from '../../src/manual-tasks/entities/manual-task.entity';
 
 type CreateManualTaskInput = {
   userId: string;
   title?: string;
   description?: string | null;
+  workflowState?: ManualTaskWorkflowState;
 };
 
 export class ManualTaskFactory {
@@ -20,6 +24,7 @@ export class ManualTaskFactory {
         input.description === undefined
           ? faker.lorem.paragraph({ min: 1, max: 2 })
           : input.description,
+      workflowState: input.workflowState ?? 'inbox',
     });
 
     return manualTaskRepository.save(manualTask);

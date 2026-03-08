@@ -47,8 +47,8 @@ export class UpdateAutomationRuleDto {
 
   @ValidateIf((_, value: unknown) => value !== undefined)
   @Transform(normalizeOptionalStringTransform)
-  @IsIn(['asana', 'jira'])
-  provider?: 'asana' | 'jira';
+  @IsIn(['asana', 'jira', 'manual'])
+  provider?: 'asana' | 'jira' | 'manual';
 
   @ValidateIf((_, value: unknown) => value !== undefined)
   @Transform(normalizeOptionalStringTransform)

@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { EncryptionService } from '../src/common/encryption/encryption.service';
 import { Execution } from '../src/executions/entities/execution.entity';
 import { TASK_MANAGER_PROVIDERS } from '../src/task-managers/constants/task-managers.tokens';
+import { ManualTaskFactory } from './factories/manual-task.factory';
 import {
   TaskManagerProviderAuthError,
   TaskManagerProviderNotFoundError,
@@ -466,6 +467,7 @@ describe('Tasks (e2e)', () => {
   let userFactory: UserFactory;
   let connectionFactory: TaskManagerConnectionFactory;
   let repositoryFactory: RepositoryFactory;
+  let manualTaskFactory: ManualTaskFactory;
   let fakeAsanaProvider: FakeAsanaTaskManagerProvider;
   let fakeJiraProvider: FakeJiraTaskManagerProvider;
 
@@ -494,6 +496,7 @@ describe('Tasks (e2e)', () => {
       dataSource,
       app.get(EncryptionService),
     );
+    manualTaskFactory = new ManualTaskFactory(dataSource);
     repositoryFactory = new RepositoryFactory(
       dataSource,
       process.env.REPOSITORIES_BASE_PATH ??
@@ -518,6 +521,142 @@ describe('Tasks (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  it('GET /api/tasks?provider=manual should return manual tasks with provider-level repository defaults', async () => {
+    const session = await createLoginSession();
+    const repository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+    const manualTask = await manualTaskFactory.create({
+      userId: session.userId,
+      title: 'Manual backend fix',
+      description: 'Manual task description',
+    });
+
+    const setDefaultResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/tasks/repository-defaults',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        provider: 'manual',
+        repositoryId: repository.id,
+      },
+    });
+    expect(setDefaultResponse.statusCode).toBe(200);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tasks?provider=manual',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      response.json<{
+        items: Array<{
+          id: string;
+          source: string;
+          externalId: string;
+          primaryScopeType: string | null;
+          suggestedRepositoryId: string | null;
+          repositorySelectionSource: string | null;
+          manualWorkflowState: string | null;
+        }>;
+      }>().items,
+    ).toEqual([
+      expect.objectContaining({
+        id: `manual:${manualTask.id}`,
+        source: 'manual',
+        externalId: manualTask.id,
+        primaryScopeType: null,
+        suggestedRepositoryId: repository.id,
+        repositorySelectionSource: 'provider_default',
+        manualWorkflowState: 'inbox',
+      }),
+    ]);
+  });
+
+  it('manual task creation should trigger draft automation and appear in the unified task feed', async () => {
+    const session = await createLoginSession();
+    const repository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+
+    const createRuleResponse = await app.inject({
+      method: 'POST',
+      url: '/api/automation-rules',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        name: 'Manual backend fixes',
+        provider: 'manual',
+        repositoryId: repository.id,
+        mode: 'draft',
+        executionAction: 'fix',
+        titleContains: ['backend', 'fix'],
+      },
+    });
+    expect(createRuleResponse.statusCode).toBe(201);
+
+    const createManualTaskResponse = await app.inject({
+      method: 'POST',
+      url: '/api/manual-tasks',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        title: 'Backend fix from manual task',
+        description: 'Needs manual automation draft',
+      },
+    });
+    expect(createManualTaskResponse.statusCode).toBe(201);
+    const createdTask = createManualTaskResponse.json<{ id: string }>();
+
+    const draft = await waitForReadyDraftForTask(
+      session.userId,
+      `manual:${createdTask.id}`,
+    );
+    expect(draft.taskSource).toBe('manual');
+    expect(draft.draftStatus).toBe('ready');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tasks?provider=manual',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      response.json<{
+        items: Array<{
+          id: string;
+          matchedRuleName: string | null;
+          automationMode: string | null;
+          draftExecutionId: string | null;
+          draftStatus: string | null;
+          automationState: string;
+          manualWorkflowState: string | null;
+        }>;
+      }>().items[0],
+    ).toEqual(
+      expect.objectContaining({
+        id: `manual:${createdTask.id}`,
+        matchedRuleName: 'Manual backend fixes',
+        automationMode: 'draft',
+        draftExecutionId: draft.id,
+        draftStatus: 'ready',
+        automationState: 'drafted',
+        manualWorkflowState: 'drafted',
+      }),
+    );
   });
 
   it('GET /api/tasks should return empty payload when user has no task manager connections', async () => {
@@ -1817,6 +1956,34 @@ describe('Tasks (e2e)', () => {
     const jiraRun = await startAndAwaitSync(session, 'jira');
 
     return jiraRun.status === 'failed' ? jiraRun : asanaRun;
+  };
+
+  const waitForReadyDraftForTask = async (
+    userId: string,
+    taskId: string,
+  ): Promise<Execution> => {
+    const executionRepository = dataSource.getRepository(Execution);
+
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const draft = await executionRepository.findOne({
+        where: {
+          userId,
+          taskId,
+          isDraft: true,
+          draftStatus: 'ready',
+        },
+        order: {
+          createdAt: 'DESC',
+        },
+      });
+      if (draft) {
+        return draft;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    throw new Error(`Timed out waiting for ready draft for task ${taskId}`);
   };
 });
 

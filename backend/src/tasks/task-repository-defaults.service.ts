@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, QueryFailedError, Repository } from 'typeorm';
+import type { TaskSource } from '../executions/interfaces/execution.types';
 import { RepositoriesService } from '../repositories/repositories.service';
-import type { TaskManagerProviderType } from '../task-managers/interfaces/task-manager-provider.interface';
 import { DeleteTaskRepositoryDefaultDto } from './dto/delete-task-repository-default.dto';
 import {
   TaskRepositoryDefaultItemDto,
@@ -40,7 +40,7 @@ export type ResolvedRepositorySelection = {
 };
 
 type RepositoryDefaultsLookup = {
-  providerDefaults: Map<TaskManagerProviderType, string>;
+  providerDefaults: Map<TaskSource, string>;
   scopedDefaults: Map<string, string>;
 };
 
@@ -152,7 +152,7 @@ export class TaskRepositoryDefaultsService {
       },
     });
 
-    const providerDefaults = new Map<TaskManagerProviderType, string>();
+    const providerDefaults = new Map<TaskSource, string>();
     const scopedDefaults = new Map<string, string>();
 
     for (const item of defaults) {
@@ -178,7 +178,7 @@ export class TaskRepositoryDefaultsService {
   }
 
   resolveSuggestedRepository(
-    provider: TaskManagerProviderType,
+    provider: TaskSource,
     scopes: SyncedTaskScope[],
     lookup: RepositoryDefaultsLookup,
   ): ResolvedRepositorySelection {
@@ -300,7 +300,7 @@ export class TaskRepositoryDefaultsService {
 
   private async findExistingDefault(
     userId: string,
-    provider: TaskManagerProviderType,
+    provider: TaskSource,
     scopeType: ResolvedScope['scopeType'],
     scopeId: string | null,
   ): Promise<TaskScopeRepositoryDefault | null> {
@@ -316,7 +316,7 @@ export class TaskRepositoryDefaultsService {
 
   private async upsertDefaultPortable(
     userId: string,
-    provider: TaskManagerProviderType,
+    provider: TaskSource,
     scope: ResolvedScope,
     values: Pick<
       TaskScopeRepositoryDefault,
@@ -393,7 +393,7 @@ export class TaskRepositoryDefaultsService {
   }
 
   private resolveScope(
-    provider: TaskManagerProviderType,
+    provider: TaskSource,
     scopeType: string | undefined,
     scopeId: string | undefined,
   ): ResolvedScope {
@@ -414,6 +414,19 @@ export class TaskRepositoryDefaultsService {
       throw new BadRequestException(
         'scopeType and scopeId must be provided together',
       );
+    }
+
+    if (provider === 'manual') {
+      if (hasScopeType || hasScopeId) {
+        throw new BadRequestException(
+          'Manual provider defaults do not support scopes',
+        );
+      }
+
+      return {
+        scopeType: null,
+        scopeId: null,
+      };
     }
 
     if (provider === 'asana') {
@@ -438,7 +451,7 @@ export class TaskRepositoryDefaultsService {
   }
 
   private buildScopedKey(
-    provider: TaskManagerProviderType,
+    provider: TaskSource,
     scopeType: 'asana_project' | 'asana_workspace' | 'jira_project',
     scopeId: string,
   ): string {

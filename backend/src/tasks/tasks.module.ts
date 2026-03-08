@@ -4,6 +4,7 @@ import { AutomationRulesModule } from '../automation-rules/automation-rules.modu
 import { RepositoriesModule } from '../repositories/repositories.module';
 import { EncryptionModule } from '../common/encryption/encryption.module';
 import { ExecutionsModule } from '../executions/executions.module';
+import { ManualTask } from '../manual-tasks/entities/manual-task.entity';
 import { UserSettings } from '../settings/entities/user-settings.entity';
 import { TaskManagerConnection } from '../task-managers/entities/task-manager-connection.entity';
 import { TaskManagersModule } from '../task-managers/task-managers.module';
@@ -28,6 +29,7 @@ import { TasksService } from './tasks.service';
     TypeOrmModule.forFeature([
       TaskManagerConnection,
       SyncedTask,
+      ManualTask,
       SyncedTaskScope,
       TaskSyncRun,
       TaskScopeRepositoryDefault,

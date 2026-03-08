@@ -41,6 +41,11 @@ import type {
   ExecutionTriggerType,
   TaskSource,
 } from './interfaces/execution.types';
+import { ManualTaskAutomationStateService } from './manual-task-automation-state.service';
+import {
+  buildManualTaskFeedId,
+  extractManualTaskId,
+} from '../tasks/utils/task-feed-id.utils';
 
 export type CreateExecutionDraftInput = {
   userId: string;
@@ -85,6 +90,7 @@ export class ExecutionsService {
     private readonly executionDispatchService: ExecutionDispatchService,
     private readonly executionEventStoreService: ExecutionEventStoreService,
     private readonly executionReviewGateService: ExecutionReviewGateService,
+    private readonly manualTaskAutomationStateService: ManualTaskAutomationStateService,
     private readonly runtimeManager: ExecutionRuntimeManager,
     private readonly streamHub: ExecutionStreamHub,
     configService: ConfigService,
@@ -101,9 +107,14 @@ export class ExecutionsService {
     idempotencyKeyHeader?: string,
   ): Promise<{ execution: ExecutionSummaryResponseDto; reused: boolean }> {
     const idempotencyKey = this.normalizeIdempotencyKey(idempotencyKeyHeader);
+    const manualTask = await this.assertManualTaskOwnership(userId, dto);
+    const normalizedTaskId =
+      dto.taskSource === 'manual'
+        ? buildManualTaskFeedId(manualTask?.id ?? dto.taskId)
+        : dto.taskId;
     const requireCodeChanges = this.resolveRequireCodeChanges(dto);
     const requestHash = idempotencyKey
-      ? this.computeRequestHash(dto, requireCodeChanges)
+      ? this.computeRequestHash(dto, requireCodeChanges, normalizedTaskId)
       : null;
     const idempotencyCutoff = new Date(
       Date.now() - ExecutionsService.IDEMPOTENCY_TTL_MS,
@@ -127,8 +138,6 @@ export class ExecutionsService {
         };
       }
     }
-
-    await this.assertManualTaskOwnership(userId, dto);
 
     const repository = await this.getOwnedRepository(userId, dto.repositoryId);
     await this.assertRepositoryRunnable(repository);
@@ -175,7 +184,7 @@ export class ExecutionsService {
             publishPullRequest: dto.publishPullRequest ?? true,
             requireCodeChanges,
             implementationAttempts: 1,
-            taskId: dto.taskId,
+            taskId: normalizedTaskId,
             taskExternalId: dto.taskExternalId,
             taskTitle: dto.taskTitle,
             taskDescription: dto.taskDescription ?? null,
@@ -186,7 +195,10 @@ export class ExecutionsService {
             parentExecutionId: null,
             rootExecutionId: repository.id, // temporary value replaced after save
             originRuleId: null,
-            sourceTaskSnapshotUpdatedAt: null,
+            sourceTaskSnapshotUpdatedAt:
+              dto.taskSource === 'manual'
+                ? (manualTask?.updatedAt ?? null)
+                : null,
             isDraft: false,
             draftStatus: null,
             reviewGateStatus: 'not_applicable',
@@ -298,7 +310,20 @@ export class ExecutionsService {
           errorMessage: 'Failed to enqueue execution',
         },
       );
+      if (dto.taskSource === 'manual') {
+        await this.manualTaskAutomationStateService.reconcileTask(
+          userId,
+          manualTask?.id ?? dto.taskId,
+        );
+      }
       throw new InternalServerErrorException('Failed to enqueue execution');
+    }
+
+    if (dto.taskSource === 'manual') {
+      await this.manualTaskAutomationStateService.reconcileTask(
+        userId,
+        manualTask?.id ?? dto.taskId,
+      );
     }
 
     const createdExecution = await this.getOwnedExecution(
@@ -411,6 +436,11 @@ export class ExecutionsService {
     }
 
     const updatedExecution = await this.getOwnedExecution(execution.id, userId);
+    if (updatedExecution.taskSource === 'manual') {
+      await this.manualTaskAutomationStateService.reconcileFromExecution(
+        updatedExecution.id,
+      );
+    }
     return this.toSummaryResponse(updatedExecution);
   }
 
@@ -442,6 +472,10 @@ export class ExecutionsService {
       );
     }
 
+    await this.manualTaskAutomationStateService.reconcileFromExecution(
+      executionId,
+    );
+
     const updatedExecution = await this.getOwnedExecution(executionId, userId);
     return this.toSummaryResponse(updatedExecution);
   }
@@ -455,96 +489,107 @@ export class ExecutionsService {
     });
     const prompt = this.buildPrompt(input.action, input, requireCodeChanges);
 
-    return this.executionsRepository.manager.transaction(async (manager) => {
-      const executionRepository = manager.getRepository(Execution);
-      const currentSnapshotDraft = await executionRepository.findOne({
-        where: {
+    const savedDraft = await this.executionsRepository.manager.transaction(
+      async (manager) => {
+        const executionRepository = manager.getRepository(Execution);
+        const currentSnapshotDraft = await executionRepository.findOne({
+          where: {
+            userId: input.userId,
+            taskId: input.taskId,
+            repositoryId: input.repositoryId,
+            originRuleId: input.originRuleId,
+            isDraft: true,
+            draftStatus: 'ready',
+          },
+          order: {
+            createdAt: 'DESC',
+          },
+        });
+
+        if (
+          currentSnapshotDraft &&
+          this.isSameDraftVersion(currentSnapshotDraft, input)
+        ) {
+          await this.supersedeReadyDraftsForTaskWithinTransaction(
+            executionRepository,
+            input.userId,
+            input.taskId,
+            currentSnapshotDraft.id,
+          );
+          return currentSnapshotDraft;
+        }
+
+        const execution = executionRepository.create({
           userId: input.userId,
-          taskId: input.taskId,
           repositoryId: input.repositoryId,
+          idempotencyKey: null,
+          requestHash: null,
+          orchestrationState: 'queued',
+          publishPullRequest: input.publishPullRequest ?? true,
+          requireCodeChanges,
+          implementationAttempts: 1,
+          taskId: input.taskId,
+          taskExternalId: input.taskExternalId,
+          taskTitle: input.taskTitle,
+          taskDescription: input.taskDescription,
+          taskSource: input.taskSource,
+          action: input.action,
+          triggerType: 'automation_rule',
+          executionRole: 'implementation',
+          parentExecutionId: null,
+          rootExecutionId: input.repositoryId, // temporary value replaced after save
           originRuleId: input.originRuleId,
+          sourceTaskSnapshotUpdatedAt: input.sourceTaskSnapshotUpdatedAt,
           isDraft: true,
           draftStatus: 'ready',
-        },
-        order: {
-          createdAt: 'DESC',
-        },
-      });
+          reviewGateStatus: 'not_applicable',
+          reviewPendingDecisionUntil: null,
+          prompt,
+          status: 'pending',
+          automationStatus: 'pending',
+          automationAttempts: 0,
+          branchName: null,
+          commitSha: null,
+          pullRequestNumber: null,
+          pullRequestUrl: null,
+          pullRequestTitle: null,
+          automationErrorMessage: null,
+          automationCompletedAt: null,
+          output: '',
+          outputTruncated: false,
+          pid: null,
+          startedAt: null,
+          finishedAt: null,
+          exitCode: null,
+          errorMessage: null,
+        });
 
-      if (
-        currentSnapshotDraft &&
-        this.isSameDraftVersion(currentSnapshotDraft, input)
-      ) {
+        const savedExecution = await executionRepository.save(execution);
+        await executionRepository.update(
+          { id: savedExecution.id },
+          { rootExecutionId: savedExecution.id },
+        );
+        savedExecution.rootExecutionId = savedExecution.id;
+
         await this.supersedeReadyDraftsForTaskWithinTransaction(
           executionRepository,
           input.userId,
           input.taskId,
-          currentSnapshotDraft.id,
+          savedExecution.id,
         );
-        return currentSnapshotDraft;
-      }
 
-      const execution = executionRepository.create({
-        userId: input.userId,
-        repositoryId: input.repositoryId,
-        idempotencyKey: null,
-        requestHash: null,
-        orchestrationState: 'queued',
-        publishPullRequest: input.publishPullRequest ?? true,
-        requireCodeChanges,
-        implementationAttempts: 1,
-        taskId: input.taskId,
-        taskExternalId: input.taskExternalId,
-        taskTitle: input.taskTitle,
-        taskDescription: input.taskDescription,
-        taskSource: input.taskSource,
-        action: input.action,
-        triggerType: 'automation_rule',
-        executionRole: 'implementation',
-        parentExecutionId: null,
-        rootExecutionId: input.repositoryId, // temporary value replaced after save
-        originRuleId: input.originRuleId,
-        sourceTaskSnapshotUpdatedAt: input.sourceTaskSnapshotUpdatedAt,
-        isDraft: true,
-        draftStatus: 'ready',
-        reviewGateStatus: 'not_applicable',
-        reviewPendingDecisionUntil: null,
-        prompt,
-        status: 'pending',
-        automationStatus: 'pending',
-        automationAttempts: 0,
-        branchName: null,
-        commitSha: null,
-        pullRequestNumber: null,
-        pullRequestUrl: null,
-        pullRequestTitle: null,
-        automationErrorMessage: null,
-        automationCompletedAt: null,
-        output: '',
-        outputTruncated: false,
-        pid: null,
-        startedAt: null,
-        finishedAt: null,
-        exitCode: null,
-        errorMessage: null,
-      });
+        return savedExecution;
+      },
+    );
 
-      const savedExecution = await executionRepository.save(execution);
-      await executionRepository.update(
-        { id: savedExecution.id },
-        { rootExecutionId: savedExecution.id },
-      );
-      savedExecution.rootExecutionId = savedExecution.id;
-
-      await this.supersedeReadyDraftsForTaskWithinTransaction(
-        executionRepository,
+    if (input.taskSource === 'manual') {
+      await this.manualTaskAutomationStateService.reconcileTask(
         input.userId,
-        input.taskId,
-        savedExecution.id,
+        input.taskExternalId,
       );
+    }
 
-      return savedExecution;
-    });
+    return savedDraft;
   }
 
   async supersedeReadyDraftsForTask(
@@ -574,6 +619,22 @@ export class ExecutionsService {
       .andWhere('is_draft = :isDraft', { isDraft: true })
       .andWhere('draft_status = :draftStatus', { draftStatus: 'ready' })
       .execute();
+
+    const manualTaskIds = normalizedTaskIds
+      .map((taskId) => {
+        if (!taskId.startsWith('manual:')) {
+          return null;
+        }
+
+        return taskId.slice('manual:'.length);
+      })
+      .filter((taskId): taskId is string => Boolean(taskId));
+    if (manualTaskIds.length > 0) {
+      await this.manualTaskAutomationStateService.reconcileTasks(
+        userId,
+        manualTaskIds,
+      );
+    }
 
     return result.affected ?? 0;
   }
@@ -720,11 +781,74 @@ export class ExecutionsService {
           draftStatus: 'ready',
         },
       );
+      if (draftExecution.taskSource === 'manual') {
+        await this.manualTaskAutomationStateService.reconcileFromExecution(
+          draftExecution.id,
+        );
+      }
       throw new InternalServerErrorException('Failed to enqueue execution');
     }
 
     const updatedExecution = await this.getOwnedExecution(executionId, userId);
+    if (updatedExecution.taskSource === 'manual') {
+      await this.manualTaskAutomationStateService.reconcileFromExecution(
+        updatedExecution.id,
+      );
+    }
     return this.toSummaryResponse(updatedExecution);
+  }
+
+  async startDraftsForUser(
+    userId: string,
+    executionIds: string[],
+  ): Promise<ExecutionSummaryResponseDto[]> {
+    const normalizedExecutionIds = [...new Set(executionIds)];
+    const results: ExecutionSummaryResponseDto[] = [];
+
+    for (const executionId of normalizedExecutionIds) {
+      results.push(await this.startDraftForUser(userId, executionId));
+    }
+
+    return results;
+  }
+
+  async supersedeDraftsForUser(
+    userId: string,
+    executionIds: string[],
+  ): Promise<ExecutionSummaryResponseDto[]> {
+    const normalizedExecutionIds = [...new Set(executionIds)];
+    const summaries: ExecutionSummaryResponseDto[] = [];
+
+    for (const executionId of normalizedExecutionIds) {
+      const execution = await this.getOwnedExecution(executionId, userId);
+      if (!execution.isDraft) {
+        throw new ConflictException('Execution is not a draft');
+      }
+      if (execution.draftStatus !== 'ready') {
+        throw new ConflictException(
+          'Draft execution is not ready to supersede',
+        );
+      }
+
+      await this.executionsRepository.update(
+        { id: execution.id, userId, isDraft: true, draftStatus: 'ready' },
+        { draftStatus: 'superseded' },
+      );
+
+      if (execution.taskSource === 'manual') {
+        await this.manualTaskAutomationStateService.reconcileFromExecution(
+          execution.id,
+        );
+      }
+
+      summaries.push(
+        this.toSummaryResponse(
+          await this.getOwnedExecution(execution.id, userId),
+        ),
+      );
+    }
+
+    return summaries;
   }
 
   private async getOwnedExecution(
@@ -886,20 +1010,23 @@ export class ExecutionsService {
   private async assertManualTaskOwnership(
     userId: string,
     dto: CreateExecutionDto,
-  ): Promise<void> {
+  ): Promise<Pick<ManualTask, 'id' | 'userId' | 'updatedAt'> | null> {
     if (dto.taskSource !== 'manual') {
-      return;
+      return null;
     }
 
+    const manualTaskId = extractManualTaskId(dto.taskId) ?? dto.taskId;
     const manualTask = await this.manualTasksRepository.findOne({
-      where: { id: dto.taskId },
-      select: { id: true, userId: true },
+      where: { id: manualTaskId },
+      select: { id: true, userId: true, updatedAt: true },
     });
     if (!manualTask || manualTask.userId !== userId) {
       throw new ForbiddenException(
         'Manual task does not belong to authenticated user',
       );
     }
+
+    return manualTask;
   }
 
   private toSummaryResponse(execution: Execution): ExecutionSummaryResponseDto {
@@ -974,11 +1101,12 @@ export class ExecutionsService {
   private computeRequestHash(
     dto: CreateExecutionDto,
     requireCodeChanges: boolean,
+    normalizedTaskId: string,
   ): string {
     const canonicalPayload = JSON.stringify({
       repositoryId: dto.repositoryId,
       action: dto.action,
-      taskId: dto.taskId,
+      taskId: normalizedTaskId,
       taskExternalId: dto.taskExternalId,
       taskTitle: dto.taskTitle,
       taskDescription: dto.taskDescription ?? null,

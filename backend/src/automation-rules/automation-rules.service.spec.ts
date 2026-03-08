@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { ExecutionsService } from '../executions/executions.service';
+import { ManualTask } from '../manual-tasks/entities/manual-task.entity';
 import { RepositoriesService } from '../repositories/repositories.service';
 import { SyncedTaskScope } from '../tasks/entities/synced-task-scope.entity';
 import { SyncedTask } from '../tasks/entities/synced-task.entity';
@@ -28,6 +29,10 @@ describe('AutomationRulesService', () => {
       find: jest.fn(),
     } as unknown as jest.Mocked<Repository<SyncedTask>>;
 
+    const manualTaskRepository = {
+      find: jest.fn(),
+    } as unknown as jest.Mocked<Repository<ManualTask>>;
+
     const repositoriesService = {
       assertOwnedRepository: jest.fn(),
     } as unknown as jest.Mocked<RepositoriesService>;
@@ -42,6 +47,7 @@ describe('AutomationRulesService', () => {
     const service = new AutomationRulesService(
       automationRulesRepository,
       syncedTaskRepository,
+      manualTaskRepository,
       repositoriesService,
       executionsService,
     );
@@ -50,6 +56,7 @@ describe('AutomationRulesService', () => {
       service,
       automationRulesRepository,
       syncedTaskRepository,
+      manualTaskRepository,
       repositoriesService,
       executionsService,
     };
@@ -247,6 +254,39 @@ describe('AutomationRulesService', () => {
     );
 
     expect(noMatch).toBeNull();
+  });
+
+  it('matches manual rules without scopes using normalized task status', () => {
+    const { service } = createService();
+
+    const match = service.resolveTaskMatch(
+      {
+        provider: 'manual',
+        title: 'Backend fix from inbox',
+        status: 'open',
+        scopes: [],
+      },
+      [
+        createRule({
+          id: 'manual-rule',
+          provider: 'manual',
+          scopeType: null,
+          scopeId: null,
+          titleContains: ['backend', 'fix'],
+          taskStatuses: ['open'],
+          repositoryId: 'repo-manual',
+          mode: 'draft',
+        }),
+      ],
+    );
+
+    expect(match).toEqual({
+      ruleId: 'manual-rule',
+      ruleName: 'Rule 1',
+      repositoryId: 'repo-manual',
+      mode: 'draft',
+      executionAction: 'fix',
+    });
   });
 
   it('treats empty titleContains and taskStatuses arrays as wildcard filters', () => {

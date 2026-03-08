@@ -10,12 +10,12 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { getJsonObjectColumnType } from '../../common/utils/database-column.utils';
-import { ManagedRepository } from '../../repositories/entities/repository.entity';
-import type { ExecutionAction } from '../../executions/interfaces/execution.types';
 import type {
-  TaskItemStatus,
-  TaskManagerProviderType,
-} from '../../task-managers/interfaces/task-manager-provider.interface';
+  ExecutionAction,
+  TaskSource,
+} from '../../executions/interfaces/execution.types';
+import { ManagedRepository } from '../../repositories/entities/repository.entity';
+import type { TaskItemStatus } from '../../task-managers/interfaces/task-manager-provider.interface';
 import { User } from '../../users/entities/user.entity';
 
 const JSON_COLUMN_TYPE = getJsonObjectColumnType();
@@ -31,7 +31,10 @@ export type AutomationRuleMode = 'suggest' | 'draft';
   'CHK_automation_rules_scope_pair',
   `("scope_type" IS NULL AND "scope_id" IS NULL) OR ("scope_type" IS NOT NULL AND "scope_id" IS NOT NULL)`,
 )
-@Check('CHK_automation_rules_provider', `provider IN ('asana', 'jira')`)
+@Check(
+  'CHK_automation_rules_provider',
+  `provider IN ('asana', 'jira', 'manual')`,
+)
 @Check(
   'CHK_automation_rules_scope_type',
   `scope_type IS NULL OR scope_type IN ('asana_workspace', 'asana_project', 'jira_project')`,
@@ -77,7 +80,7 @@ export class AutomationRule {
   priority!: number;
 
   @Column({ type: 'varchar', length: 32 })
-  provider!: TaskManagerProviderType;
+  provider!: TaskSource;
 
   @Column({ name: 'scope_type', type: 'varchar', length: 32, nullable: true })
   scopeType!: AutomationRuleScopeType | null;

@@ -205,6 +205,59 @@ describe('AutomationRules (e2e)', () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it('should support provider-level manual rules and reject manual scopes', async () => {
+    const session = await createLoginSession();
+    const repository = await repositoryFactory.create({
+      userId: session.userId,
+    });
+
+    const createManualRuleResponse = await app.inject({
+      method: 'POST',
+      url: '/api/automation-rules',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        name: 'Manual fixes',
+        provider: 'manual',
+        repositoryId: repository.id,
+        mode: 'draft',
+        executionAction: 'fix',
+        titleContains: ['fix'],
+      },
+    });
+
+    expect(createManualRuleResponse.statusCode).toBe(201);
+    expect(
+      createManualRuleResponse.json<{
+        provider: string;
+        scopeType: string | null;
+      }>(),
+    ).toEqual(
+      expect.objectContaining({
+        provider: 'manual',
+        scopeType: null,
+      }),
+    );
+
+    const invalidScopedManualRuleResponse = await app.inject({
+      method: 'POST',
+      url: '/api/automation-rules',
+      headers: {
+        authorization: `Bearer ${session.accessToken}`,
+      },
+      payload: {
+        name: 'Invalid manual scoped rule',
+        provider: 'manual',
+        scopeType: 'asana_project',
+        scopeId: 'proj-1',
+        repositoryId: repository.id,
+      },
+    });
+
+    expect(invalidScopedManualRuleResponse.statusCode).toBe(400);
+  });
+
   it('should reject malformed array filters instead of normalizing them away', async () => {
     const session = await createLoginSession();
     const repository = await repositoryFactory.create({

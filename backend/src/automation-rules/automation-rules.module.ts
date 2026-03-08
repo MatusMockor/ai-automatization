@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ExecutionsModule } from '../executions/executions.module';
+import { ManualTask } from '../manual-tasks/entities/manual-task.entity';
 import { RepositoriesModule } from '../repositories/repositories.module';
 import { SyncedTask } from '../tasks/entities/synced-task.entity';
 import { AutomationRulesController } from './automation-rules.controller';
@@ -9,7 +10,7 @@ import { AutomationRule } from './entities/automation-rule.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AutomationRule, SyncedTask]),
+    TypeOrmModule.forFeature([AutomationRule, SyncedTask, ManualTask]),
     RepositoriesModule,
     ExecutionsModule,
   ],

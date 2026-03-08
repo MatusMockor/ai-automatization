@@ -8,6 +8,7 @@ import {
   ExecutionPublicationService,
 } from './execution-publication.service';
 import { ExecutionReviewGateService } from './execution-review-gate.service';
+import { ManualTaskAutomationStateService } from './manual-task-automation-state.service';
 import { ExecutionRuntimeManager } from './execution-runtime.manager';
 import { ExecutionStreamHub } from './execution-stream.hub';
 import type { ClaudeCliRunner } from './interfaces/claude-cli-runner.interface';
@@ -64,6 +65,10 @@ describe('ExecutionRuntimeManager', () => {
       incrementExecutionsFailed: jest.fn(),
     } as unknown as jest.Mocked<MetricsService>;
 
+    const manualTaskAutomationStateService = {
+      reconcileFromExecution: jest.fn(),
+    } as unknown as jest.Mocked<ManualTaskAutomationStateService>;
+
     const configService = {
       get: jest.fn((_: string, defaultValue?: string) => defaultValue),
     } as unknown as jest.Mocked<ConfigService>;
@@ -74,6 +79,7 @@ describe('ExecutionRuntimeManager', () => {
       streamHub,
       publicationService,
       executionReviewGateService,
+      manualTaskAutomationStateService,
       new RedactionService(),
       metricsService,
       configService,
