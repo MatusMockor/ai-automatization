@@ -38,6 +38,12 @@ type TaskSnapshotLike = Pick<SyncedTask, 'provider' | 'title' | 'status'> & {
 @Injectable()
 export class AutomationRulesService {
   private readonly logger = new Logger(AutomationRulesService.name);
+  private readonly queuedReconcileProviders = new Map<
+    string,
+    Set<AutomationRule['provider']>
+  >();
+  private readonly scheduledReconcileUsers = new Set<string>();
+  private readonly processingReconcileUsers = new Set<string>();
 
   constructor(
     @InjectRepository(AutomationRule)
@@ -108,7 +114,7 @@ export class AutomationRulesService {
 
     const savedRule = await this.automationRulesRepository.save(rule);
     if (savedRule.enabled && savedRule.mode === 'draft') {
-      await this.tryReconcileDraftsForUser(userId, [savedRule.provider]);
+      this.enqueueReconcileReadyDrafts(userId, [savedRule.provider]);
     }
     return this.mapToResponse(savedRule);
   }
@@ -177,7 +183,7 @@ export class AutomationRulesService {
 
     const savedRule = await this.automationRulesRepository.save(rule);
     if (this.shouldReconcileDrafts(previousRule, savedRule)) {
-      await this.tryReconcileDraftsForUser(userId, [
+      this.enqueueReconcileReadyDrafts(userId, [
         previousRule.provider,
         savedRule.provider,
       ]);
@@ -189,7 +195,7 @@ export class AutomationRulesService {
   async deleteForUser(userId: string, ruleId: string): Promise<void> {
     const rule = await this.getOwnedRule(userId, ruleId);
     await this.automationRulesRepository.remove(rule);
-    await this.tryReconcileDraftsForUser(userId, [rule.provider]);
+    this.enqueueReconcileReadyDrafts(userId, [rule.provider]);
   }
 
   resolveTaskMatch(
@@ -435,18 +441,80 @@ export class AutomationRulesService {
     }
   }
 
-  private async tryReconcileDraftsForUser(
+  private enqueueReconcileReadyDrafts(
     userId: string,
     providers: Array<AutomationRule['provider']>,
-  ): Promise<void> {
-    try {
-      await this.reconcileReadyDraftsForUser(userId, providers);
-    } catch (error) {
-      this.logger.error(
-        `Failed to reconcile automation drafts for user ${userId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
+  ): void {
+    const queuedProviders =
+      this.queuedReconcileProviders.get(userId) ??
+      new Set<AutomationRule['provider']>();
+    for (const provider of providers) {
+      queuedProviders.add(provider);
     }
+    this.queuedReconcileProviders.set(userId, queuedProviders);
+
+    if (
+      this.scheduledReconcileUsers.has(userId) ||
+      this.processingReconcileUsers.has(userId)
+    ) {
+      return;
+    }
+
+    this.scheduledReconcileUsers.add(userId);
+    setImmediate(() => {
+      this.scheduledReconcileUsers.delete(userId);
+      void this.processQueuedReconcile(userId);
+    });
+  }
+
+  private async processQueuedReconcile(userId: string): Promise<void> {
+    if (this.processingReconcileUsers.has(userId)) {
+      return;
+    }
+
+    this.processingReconcileUsers.add(userId);
+    try {
+      while (true) {
+        const providers = this.drainQueuedReconcileProviders(userId);
+        if (providers.length === 0) {
+          return;
+        }
+
+        try {
+          await this.reconcileReadyDraftsForUser(userId, providers);
+        } catch (error) {
+          this.logger.error(
+            `Failed to reconcile automation drafts for user ${userId}`,
+            error instanceof Error ? error.stack : String(error),
+          );
+        }
+      }
+    } finally {
+      this.processingReconcileUsers.delete(userId);
+
+      if (
+        (this.queuedReconcileProviders.get(userId)?.size ?? 0) > 0 &&
+        !this.scheduledReconcileUsers.has(userId)
+      ) {
+        this.scheduledReconcileUsers.add(userId);
+        setImmediate(() => {
+          this.scheduledReconcileUsers.delete(userId);
+          void this.processQueuedReconcile(userId);
+        });
+      }
+    }
+  }
+
+  private drainQueuedReconcileProviders(
+    userId: string,
+  ): Array<AutomationRule['provider']> {
+    const providers = this.queuedReconcileProviders.get(userId);
+    if (!providers || providers.size === 0) {
+      return [];
+    }
+
+    this.queuedReconcileProviders.delete(userId);
+    return [...providers];
   }
 
   private areStringArraysEqual(

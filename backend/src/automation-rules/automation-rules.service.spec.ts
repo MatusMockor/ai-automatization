@@ -8,6 +8,13 @@ import { AutomationRulesService } from './automation-rules.service';
 import { AutomationRule } from './entities/automation-rule.entity';
 
 describe('AutomationRulesService', () => {
+  const waitForBackgroundReconcile = async (): Promise<void> => {
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    await Promise.resolve();
+  };
+
   const createService = () => {
     const automationRulesRepository = {
       find: jest.fn(),
@@ -355,6 +362,7 @@ describe('AutomationRulesService', () => {
       executionAction: 'feature',
       enabled: true,
     });
+    await waitForBackgroundReconcile();
 
     expect(executionsService.createOrRefreshDraftForTask).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -421,6 +429,7 @@ describe('AutomationRulesService', () => {
       mode: 'draft',
       executionAction: 'plan',
     });
+    await waitForBackgroundReconcile();
 
     expect(executionsService.listReadyDraftTaskIdsForUser).toHaveBeenCalledWith(
       'user-1',
@@ -487,6 +496,7 @@ describe('AutomationRulesService', () => {
     executionsService.supersedeReadyDraftsForTask.mockResolvedValue(1);
 
     await service.deleteForUser('user-1', rule.id);
+    await waitForBackgroundReconcile();
 
     expect(automationRulesRepository.remove).toHaveBeenCalledWith(rule);
     expect(deleteCallOrder).toEqual(['remove', 'reconcile']);
@@ -524,6 +534,7 @@ describe('AutomationRulesService', () => {
     await service.updateForUser('user-1', rule.id, {
       priority: 200,
     });
+    await waitForBackgroundReconcile();
 
     expect(executionsService.listReadyDraftTaskIdsForUser).toHaveBeenCalledWith(
       'user-1',
