@@ -7,7 +7,9 @@ import {
   IsUUID,
   MaxLength,
   Min,
+  Validate,
 } from 'class-validator';
+import { ManualProviderFiltersForbiddenConstraint } from '../../common/validation/provider-scope.validation';
 
 const normalizeOptionalString = (value: unknown): unknown => {
   if (typeof value !== 'string') {
@@ -40,6 +42,9 @@ const toOptionalInteger = (value: unknown): unknown => {
 };
 
 export class GetTasksQueryDto {
+  @Validate(ManualProviderFiltersForbiddenConstraint)
+  private readonly manualProviderFiltersCompatibility = true;
+
   @Transform(({ value }: { value: unknown }) => normalizeOptionalString(value))
   @IsOptional()
   @IsUUID()

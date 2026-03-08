@@ -50,6 +50,7 @@ export class ManualTasksService {
       userId,
       title: dto.title,
       description: dto.description ?? null,
+      contentUpdatedAt: new Date(),
       workflowState: 'inbox',
     });
 
@@ -76,6 +77,7 @@ export class ManualTasksService {
     if (dto.description !== undefined) {
       manualTask.description = dto.description;
     }
+    manualTask.contentUpdatedAt = new Date();
     manualTask.workflowState = 'inbox';
 
     const savedTask = await this.manualTaskRepository.save(manualTask);

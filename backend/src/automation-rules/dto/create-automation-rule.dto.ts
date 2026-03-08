@@ -11,8 +11,10 @@ import {
   MaxLength,
   Min,
   MinLength,
+  Validate,
   ValidateIf,
 } from 'class-validator';
+import { ProviderScopeCompatibilityConstraint } from '../../common/validation/provider-scope.validation';
 import {
   AUTOMATION_RULE_ACTIONS,
   AUTOMATION_RULE_MODES,
@@ -25,6 +27,9 @@ import {
 } from './automation-rule.dto-helpers';
 
 export class CreateAutomationRuleDto {
+  @Validate(ProviderScopeCompatibilityConstraint)
+  private readonly providerScopeCompatibility = true;
+
   @Transform(normalizeOptionalStringTransform)
   @IsString()
   @MinLength(1)

@@ -9,6 +9,8 @@ export class AddManualTaskAutomationSupport1742386200000 implements MigrationInt
   name = 'AddManualTaskAutomationSupport1742386200000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    const timestampType =
+      process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz';
     const manualTasksTable = await queryRunner.getTable('manual_tasks');
     if (
       manualTasksTable &&
@@ -21,12 +23,71 @@ export class AddManualTaskAutomationSupport1742386200000 implements MigrationInt
           type: 'varchar',
           length: '32',
           default: "'inbox'",
+          isNullable: false,
         }),
       );
     }
 
-    const refreshedManualTasksTable =
-      await queryRunner.getTable('manual_tasks');
+    let refreshedManualTasksTable = await queryRunner.getTable('manual_tasks');
+    const workflowStateColumn =
+      refreshedManualTasksTable?.findColumnByName('workflow_state');
+    if (workflowStateColumn) {
+      await queryRunner.query(
+        `UPDATE "manual_tasks" SET "workflow_state" = 'inbox' WHERE "workflow_state" IS NULL`,
+      );
+
+      if (workflowStateColumn.isNullable) {
+        await queryRunner.changeColumn(
+          'manual_tasks',
+          workflowStateColumn,
+          new TableColumn({
+            name: 'workflow_state',
+            type: 'varchar',
+            length: '32',
+            default: "'inbox'",
+            isNullable: false,
+          }),
+        );
+        refreshedManualTasksTable = await queryRunner.getTable('manual_tasks');
+      }
+    }
+
+    if (
+      refreshedManualTasksTable &&
+      !refreshedManualTasksTable.findColumnByName('content_updated_at')
+    ) {
+      await queryRunner.addColumn(
+        'manual_tasks',
+        new TableColumn({
+          name: 'content_updated_at',
+          type: timestampType,
+          isNullable: true,
+        }),
+      );
+      refreshedManualTasksTable = await queryRunner.getTable('manual_tasks');
+    }
+
+    const contentUpdatedAtColumn =
+      refreshedManualTasksTable?.findColumnByName('content_updated_at');
+    if (contentUpdatedAtColumn) {
+      await queryRunner.query(
+        `UPDATE "manual_tasks" SET "content_updated_at" = COALESCE("content_updated_at", "updated_at", "created_at", CURRENT_TIMESTAMP) WHERE "content_updated_at" IS NULL`,
+      );
+
+      if (contentUpdatedAtColumn.isNullable) {
+        await queryRunner.changeColumn(
+          'manual_tasks',
+          contentUpdatedAtColumn,
+          new TableColumn({
+            name: 'content_updated_at',
+            type: timestampType,
+            isNullable: false,
+          }),
+        );
+        refreshedManualTasksTable = await queryRunner.getTable('manual_tasks');
+      }
+    }
+
     if (
       refreshedManualTasksTable &&
       !refreshedManualTasksTable.checks.find(
@@ -38,7 +99,7 @@ export class AddManualTaskAutomationSupport1742386200000 implements MigrationInt
         new TableCheck({
           name: 'CHK_manual_tasks_workflow_state',
           expression:
-            "workflow_state IN ('inbox', 'drafted', 'in_progress', 'blocked', 'done', 'archived')",
+            "workflow_state IS NOT NULL AND workflow_state IN ('inbox', 'drafted', 'in_progress', 'blocked', 'done', 'archived')",
         }),
       );
     }
@@ -122,6 +183,9 @@ export class AddManualTaskAutomationSupport1742386200000 implements MigrationInt
 
     if (manualTasksTable.findColumnByName('workflow_state')) {
       await queryRunner.dropColumn('manual_tasks', 'workflow_state');
+    }
+    if (manualTasksTable.findColumnByName('content_updated_at')) {
+      await queryRunner.dropColumn('manual_tasks', 'content_updated_at');
     }
   }
 

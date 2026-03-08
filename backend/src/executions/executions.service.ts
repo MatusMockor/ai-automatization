@@ -2,8 +2,10 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -21,6 +23,10 @@ import { SettingsService } from '../settings/settings.service';
 import { User } from '../users/entities/user.entity';
 import { ManualTask } from '../manual-tasks/entities/manual-task.entity';
 import { CreateExecutionDto } from './dto/create-execution.dto';
+import {
+  BatchDraftExecutionFailureItemDto,
+  BatchDraftExecutionResponseDto,
+} from './dto/batch-draft-execution-response.dto';
 import {
   ExecutionDetailResponseDto,
   ExecutionSummaryResponseDto,
@@ -76,6 +82,7 @@ export type ExecutionDraftLookupItem = Pick<
 @Injectable()
 export class ExecutionsService {
   private static readonly IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+  private readonly logger = new Logger(ExecutionsService.name);
   private readonly maxConcurrentPerUser: number;
   private readonly defaultListLimit = 50;
   private readonly maxListLimit = 200;
@@ -197,7 +204,7 @@ export class ExecutionsService {
             originRuleId: null,
             sourceTaskSnapshotUpdatedAt:
               dto.taskSource === 'manual'
-                ? (manualTask?.updatedAt ?? null)
+                ? (manualTask?.contentUpdatedAt ?? null)
                 : null,
             isDraft: false,
             draftStatus: null,
@@ -311,7 +318,7 @@ export class ExecutionsService {
         },
       );
       if (dto.taskSource === 'manual') {
-        await this.manualTaskAutomationStateService.reconcileTask(
+        this.reconcileManualTaskByIdBestEffort(
           userId,
           manualTask?.id ?? dto.taskId,
         );
@@ -320,7 +327,7 @@ export class ExecutionsService {
     }
 
     if (dto.taskSource === 'manual') {
-      await this.manualTaskAutomationStateService.reconcileTask(
+      this.reconcileManualTaskByIdBestEffort(
         userId,
         manualTask?.id ?? dto.taskId,
       );
@@ -437,9 +444,7 @@ export class ExecutionsService {
 
     const updatedExecution = await this.getOwnedExecution(execution.id, userId);
     if (updatedExecution.taskSource === 'manual') {
-      await this.manualTaskAutomationStateService.reconcileFromExecution(
-        updatedExecution.id,
-      );
+      this.reconcileManualTaskByExecutionBestEffort(updatedExecution.id);
     }
     return this.toSummaryResponse(updatedExecution);
   }
@@ -472,9 +477,7 @@ export class ExecutionsService {
       );
     }
 
-    await this.manualTaskAutomationStateService.reconcileFromExecution(
-      executionId,
-    );
+    this.reconcileManualTaskByExecutionBestEffort(executionId);
 
     const updatedExecution = await this.getOwnedExecution(executionId, userId);
     return this.toSummaryResponse(updatedExecution);
@@ -583,7 +586,7 @@ export class ExecutionsService {
     );
 
     if (input.taskSource === 'manual') {
-      await this.manualTaskAutomationStateService.reconcileTask(
+      this.reconcileManualTaskByIdBestEffort(
         input.userId,
         input.taskExternalId,
       );
@@ -621,19 +624,10 @@ export class ExecutionsService {
       .execute();
 
     const manualTaskIds = normalizedTaskIds
-      .map((taskId) => {
-        if (!taskId.startsWith('manual:')) {
-          return null;
-        }
-
-        return taskId.slice('manual:'.length);
-      })
+      .map((taskId) => extractManualTaskId(taskId))
       .filter((taskId): taskId is string => Boolean(taskId));
     if (manualTaskIds.length > 0) {
-      await this.manualTaskAutomationStateService.reconcileTasks(
-        userId,
-        manualTaskIds,
-      );
+      this.reconcileManualTasksBestEffort(userId, manualTaskIds);
     }
 
     return result.affected ?? 0;
@@ -782,18 +776,14 @@ export class ExecutionsService {
         },
       );
       if (draftExecution.taskSource === 'manual') {
-        await this.manualTaskAutomationStateService.reconcileFromExecution(
-          draftExecution.id,
-        );
+        this.reconcileManualTaskByExecutionBestEffort(draftExecution.id);
       }
       throw new InternalServerErrorException('Failed to enqueue execution');
     }
 
     const updatedExecution = await this.getOwnedExecution(executionId, userId);
     if (updatedExecution.taskSource === 'manual') {
-      await this.manualTaskAutomationStateService.reconcileFromExecution(
-        updatedExecution.id,
-      );
+      this.reconcileManualTaskByExecutionBestEffort(updatedExecution.id);
     }
     return this.toSummaryResponse(updatedExecution);
   }
@@ -801,54 +791,73 @@ export class ExecutionsService {
   async startDraftsForUser(
     userId: string,
     executionIds: string[],
-  ): Promise<ExecutionSummaryResponseDto[]> {
+  ): Promise<BatchDraftExecutionResponseDto> {
     const normalizedExecutionIds = [...new Set(executionIds)];
-    const results: ExecutionSummaryResponseDto[] = [];
+    const succeeded: ExecutionSummaryResponseDto[] = [];
+    const failed: BatchDraftExecutionFailureItemDto[] = [];
 
     for (const executionId of normalizedExecutionIds) {
-      results.push(await this.startDraftForUser(userId, executionId));
+      try {
+        succeeded.push(await this.startDraftForUser(userId, executionId));
+      } catch (error) {
+        failed.push(this.toBatchDraftFailureItem(executionId, error));
+      }
     }
 
-    return results;
+    return {
+      succeeded,
+      failed,
+    };
   }
 
   async supersedeDraftsForUser(
     userId: string,
     executionIds: string[],
-  ): Promise<ExecutionSummaryResponseDto[]> {
+  ): Promise<BatchDraftExecutionResponseDto> {
     const normalizedExecutionIds = [...new Set(executionIds)];
-    const summaries: ExecutionSummaryResponseDto[] = [];
+    const succeeded: ExecutionSummaryResponseDto[] = [];
+    const failed: BatchDraftExecutionFailureItemDto[] = [];
 
     for (const executionId of normalizedExecutionIds) {
-      const execution = await this.getOwnedExecution(executionId, userId);
-      if (!execution.isDraft) {
-        throw new ConflictException('Execution is not a draft');
-      }
-      if (execution.draftStatus !== 'ready') {
-        throw new ConflictException(
-          'Draft execution is not ready to supersede',
+      try {
+        const execution = await this.getOwnedExecution(executionId, userId);
+        if (!execution.isDraft) {
+          throw new ConflictException('Execution is not a draft');
+        }
+        if (execution.draftStatus !== 'ready') {
+          throw new ConflictException(
+            'Draft execution is not ready to supersede',
+          );
+        }
+
+        const updated = await this.executionsRepository.update(
+          { id: execution.id, userId, isDraft: true, draftStatus: 'ready' },
+          { draftStatus: 'superseded' },
         );
-      }
+        if ((updated.affected ?? 0) !== 1) {
+          throw new ConflictException(
+            'Draft execution is not ready to supersede',
+          );
+        }
 
-      await this.executionsRepository.update(
-        { id: execution.id, userId, isDraft: true, draftStatus: 'ready' },
-        { draftStatus: 'superseded' },
-      );
+        if (execution.taskSource === 'manual') {
+          this.reconcileManualTaskByExecutionBestEffort(execution.id);
+        }
 
-      if (execution.taskSource === 'manual') {
-        await this.manualTaskAutomationStateService.reconcileFromExecution(
-          execution.id,
+        succeeded.push(
+          this.toSummaryResponse(
+            await this.getOwnedExecution(execution.id, userId),
+          ),
         );
+      } catch (error) {
+        failed.push(this.toBatchDraftFailureItem(executionId, error));
       }
-
-      summaries.push(
-        this.toSummaryResponse(
-          await this.getOwnedExecution(execution.id, userId),
-        ),
-      );
     }
 
-    return summaries;
+    return {
+      succeeded,
+      failed,
+    };
   }
 
   private async getOwnedExecution(
@@ -1010,7 +1019,7 @@ export class ExecutionsService {
   private async assertManualTaskOwnership(
     userId: string,
     dto: CreateExecutionDto,
-  ): Promise<Pick<ManualTask, 'id' | 'userId' | 'updatedAt'> | null> {
+  ): Promise<Pick<ManualTask, 'id' | 'userId' | 'contentUpdatedAt'> | null> {
     if (dto.taskSource !== 'manual') {
       return null;
     }
@@ -1018,7 +1027,7 @@ export class ExecutionsService {
     const manualTaskId = extractManualTaskId(dto.taskId) ?? dto.taskId;
     const manualTask = await this.manualTasksRepository.findOne({
       where: { id: manualTaskId },
-      select: { id: true, userId: true, updatedAt: true },
+      select: { id: true, userId: true, contentUpdatedAt: true },
     });
     if (!manualTask || manualTask.userId !== userId) {
       throw new ForbiddenException(
@@ -1279,6 +1288,89 @@ export class ExecutionsService {
         input.sourceTaskSnapshotUpdatedAt,
       )
     );
+  }
+
+  private reconcileManualTaskByIdBestEffort(
+    userId: string,
+    taskId: string,
+  ): void {
+    void this.manualTaskAutomationStateService
+      .reconcileTask(userId, taskId)
+      .catch((error) => {
+        this.logger.error(
+          `Failed to reconcile manual task state for task ${taskId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
+  }
+
+  private reconcileManualTaskByExecutionBestEffort(executionId: string): void {
+    void this.manualTaskAutomationStateService
+      .reconcileFromExecution(executionId)
+      .catch((error) => {
+        this.logger.error(
+          `Failed to reconcile manual task state for execution ${executionId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
+  }
+
+  private reconcileManualTasksBestEffort(
+    userId: string,
+    taskIds: string[],
+  ): void {
+    void this.manualTaskAutomationStateService
+      .reconcileTasks(userId, taskIds)
+      .catch((error) => {
+        this.logger.error(
+          `Failed to reconcile manual task state for ${taskIds.length} tasks`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
+  }
+
+  private toBatchDraftFailureItem(
+    executionId: string,
+    error: unknown,
+  ): BatchDraftExecutionFailureItemDto {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      return {
+        executionId,
+        statusCode: error.getStatus(),
+        message: this.resolveHttpExceptionMessage(response, error.message),
+      };
+    }
+
+    return {
+      executionId,
+      statusCode: 500,
+      message: 'Internal server error',
+    };
+  }
+
+  private resolveHttpExceptionMessage(
+    response: unknown,
+    fallback: string,
+  ): string {
+    if (typeof response === 'string') {
+      return response;
+    }
+
+    if (typeof response !== 'object' || response === null) {
+      return fallback;
+    }
+
+    const message = (response as { message?: unknown }).message;
+    if (Array.isArray(message)) {
+      return message.join('; ');
+    }
+
+    if (typeof message === 'string') {
+      return message;
+    }
+
+    return fallback;
   }
 
   private sameNullableDate(left: Date | null, right: Date | null): boolean {
