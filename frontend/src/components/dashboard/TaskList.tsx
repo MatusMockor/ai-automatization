@@ -112,6 +112,22 @@ function TaskRow({
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <SourceBadge source={task.source} />
+          {task.automationState === 'drafted' && (
+            <span
+              className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500"
+              title={task.matchedRuleName ?? undefined}
+            >
+              Draft ready
+            </span>
+          )}
+          {task.automationState === 'matched' && (
+            <span
+              className="rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-400"
+              title={task.matchedRuleName ?? undefined}
+            >
+              Matched
+            </span>
+          )}
           <span>{task.externalId}</span>
           <span className="opacity-30">·</span>
           <span>{task.assignee ?? '—'}</span>

@@ -302,6 +302,23 @@ export function Dashboard() {
     }
   };
 
+  const handleStartDraft = async (task: TaskFeedItem) => {
+    if (!task.draftExecutionId) return;
+    try {
+      const { data } = await api.post<Execution>(`/executions/${task.draftExecutionId}/start`);
+      setExecutions((prev) => {
+        const exists = prev.some((e) => e.id === data.id);
+        return exists ? prev.map((e) => (e.id === data.id ? data : e)) : [data, ...prev];
+      });
+      setActiveExecutionId(data.id);
+      setTerminalOpen(true);
+      toast.success('Draft execution started');
+      fetchTasks();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Failed to start draft'));
+    }
+  };
+
   const handleCancel = async (executionId: string) => {
     try {
       const { data } = await api.post<Execution>(`/executions/${executionId}/cancel`);
@@ -446,6 +463,7 @@ export function Dashboard() {
               onExecutionRepoIdChange={setExecutionRepoId}
               repositories={repositories}
               selectedRepo={selectedRepo}
+              onStartDraft={handleStartDraft}
             />
           ) : (
             <ActivityPanel />
