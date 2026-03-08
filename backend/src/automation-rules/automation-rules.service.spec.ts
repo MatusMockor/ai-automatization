@@ -375,6 +375,45 @@ describe('AutomationRulesService', () => {
     );
   });
 
+  it('reconciles existing tasks when creating an enabled suggest rule', async () => {
+    const {
+      service,
+      automationRulesRepository,
+      syncedTaskRepository,
+      repositoriesService,
+      executionsService,
+    } = createService();
+    const rule = createRule({
+      mode: 'suggest',
+      suggestedAction: 'plan',
+    });
+    const task = createSyncedTask();
+
+    repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);
+    automationRulesRepository.save.mockResolvedValue(rule);
+    automationRulesRepository.find.mockResolvedValue([rule]);
+    syncedTaskRepository.find.mockResolvedValue([task]);
+    executionsService.listReadyDraftTaskIdsForUser.mockResolvedValue([
+      'connection-1:asana:TASK-1',
+    ]);
+    executionsService.supersedeReadyDraftsForTask.mockResolvedValue(1);
+
+    await service.createForUser('user-1', {
+      name: 'Suggest rule',
+      provider: 'asana',
+      repositoryId: 'repo-1',
+      mode: 'suggest',
+      executionAction: 'plan',
+      enabled: true,
+    });
+    await waitForBackgroundReconcile();
+
+    expect(executionsService.supersedeReadyDraftsForTask).toHaveBeenCalledWith(
+      'user-1',
+      'connection-1:asana:TASK-1',
+    );
+  });
+
   it('rejects conflicting executionAction and suggestedAction aliases', async () => {
     const { service, repositoriesService } = createService();
     repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);

@@ -113,7 +113,7 @@ export class AutomationRulesService {
     this.validateModeAndAction(rule.mode, rule.suggestedAction);
 
     const savedRule = await this.automationRulesRepository.save(rule);
-    if (savedRule.enabled && savedRule.mode === 'draft') {
+    if (savedRule.enabled) {
       this.enqueueReconcileReadyDrafts(userId, [savedRule.provider]);
     }
     return this.mapToResponse(savedRule);
