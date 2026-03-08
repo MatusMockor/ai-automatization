@@ -4,6 +4,7 @@ import { In, Repository } from 'typeorm';
 import { AutomationRulesService } from '../automation-rules/automation-rules.service';
 import { ExecutionsService } from '../executions/executions.service';
 import { SyncedTask } from './entities/synced-task.entity';
+import { buildTaskFeedId } from './utils/task-feed-id.utils';
 
 @Injectable()
 export class TaskAutomationOrchestratorService {
@@ -48,7 +49,7 @@ export class TaskAutomationOrchestratorService {
           task,
           activeRules,
         );
-        const taskId = this.buildTaskFeedId(task);
+        const taskId = buildTaskFeedId(task);
 
         if (
           !match ||
@@ -96,11 +97,5 @@ export class TaskAutomationOrchestratorService {
       userId,
       normalizedTaskIds,
     );
-  }
-
-  private buildTaskFeedId(
-    task: Pick<SyncedTask, 'connectionId' | 'provider' | 'externalId'>,
-  ): string {
-    return `${task.connectionId}:${task.provider}:${task.externalId}`;
   }
 }

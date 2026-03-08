@@ -3,6 +3,7 @@ import { Repository } from 'typeorm';
 import { ExecutionsService } from '../executions/executions.service';
 import { RepositoriesService } from '../repositories/repositories.service';
 import { SyncedTaskScope } from '../tasks/entities/synced-task-scope.entity';
+import { SyncedTask } from '../tasks/entities/synced-task.entity';
 import { AutomationRulesService } from './automation-rules.service';
 import { AutomationRule } from './entities/automation-rule.entity';
 
@@ -16,16 +17,24 @@ describe('AutomationRulesService', () => {
       remove: jest.fn(),
     } as unknown as jest.Mocked<Repository<AutomationRule>>;
 
+    const syncedTaskRepository = {
+      find: jest.fn(),
+    } as unknown as jest.Mocked<Repository<SyncedTask>>;
+
     const repositoriesService = {
       assertOwnedRepository: jest.fn(),
     } as unknown as jest.Mocked<RepositoriesService>;
 
     const executionsService = {
-      supersedeReadyDraftsForRule: jest.fn(),
+      listReadyDraftTaskIdsForUser: jest.fn(),
+      createOrRefreshDraftForTask: jest.fn(),
+      supersedeReadyDraftsForTask: jest.fn(),
+      supersedeReadyDraftsForTaskIds: jest.fn(),
     } as unknown as jest.Mocked<ExecutionsService>;
 
     const service = new AutomationRulesService(
       automationRulesRepository,
+      syncedTaskRepository,
       repositoriesService,
       executionsService,
     );
@@ -33,6 +42,7 @@ describe('AutomationRulesService', () => {
     return {
       service,
       automationRulesRepository,
+      syncedTaskRepository,
       repositoriesService,
       executionsService,
     };
@@ -76,6 +86,28 @@ describe('AutomationRulesService', () => {
     updatedAt: new Date('2026-03-01T10:00:00.000Z'),
     ...overrides,
   });
+
+  const createSyncedTask = (overrides: Partial<SyncedTask> = {}): SyncedTask =>
+    ({
+      id: 'task-db-1',
+      userId: 'user-1',
+      user: {} as never,
+      connectionId: 'connection-1',
+      connection: {} as never,
+      provider: 'asana',
+      externalId: 'TASK-1',
+      title: 'Backend automation fix',
+      description: 'Task description',
+      url: 'https://example.com/task',
+      status: 'open',
+      assignee: null,
+      sourceUpdatedAt: new Date('2026-03-21T10:00:00.000Z'),
+      lastSyncedAt: new Date('2026-03-21T10:05:00.000Z'),
+      scopes: [createTaskScope()],
+      createdAt: new Date('2026-03-21T10:05:00.000Z'),
+      updatedAt: new Date('2026-03-21T10:05:00.000Z'),
+      ...overrides,
+    }) as SyncedTask;
 
   it('lists active rules with deterministic priority ordering', async () => {
     const { service, automationRulesRepository } = createService();
@@ -311,28 +343,54 @@ describe('AutomationRulesService', () => {
     const {
       service,
       automationRulesRepository,
+      syncedTaskRepository,
       repositoriesService,
       executionsService,
     } = createService();
     const rule = createRule();
+    const task = createSyncedTask();
+    const updatedRule = createRule({
+      repositoryId: 'repo-2',
+      suggestedAction: 'plan',
+      mode: 'draft',
+    });
 
     automationRulesRepository.findOneBy.mockResolvedValue(rule);
     repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);
     automationRulesRepository.save.mockImplementation(
       async (input: Partial<AutomationRule>) =>
         ({
-          ...rule,
+          ...updatedRule,
           ...input,
         }) as AutomationRule,
+    );
+    automationRulesRepository.find.mockResolvedValue([updatedRule]);
+    executionsService.listReadyDraftTaskIdsForUser.mockResolvedValue([
+      'connection-1:asana:TASK-1',
+    ]);
+    syncedTaskRepository.find.mockResolvedValue([task]);
+    executionsService.createOrRefreshDraftForTask.mockResolvedValue(
+      {} as never,
     );
 
     await service.updateForUser('user-1', rule.id, {
       repositoryId: 'repo-2',
+      mode: 'draft',
+      executionAction: 'plan',
     });
 
-    expect(executionsService.supersedeReadyDraftsForRule).toHaveBeenCalledWith(
+    expect(executionsService.listReadyDraftTaskIdsForUser).toHaveBeenCalledWith(
       'user-1',
-      rule.id,
+      ['asana'],
+    );
+    expect(executionsService.createOrRefreshDraftForTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        repositoryId: 'repo-2',
+        taskId: 'connection-1:asana:TASK-1',
+        originRuleId: rule.id,
+        action: 'plan',
+      }),
     );
   });
 
@@ -355,24 +413,78 @@ describe('AutomationRulesService', () => {
     });
 
     expect(
-      executionsService.supersedeReadyDraftsForRule,
+      executionsService.listReadyDraftTaskIdsForUser,
     ).not.toHaveBeenCalled();
   });
 
-  it('supersedes ready drafts before deleting a rule', async () => {
-    const { service, automationRulesRepository, executionsService } =
-      createService();
+  it('re-evaluates ready drafts after deleting a rule', async () => {
+    const {
+      service,
+      automationRulesRepository,
+      syncedTaskRepository,
+      executionsService,
+    } = createService();
     const rule = createRule();
+    const task = createSyncedTask();
+    const deleteCallOrder: string[] = [];
 
     automationRulesRepository.findOneBy.mockResolvedValue(rule);
-    automationRulesRepository.remove.mockResolvedValue(rule);
+    automationRulesRepository.remove.mockImplementation(async () => {
+      deleteCallOrder.push('remove');
+      return rule;
+    });
+    automationRulesRepository.find.mockResolvedValue([]);
+    executionsService.listReadyDraftTaskIdsForUser.mockImplementation(
+      async () => {
+        deleteCallOrder.push('reconcile');
+        return ['connection-1:asana:TASK-1'];
+      },
+    );
+    syncedTaskRepository.find.mockResolvedValue([task]);
+    executionsService.supersedeReadyDraftsForTask.mockResolvedValue(1);
 
     await service.deleteForUser('user-1', rule.id);
 
-    expect(executionsService.supersedeReadyDraftsForRule).toHaveBeenCalledWith(
-      'user-1',
-      rule.id,
-    );
     expect(automationRulesRepository.remove).toHaveBeenCalledWith(rule);
+    expect(deleteCallOrder).toEqual(['remove', 'reconcile']);
+    expect(executionsService.supersedeReadyDraftsForTask).toHaveBeenCalledWith(
+      'user-1',
+      'connection-1:asana:TASK-1',
+    );
+  });
+
+  it('re-evaluates ready drafts when rule priority changes', async () => {
+    const {
+      service,
+      automationRulesRepository,
+      syncedTaskRepository,
+      executionsService,
+    } = createService();
+    const rule = createRule();
+    const task = createSyncedTask();
+
+    automationRulesRepository.findOneBy.mockResolvedValue(rule);
+    automationRulesRepository.save.mockImplementation(
+      async (input: Partial<AutomationRule>) =>
+        ({
+          ...rule,
+          ...input,
+        }) as AutomationRule,
+    );
+    automationRulesRepository.find.mockResolvedValue([rule]);
+    executionsService.listReadyDraftTaskIdsForUser.mockResolvedValue([
+      'connection-1:asana:TASK-1',
+    ]);
+    syncedTaskRepository.find.mockResolvedValue([task]);
+    executionsService.supersedeReadyDraftsForTask.mockResolvedValue(1);
+
+    await service.updateForUser('user-1', rule.id, {
+      priority: 200,
+    });
+
+    expect(executionsService.listReadyDraftTaskIdsForUser).toHaveBeenCalledWith(
+      'user-1',
+      ['asana'],
+    );
   });
 });

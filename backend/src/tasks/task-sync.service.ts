@@ -29,6 +29,7 @@ import {
   TaskSyncTriggerType,
 } from './entities/task-sync-run.entity';
 import { TaskAutomationOrchestratorService } from './task-automation-orchestrator.service';
+import { buildTaskFeedId } from './utils/task-feed-id.utils';
 
 type AggregatedTask = {
   task: ProviderTask;
@@ -46,11 +47,6 @@ type AggregatedTask = {
     }
   >;
 };
-
-type SyncedTaskFeedIdentity = Pick<
-  SyncedTask,
-  'connectionId' | 'provider' | 'externalId'
->;
 
 type SyncConnectionResult = {
   tasksUpserted: number;
@@ -815,7 +811,7 @@ export class TaskSyncService {
 
     return {
       count: result.affected ?? 0,
-      taskFeedIds: deletedTasks.map((task) => this.buildTaskFeedId(task)),
+      taskFeedIds: deletedTasks.map((task) => buildTaskFeedId(task)),
     };
   }
 
@@ -864,12 +860,8 @@ export class TaskSyncService {
 
     return {
       count: result.affected ?? 0,
-      taskFeedIds: staleTaskRows.map((task) => this.buildTaskFeedId(task)),
+      taskFeedIds: staleTaskRows.map((task) => buildTaskFeedId(task)),
     };
-  }
-
-  private buildTaskFeedId(task: SyncedTaskFeedIdentity): string {
-    return `${task.connectionId}:${task.provider}:${task.externalId}`;
   }
 
   private toConnectionConfig(

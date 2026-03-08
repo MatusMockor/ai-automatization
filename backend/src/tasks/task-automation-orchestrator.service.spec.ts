@@ -89,8 +89,12 @@ describe('TaskAutomationOrchestratorService', () => {
         repositoryId: 'repo-1',
         taskId: 'connection-1:asana:TASK-1',
         taskExternalId: 'TASK-1',
+        taskTitle: 'Backend automation fix',
+        taskDescription: 'Task description',
+        taskSource: 'asana',
         action: 'fix',
         originRuleId: 'rule-1',
+        sourceTaskSnapshotUpdatedAt: new Date('2026-03-21T10:00:00.000Z'),
       }),
     );
     expect(

@@ -597,6 +597,29 @@ export class ExecutionsService {
     return result.affected ?? 0;
   }
 
+  async listReadyDraftTaskIdsForUser(
+    userId: string,
+    taskSources?: TaskSource[],
+  ): Promise<string[]> {
+    const query = this.executionsRepository
+      .createQueryBuilder('execution')
+      .select('DISTINCT execution.taskId', 'taskId')
+      .where('execution.user_id = :userId', { userId })
+      .andWhere('execution.is_draft = :isDraft', { isDraft: true })
+      .andWhere('execution.draft_status = :draftStatus', {
+        draftStatus: 'ready',
+      });
+
+    if (taskSources && taskSources.length > 0) {
+      query.andWhere('execution.task_source IN (:...taskSources)', {
+        taskSources,
+      });
+    }
+
+    const rows = await query.getRawMany<{ taskId: string }>();
+    return rows.map((row) => row.taskId);
+  }
+
   async listDraftsForTaskIds(
     userId: string,
     taskIds: string[],
@@ -686,15 +709,15 @@ export class ExecutionsService {
       await this.executionsRepository.update(
         { id: executionId, userId },
         {
-          status: 'failed',
-          orchestrationState: 'failed',
-          automationStatus: 'failed',
+          status: 'pending',
+          orchestrationState: 'queued',
+          automationStatus: 'pending',
           automationErrorMessage: 'Failed to enqueue execution',
-          automationCompletedAt: new Date(),
-          finishedAt: new Date(),
-          errorMessage: 'Failed to enqueue execution',
-          isDraft: false,
-          draftStatus: null,
+          automationCompletedAt: null,
+          finishedAt: null,
+          errorMessage: null,
+          isDraft: true,
+          draftStatus: 'ready',
         },
       );
       throw new InternalServerErrorException('Failed to enqueue execution');

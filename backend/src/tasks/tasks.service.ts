@@ -34,6 +34,7 @@ import { SyncedTask } from './entities/synced-task.entity';
 import { TaskRepositoryDefaultsService } from './task-repository-defaults.service';
 import { TaskSyncService } from './task-sync.service';
 import { UpsertTaskRepositoryDefaultDto } from './dto/upsert-task-repository-default.dto';
+import { buildTaskFeedId } from './utils/task-feed-id.utils';
 
 type ScopeFilter = {
   provider?: TaskManagerProviderType;
@@ -126,7 +127,7 @@ export class TasksService {
     const draftLookup = this.buildDraftLookup(
       await this.executionsService.listDraftsForTaskIds(
         userId,
-        scopeFilteredTasks.map((task) => this.buildTaskFeedId(task)),
+        scopeFilteredTasks.map((task) => buildTaskFeedId(task)),
       ),
     );
 
@@ -315,7 +316,7 @@ export class TasksService {
           persistedTask,
           activeRules,
         );
-        const taskId = this.buildTaskFeedId(persistedTask);
+        const taskId = buildTaskFeedId(persistedTask);
         const draftOutcome = this.resolveDraftOutcome(
           draftLookup.get(taskId) ?? [],
           automationMatch,
@@ -382,12 +383,6 @@ export class TasksService {
         `${b.scopeType}:${b.scopeId}`,
       ),
     )[0];
-  }
-
-  private buildTaskFeedId(
-    task: Pick<SyncedTask, 'connectionId' | 'provider' | 'externalId'>,
-  ): string {
-    return `${task.connectionId}:${task.provider}:${task.externalId}`;
   }
 
   private buildDraftLookup(

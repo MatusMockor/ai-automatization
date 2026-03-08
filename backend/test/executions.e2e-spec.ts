@@ -10,6 +10,7 @@ import {
   GITHUB_PULL_REQUESTS_GATEWAY,
   GIT_PUBLICATION_CLIENT,
 } from '../src/executions/constants/executions.tokens';
+import { ExecutionDispatchService } from '../src/executions/execution-dispatch.service';
 import { Execution } from '../src/executions/entities/execution.entity';
 import type {
   ClaudeCliProcess,
@@ -668,6 +669,58 @@ describe('Executions (e2e)', () => {
     expect(persistedDraft.isDraft).toBe(true);
     expect(persistedDraft.draftStatus).toBe('superseded');
     expect(persistedDraft.status).toBe('pending');
+  });
+
+  it('POST /api/executions/:id/start should keep a draft retryable when dispatch fails', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+    const draftExecution = await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      taskId: 'connection-1:jira:DRAFT-500',
+      taskExternalId: 'DRAFT-500',
+      taskTitle: 'Retryable draft',
+      taskDescription: 'Should stay ready on enqueue failure',
+      taskSource: 'jira',
+      action: 'fix',
+      triggerType: 'automation_rule',
+      originRuleId: faker.string.uuid(),
+      sourceTaskSnapshotUpdatedAt: new Date('2026-03-21T12:30:00.000Z'),
+      isDraft: true,
+      draftStatus: 'ready',
+      status: 'pending',
+      orchestrationState: 'queued',
+      output: '',
+    });
+
+    const dispatchService = app.get(ExecutionDispatchService);
+    const dispatchSpy = jest
+      .spyOn(dispatchService, 'dispatch')
+      .mockRejectedValueOnce(new Error('queue unavailable'));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/executions/${draftExecution.id}/start`,
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+
+    expect(response.statusCode).toBe(500);
+
+    const persistedDraft = await dataSource
+      .getRepository(Execution)
+      .findOneByOrFail({ id: draftExecution.id });
+    expect(persistedDraft.isDraft).toBe(true);
+    expect(persistedDraft.draftStatus).toBe('ready');
+    expect(persistedDraft.status).toBe('pending');
+    expect(persistedDraft.orchestrationState).toBe('queued');
+    expect(persistedDraft.errorMessage).toBeNull();
+    expect(persistedDraft.finishedAt).toBeNull();
+    expect(persistedDraft.automationErrorMessage).toBe(
+      'Failed to enqueue execution',
+    );
+
+    dispatchSpy.mockRestore();
   });
 
   it('POST /api/executions should return 403 when manual task belongs to another user', async () => {

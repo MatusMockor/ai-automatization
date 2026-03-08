@@ -4,13 +4,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import type { ExecutionAction } from '../executions/interfaces/execution.types';
 import { ExecutionsService } from '../executions/executions.service';
 import { RepositoriesService } from '../repositories/repositories.service';
 import type { TaskItemStatus } from '../task-managers/interfaces/task-manager-provider.interface';
 import { SyncedTaskScope } from '../tasks/entities/synced-task-scope.entity';
 import { SyncedTask } from '../tasks/entities/synced-task.entity';
+import { buildTaskFeedId } from '../tasks/utils/task-feed-id.utils';
 import { AutomationRuleResponseDto } from './dto/automation-rule-response.dto';
 import { CreateAutomationRuleDto } from './dto/create-automation-rule.dto';
 import { UpdateAutomationRuleDto } from './dto/update-automation-rule.dto';
@@ -37,6 +38,8 @@ export class AutomationRulesService {
   constructor(
     @InjectRepository(AutomationRule)
     private readonly automationRulesRepository: Repository<AutomationRule>,
+    @InjectRepository(SyncedTask)
+    private readonly syncedTaskRepository: Repository<SyncedTask>,
     private readonly repositoriesService: RepositoriesService,
     private readonly executionsService: ExecutionsService,
   ) {}
@@ -166,11 +169,11 @@ export class AutomationRulesService {
     this.validateModeAndAction(rule.mode, rule.suggestedAction);
 
     const savedRule = await this.automationRulesRepository.save(rule);
-    if (this.shouldSupersedeDrafts(previousRule, savedRule)) {
-      await this.executionsService.supersedeReadyDraftsForRule(
-        userId,
-        savedRule.id,
-      );
+    if (this.shouldReconcileDrafts(previousRule, savedRule)) {
+      await this.reconcileReadyDraftsForUser(userId, [
+        previousRule.provider,
+        savedRule.provider,
+      ]);
     }
 
     return this.mapToResponse(savedRule);
@@ -178,8 +181,8 @@ export class AutomationRulesService {
 
   async deleteForUser(userId: string, ruleId: string): Promise<void> {
     const rule = await this.getOwnedRule(userId, ruleId);
-    await this.executionsService.supersedeReadyDraftsForRule(userId, rule.id);
     await this.automationRulesRepository.remove(rule);
+    await this.reconcileReadyDraftsForUser(userId, [rule.provider]);
   }
 
   resolveTaskMatch(
@@ -338,12 +341,13 @@ export class AutomationRulesService {
     };
   }
 
-  private shouldSupersedeDrafts(
+  private shouldReconcileDrafts(
     previousRule: AutomationRule,
     nextRule: AutomationRule,
   ): boolean {
     return (
       previousRule.enabled !== nextRule.enabled ||
+      previousRule.priority !== nextRule.priority ||
       previousRule.provider !== nextRule.provider ||
       previousRule.scopeType !== nextRule.scopeType ||
       previousRule.scopeId !== nextRule.scopeId ||
@@ -359,6 +363,78 @@ export class AutomationRulesService {
         nextRule.taskStatuses,
       )
     );
+  }
+
+  private async reconcileReadyDraftsForUser(
+    userId: string,
+    providers: Array<AutomationRule['provider']>,
+  ): Promise<void> {
+    const readyDraftTaskIds =
+      await this.executionsService.listReadyDraftTaskIdsForUser(userId, [
+        ...new Set(providers),
+      ]);
+
+    if (readyDraftTaskIds.length === 0) {
+      return;
+    }
+
+    const activeRules = await this.listActiveRulesForUser(userId);
+    const readyDraftTaskIdSet = new Set(readyDraftTaskIds);
+    const tasks = await this.syncedTaskRepository.find({
+      where: {
+        userId,
+        provider: In([...new Set(providers)]),
+      },
+      relations: {
+        scopes: true,
+      },
+      order: {
+        createdAt: 'ASC',
+      },
+    });
+
+    const processedTaskIds = new Set<string>();
+
+    for (const task of tasks) {
+      const taskId = buildTaskFeedId(task);
+      if (!readyDraftTaskIdSet.has(taskId)) {
+        continue;
+      }
+
+      processedTaskIds.add(taskId);
+
+      const match = this.resolveTaskMatch(task, activeRules);
+      if (!match || match.mode !== 'draft' || match.executionAction === null) {
+        await this.executionsService.supersedeReadyDraftsForTask(
+          userId,
+          taskId,
+        );
+        continue;
+      }
+
+      await this.executionsService.createOrRefreshDraftForTask({
+        userId,
+        repositoryId: match.repositoryId,
+        taskId,
+        taskExternalId: task.externalId,
+        taskTitle: task.title,
+        taskDescription: task.description ?? null,
+        taskSource: task.provider,
+        action: match.executionAction,
+        originRuleId: match.ruleId,
+        sourceTaskSnapshotUpdatedAt: task.sourceUpdatedAt ?? task.updatedAt,
+      });
+    }
+
+    const staleTaskIds = readyDraftTaskIds.filter(
+      (taskId) => !processedTaskIds.has(taskId),
+    );
+    if (staleTaskIds.length > 0) {
+      await this.executionsService.supersedeReadyDraftsForTaskIds(
+        userId,
+        staleTaskIds,
+      );
+    }
   }
 
   private areStringArraysEqual(
