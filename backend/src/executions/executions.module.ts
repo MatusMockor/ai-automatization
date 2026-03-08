@@ -18,6 +18,7 @@ import { ExecutionReview } from './entities/execution-review.entity';
 import { Execution } from './entities/execution.entity';
 import { ExecutionDispatchService } from './execution-dispatch.service';
 import { ExecutionEventStoreService } from './execution-event-store.service';
+import { ManualTaskAutomationStateService } from './manual-task-automation-state.service';
 import { ExecutionOrchestratorService } from './execution-orchestrator.service';
 import { ExecutionPublicationService } from './execution-publication.service';
 import { ExecutionQueueService } from './execution-queue.service';
@@ -54,6 +55,7 @@ import { ComposeServiceCheckRunner } from './pre-commit/runners/compose-service-
     ExecutionsService,
     ExecutionDispatchService,
     ExecutionEventStoreService,
+    ManualTaskAutomationStateService,
     ExecutionQueueService,
     ExecutionOrchestratorService,
     ExecutionWorkerService,
@@ -84,6 +86,6 @@ import { ComposeServiceCheckRunner } from './pre-commit/runners/compose-service-
       useClass: GithubApiPullRequestsGateway,
     },
   ],
-  exports: [ExecutionsService],
+  exports: [ExecutionsService, ManualTaskAutomationStateService],
 })
 export class ExecutionsModule {}

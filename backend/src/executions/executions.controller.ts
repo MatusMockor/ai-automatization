@@ -16,6 +16,7 @@ import type { FastifyReply } from 'fastify';
 import type { RequestUser } from '../auth/interfaces/request-user.interface';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CreateExecutionDto } from './dto/create-execution.dto';
+import { BatchDraftExecutionIdsDto } from './dto/batch-draft-execution-ids.dto';
 import {
   ExecutionDetailResponseDto,
   ExecutionSummaryResponseDto,
@@ -149,6 +150,27 @@ export class ExecutionsController {
     @Param('id', new ParseUUIDPipe()) executionId: string,
   ): Promise<ExecutionSummaryResponseDto> {
     return this.executionsService.startDraftForUser(user.id, executionId);
+  }
+
+  @HttpCode(200)
+  @Post('start-drafts')
+  startDraftExecutions(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: BatchDraftExecutionIdsDto,
+  ): Promise<ExecutionSummaryResponseDto[]> {
+    return this.executionsService.startDraftsForUser(user.id, dto.executionIds);
+  }
+
+  @HttpCode(200)
+  @Post('supersede-drafts')
+  supersedeDraftExecutions(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: BatchDraftExecutionIdsDto,
+  ): Promise<ExecutionSummaryResponseDto[]> {
+    return this.executionsService.supersedeDraftsForUser(
+      user.id,
+      dto.executionIds,
+    );
   }
 
   @HttpCode(200)

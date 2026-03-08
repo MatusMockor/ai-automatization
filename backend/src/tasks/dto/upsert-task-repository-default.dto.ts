@@ -8,8 +8,8 @@ import {
 } from 'class-validator';
 
 export class UpsertTaskRepositoryDefaultDto {
-  @IsIn(['asana', 'jira'])
-  provider!: 'asana' | 'jira';
+  @IsIn(['asana', 'jira', 'manual'])
+  provider!: 'asana' | 'jira' | 'manual';
 
   @IsUUID()
   repositoryId!: string;

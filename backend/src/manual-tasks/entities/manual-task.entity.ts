@@ -10,6 +10,14 @@ import {
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 
+export type ManualTaskWorkflowState =
+  | 'inbox'
+  | 'drafted'
+  | 'in_progress'
+  | 'blocked'
+  | 'done'
+  | 'archived';
+
 @Entity({ name: 'manual_tasks' })
 @Index('IDX_manual_tasks_user_id', ['userId'])
 export class ManualTask {
@@ -28,6 +36,14 @@ export class ManualTask {
 
   @Column({ type: 'text', nullable: true })
   description!: string | null;
+
+  @Column({
+    name: 'workflow_state',
+    type: 'varchar',
+    length: 32,
+    default: 'inbox',
+  })
+  workflowState!: ManualTaskWorkflowState;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

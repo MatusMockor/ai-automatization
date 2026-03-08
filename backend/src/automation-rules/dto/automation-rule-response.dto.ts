@@ -1,4 +1,7 @@
-import type { ExecutionAction } from '../../executions/interfaces/execution.types';
+import type {
+  ExecutionAction,
+  TaskSource,
+} from '../../executions/interfaces/execution.types';
 import type { TaskItemStatus } from '../../task-managers/interfaces/task-manager-provider.interface';
 import type {
   AutomationRuleMode,
@@ -10,7 +13,7 @@ export class AutomationRuleResponseDto {
   name!: string;
   enabled!: boolean;
   priority!: number;
-  provider!: 'asana' | 'jira';
+  provider!: TaskSource;
   scopeType!: AutomationRuleScopeType | null;
   scopeId!: string | null;
   titleContains!: string[] | null;

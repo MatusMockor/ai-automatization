@@ -39,6 +39,7 @@ import { RepositoryFactory } from './factories/repository.factory';
 import { UserFactory } from './factories/user.factory';
 import { UserSettingsFactory } from './factories/user-settings.factory';
 import { createTestApp } from './helpers/test-app.factory';
+import { buildManualTaskFeedId } from '../src/tasks/utils/task-feed-id.utils';
 
 const execFileAsync = promisify(execFile);
 const TEST_REPOSITORIES_BASE_PATH = `/tmp/ai-automation-repositories-test-executions-${process.env.JEST_WORKER_ID ?? '0'}-${process.pid}`;
@@ -723,6 +724,155 @@ describe('Executions (e2e)', () => {
     } finally {
       dispatchSpy.mockRestore();
     }
+  });
+
+  it('POST /api/executions/start-drafts should start multiple ready manual drafts', async () => {
+    const session = await createLoginSession();
+    await userSettingsFactory.create(session.userId);
+    const repository = await createRunnableRepository(session.userId);
+    const manualTaskOne = await manualTaskFactory.create({
+      userId: session.userId,
+      title: 'Manual task one',
+    });
+    const manualTaskTwo = await manualTaskFactory.create({
+      userId: session.userId,
+      title: 'Manual task two',
+    });
+
+    const draftOne = await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      taskId: buildManualTaskFeedId(manualTaskOne.id),
+      taskExternalId: manualTaskOne.id,
+      taskTitle: manualTaskOne.title,
+      taskDescription: manualTaskOne.description,
+      taskSource: 'manual',
+      action: 'fix',
+      triggerType: 'automation_rule',
+      originRuleId: faker.string.uuid(),
+      sourceTaskSnapshotUpdatedAt: manualTaskOne.updatedAt,
+      isDraft: true,
+      draftStatus: 'ready',
+      status: 'pending',
+      orchestrationState: 'queued',
+      output: '',
+    });
+    const draftTwo = await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      taskId: buildManualTaskFeedId(manualTaskTwo.id),
+      taskExternalId: manualTaskTwo.id,
+      taskTitle: manualTaskTwo.title,
+      taskDescription: manualTaskTwo.description,
+      taskSource: 'manual',
+      action: 'fix',
+      triggerType: 'automation_rule',
+      originRuleId: faker.string.uuid(),
+      sourceTaskSnapshotUpdatedAt: manualTaskTwo.updatedAt,
+      isDraft: true,
+      draftStatus: 'ready',
+      status: 'pending',
+      orchestrationState: 'queued',
+      output: '',
+    });
+
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['draft one'],
+      delayMs: 10,
+    });
+    fakeRunner.enqueueBehavior({
+      kind: 'success',
+      stdout: ['draft two'],
+      delayMs: 10,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions/start-drafts',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: {
+        executionIds: [draftOne.id, draftTwo.id],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      response.json<
+        Array<{ id: string; isDraft: boolean; draftStatus: string | null }>
+      >(),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: draftOne.id,
+          isDraft: false,
+          draftStatus: null,
+        }),
+        expect.objectContaining({
+          id: draftTwo.id,
+          isDraft: false,
+          draftStatus: null,
+        }),
+      ]),
+    );
+
+    await waitForExecution(
+      draftOne.id,
+      (current) => current.status === 'completed',
+    );
+    await waitForExecution(
+      draftTwo.id,
+      (current) => current.status === 'completed',
+    );
+  });
+
+  it('POST /api/executions/supersede-drafts should supersede ready manual drafts', async () => {
+    const session = await createLoginSession();
+    const repository = await createRunnableRepository(session.userId);
+    const manualTask = await manualTaskFactory.create({
+      userId: session.userId,
+      title: 'Manual draft to supersede',
+    });
+    const draftExecution = await executionFactory.create({
+      userId: session.userId,
+      repositoryId: repository.id,
+      taskId: buildManualTaskFeedId(manualTask.id),
+      taskExternalId: manualTask.id,
+      taskTitle: manualTask.title,
+      taskDescription: manualTask.description,
+      taskSource: 'manual',
+      action: 'fix',
+      triggerType: 'automation_rule',
+      originRuleId: faker.string.uuid(),
+      sourceTaskSnapshotUpdatedAt: manualTask.updatedAt,
+      isDraft: true,
+      draftStatus: 'ready',
+      status: 'pending',
+      orchestrationState: 'queued',
+      output: '',
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/executions/supersede-drafts',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: {
+        executionIds: [draftExecution.id],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      response.json<
+        Array<{ id: string; isDraft: boolean; draftStatus: string | null }>
+      >(),
+    ).toEqual([
+      expect.objectContaining({
+        id: draftExecution.id,
+        isDraft: true,
+        draftStatus: 'superseded',
+      }),
+    ]);
   });
 
   it('POST /api/executions should return 403 when manual task belongs to another user', async () => {

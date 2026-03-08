@@ -146,6 +146,25 @@ describe('TaskRepositoryDefaultsService', () => {
     });
   });
 
+  it('supports provider-level defaults for manual tasks without scopes', async () => {
+    const { service, defaultsRepository } = createService();
+    defaultsRepository.find.mockResolvedValue([
+      {
+        provider: 'manual',
+        scopeType: null,
+        scopeId: null,
+        repositoryId: 'repo-manual',
+      },
+    ] as TaskScopeRepositoryDefault[]);
+
+    const lookup = await service.buildLookupForUser('user-1');
+
+    expect(service.resolveSuggestedRepository('manual', [], lookup)).toEqual({
+      repositoryId: 'repo-manual',
+      source: 'provider_default',
+    });
+  });
+
   it('validates scope type compatibility in upsert', async () => {
     const { service } = createService();
 

@@ -1,4 +1,7 @@
-import { resolveTaskSnapshotVersion } from './task-snapshot-version.utils';
+import {
+  resolveManualTaskSnapshotVersion,
+  resolveTaskSnapshotVersion,
+} from './task-snapshot-version.utils';
 
 describe('resolveTaskSnapshotVersion', () => {
   it('returns the provider timestamp when present', () => {
@@ -17,5 +20,15 @@ describe('resolveTaskSnapshotVersion', () => {
         sourceUpdatedAt: null,
       }),
     ).toBeNull();
+  });
+
+  it('uses manual task updatedAt as the snapshot version', () => {
+    const updatedAt = new Date('2026-03-21T11:30:00.000Z');
+
+    expect(
+      resolveManualTaskSnapshotVersion({
+        updatedAt,
+      }),
+    ).toEqual(updatedAt);
   });
 });

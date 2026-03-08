@@ -53,8 +53,8 @@ export class GetTasksQueryDto {
 
   @Transform(({ value }: { value: unknown }) => normalizeOptionalString(value))
   @IsOptional()
-  @IsIn(['asana', 'jira'])
-  provider?: 'asana' | 'jira';
+  @IsIn(['asana', 'jira', 'manual'])
+  provider?: 'asana' | 'jira' | 'manual';
 
   @Transform(({ value }: { value: unknown }) => normalizeOptionalString(value))
   @IsOptional()

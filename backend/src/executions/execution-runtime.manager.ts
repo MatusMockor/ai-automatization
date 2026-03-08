@@ -13,6 +13,7 @@ import {
   ExecutionPublicationService,
 } from './execution-publication.service';
 import { ExecutionReviewGateService } from './execution-review-gate.service';
+import { ManualTaskAutomationStateService } from './manual-task-automation-state.service';
 import type {
   ClaudeCliProcess,
   ClaudeCliRunner,
@@ -58,6 +59,7 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     private readonly streamHub: ExecutionStreamHub,
     private readonly publicationService: ExecutionPublicationService,
     private readonly executionReviewGateService: ExecutionReviewGateService,
+    private readonly manualTaskAutomationStateService: ManualTaskAutomationStateService,
     private readonly redactionService: RedactionService,
     private readonly metricsService: MetricsService,
     private readonly configService: ConfigService,
@@ -562,6 +564,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
           );
 
         if (gateOutcome.action === 'review_started') {
+          await this.manualTaskAutomationStateService.reconcileFromExecution(
+            executionId,
+          );
           this.publish({
             type: 'review',
             payload: {
@@ -636,6 +641,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     }
 
     if (publicationResult.outcome === 'requeued') {
+      await this.manualTaskAutomationStateService.reconcileFromExecution(
+        executionId,
+      );
       this.publish({
         type: 'status',
         payload: {
@@ -657,6 +665,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
           status: 'completed',
           orchestrationState: 'done',
         },
+      );
+      await this.manualTaskAutomationStateService.reconcileFromExecution(
+        executionId,
       );
       this.metricsService.incrementExecutionsCompleted();
       this.publish(
@@ -699,6 +710,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
         automationErrorMessage: publicationFailureMessage,
       },
     );
+    await this.manualTaskAutomationStateService.reconcileFromExecution(
+      executionId,
+    );
     this.metricsService.incrementExecutionsFailed();
     this.publish(
       {
@@ -733,6 +747,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
         },
       );
     }
+    await this.manualTaskAutomationStateService.reconcileFromExecution(
+      executionId,
+    );
     this.publish(
       {
         type: 'error',
@@ -828,6 +845,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     }
 
     if (outcome.action === 'awaiting_decision') {
+      await this.manualTaskAutomationStateService.reconcileFromExecution(
+        outcome.parentExecutionId,
+      );
       this.publish({
         type: 'review',
         payload: {
@@ -844,6 +864,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
     }
 
     if (outcome.action === 'review_started') {
+      await this.manualTaskAutomationStateService.reconcileFromExecution(
+        outcome.parentExecutionId,
+      );
       this.publish({
         type: 'review',
         payload: {
@@ -858,6 +881,9 @@ export class ExecutionRuntimeManager implements OnModuleDestroy {
       return;
     }
 
+    await this.manualTaskAutomationStateService.reconcileFromExecution(
+      outcome.parentExecutionId,
+    );
     this.publish(
       {
         type: 'error',

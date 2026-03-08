@@ -45,8 +45,8 @@ export class CreateAutomationRuleDto {
   @Max(2147483647)
   priority?: number;
 
-  @IsIn(['asana', 'jira'])
-  provider!: 'asana' | 'jira';
+  @IsIn(['asana', 'jira', 'manual'])
+  provider!: 'asana' | 'jira' | 'manual';
 
   @IsOptional()
   @Transform(normalizeOptionalStringTransform)

@@ -1,8 +1,8 @@
 import { IsIn, IsString, MaxLength, ValidateIf } from 'class-validator';
 
 export class DeleteTaskRepositoryDefaultDto {
-  @IsIn(['asana', 'jira'])
-  provider!: 'asana' | 'jira';
+  @IsIn(['asana', 'jira', 'manual'])
+  provider!: 'asana' | 'jira' | 'manual';
 
   @ValidateIf(
     (dto: DeleteTaskRepositoryDefaultDto) => dto.scopeId !== undefined,

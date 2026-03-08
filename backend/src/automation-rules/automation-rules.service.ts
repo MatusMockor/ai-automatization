@@ -6,14 +6,25 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import type { ExecutionAction } from '../executions/interfaces/execution.types';
+import type {
+  ExecutionAction,
+  TaskSource,
+} from '../executions/interfaces/execution.types';
 import { ExecutionsService } from '../executions/executions.service';
+import { ManualTask } from '../manual-tasks/entities/manual-task.entity';
+import { mapManualWorkflowStateToTaskStatus } from '../manual-tasks/utils/manual-task-status.utils';
 import { RepositoriesService } from '../repositories/repositories.service';
 import type { TaskItemStatus } from '../task-managers/interfaces/task-manager-provider.interface';
 import { SyncedTaskScope } from '../tasks/entities/synced-task-scope.entity';
 import { SyncedTask } from '../tasks/entities/synced-task.entity';
-import { buildTaskFeedId } from '../tasks/utils/task-feed-id.utils';
-import { resolveTaskSnapshotVersion } from '../tasks/utils/task-snapshot-version.utils';
+import {
+  buildManualTaskFeedId,
+  buildTaskFeedId,
+} from '../tasks/utils/task-feed-id.utils';
+import {
+  resolveManualTaskSnapshotVersion,
+  resolveTaskSnapshotVersion,
+} from '../tasks/utils/task-snapshot-version.utils';
 import { AutomationRuleResponseDto } from './dto/automation-rule-response.dto';
 import { CreateAutomationRuleDto } from './dto/create-automation-rule.dto';
 import { UpdateAutomationRuleDto } from './dto/update-automation-rule.dto';
@@ -31,8 +42,23 @@ export type AutomationRuleMatch = {
   executionAction: ExecutionAction | null;
 };
 
-type TaskSnapshotLike = Pick<SyncedTask, 'provider' | 'title' | 'status'> & {
+type TaskSnapshotLike = {
+  provider: TaskSource;
+  title: string;
+  status: TaskItemStatus;
   scopes: SyncedTaskScope[];
+};
+
+type ReconciledTaskSnapshot = {
+  taskId: string;
+  externalId: string;
+  title: string;
+  description: string | null;
+  taskSource: TaskSource;
+  provider: TaskSource;
+  status: TaskItemStatus;
+  scopes: SyncedTaskScope[];
+  sourceTaskSnapshotUpdatedAt: Date | null;
 };
 
 @Injectable()
@@ -50,6 +76,8 @@ export class AutomationRulesService {
     private readonly automationRulesRepository: Repository<AutomationRule>,
     @InjectRepository(SyncedTask)
     private readonly syncedTaskRepository: Repository<SyncedTask>,
+    @InjectRepository(ManualTask)
+    private readonly manualTaskRepository: Repository<ManualTask>,
     private readonly repositoriesService: RepositoriesService,
     private readonly executionsService: ExecutionsService,
   ) {}
@@ -198,6 +226,10 @@ export class AutomationRulesService {
     this.enqueueReconcileReadyDrafts(userId, [rule.provider]);
   }
 
+  scheduleReconcileForUser(userId: string, providers: TaskSource[]): void {
+    this.enqueueReconcileReadyDrafts(userId, providers);
+  }
+
   resolveTaskMatch(
     task: TaskSnapshotLike,
     rules: AutomationRule[],
@@ -289,7 +321,7 @@ export class AutomationRulesService {
   }
 
   private validateScopeCompatibility(
-    provider: 'asana' | 'jira',
+    provider: TaskSource,
     scopeType: AutomationRuleScopeType | null,
     scopeId: string | null,
   ): void {
@@ -301,6 +333,12 @@ export class AutomationRulesService {
 
     if (scopeType === null) {
       return;
+    }
+
+    if (provider === 'manual') {
+      throw new BadRequestException(
+        'scopeType is not compatible with the selected provider',
+      );
     }
 
     if (provider === 'asana') {
@@ -384,26 +422,14 @@ export class AutomationRulesService {
   ): Promise<void> {
     const normalizedProviders = [...new Set(providers)];
     const activeRules = await this.listActiveRulesForUser(userId);
-    const tasks = await this.syncedTaskRepository.find({
-      where: {
-        userId,
-        provider: In(normalizedProviders),
-      },
-      relations: {
-        scopes: true,
-      },
-      order: {
-        createdAt: 'ASC',
-      },
-    });
+    const tasks = await this.loadReconciledTasks(userId, normalizedProviders);
 
     for (const task of tasks) {
-      const taskId = buildTaskFeedId(task);
       const match = this.resolveTaskMatch(task, activeRules);
       if (!match || match.mode !== 'draft' || match.executionAction === null) {
         await this.executionsService.supersedeReadyDraftsForTask(
           userId,
-          taskId,
+          task.taskId,
         );
         continue;
       }
@@ -411,14 +437,14 @@ export class AutomationRulesService {
       await this.executionsService.createOrRefreshDraftForTask({
         userId,
         repositoryId: match.repositoryId,
-        taskId,
+        taskId: task.taskId,
         taskExternalId: task.externalId,
         taskTitle: task.title,
-        taskDescription: task.description ?? null,
-        taskSource: task.provider,
+        taskDescription: task.description,
+        taskSource: task.taskSource,
         action: match.executionAction,
         originRuleId: match.ruleId,
-        sourceTaskSnapshotUpdatedAt: resolveTaskSnapshotVersion(task),
+        sourceTaskSnapshotUpdatedAt: task.sourceTaskSnapshotUpdatedAt,
       });
     }
 
@@ -427,9 +453,7 @@ export class AutomationRulesService {
         userId,
         normalizedProviders,
       );
-    const processedTaskIds = new Set(
-      tasks.map((task) => buildTaskFeedId(task)),
-    );
+    const processedTaskIds = new Set(tasks.map((task) => task.taskId));
     const staleTaskIds = readyDraftTaskIds.filter(
       (taskId) => !processedTaskIds.has(taskId),
     );
@@ -515,6 +539,64 @@ export class AutomationRulesService {
 
     this.queuedReconcileProviders.delete(userId);
     return [...providers];
+  }
+
+  private async loadReconciledTasks(
+    userId: string,
+    providers: TaskSource[],
+  ): Promise<ReconciledTaskSnapshot[]> {
+    const includeManual = providers.includes('manual');
+    const providerTasks = providers.filter(
+      (provider): provider is SyncedTask['provider'] => provider !== 'manual',
+    );
+
+    const [syncedTasks, manualTasks] = await Promise.all([
+      providerTasks.length === 0
+        ? Promise.resolve([])
+        : this.syncedTaskRepository.find({
+            where: {
+              userId,
+              provider: In(providerTasks),
+            },
+            relations: {
+              scopes: true,
+            },
+            order: {
+              createdAt: 'ASC',
+            },
+          }),
+      includeManual
+        ? this.manualTaskRepository.find({
+            where: { userId },
+            order: { createdAt: 'ASC' },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    return [
+      ...syncedTasks.map((task) => ({
+        taskId: buildTaskFeedId(task),
+        externalId: task.externalId,
+        title: task.title,
+        description: task.description ?? null,
+        taskSource: task.provider,
+        provider: task.provider,
+        status: task.status,
+        scopes: task.scopes,
+        sourceTaskSnapshotUpdatedAt: resolveTaskSnapshotVersion(task),
+      })),
+      ...manualTasks.map((task) => ({
+        taskId: buildManualTaskFeedId(task.id),
+        externalId: task.id,
+        title: task.title,
+        description: task.description ?? null,
+        taskSource: 'manual' as const,
+        provider: 'manual' as const,
+        status: mapManualWorkflowStateToTaskStatus(task.workflowState),
+        scopes: [],
+        sourceTaskSnapshotUpdatedAt: resolveManualTaskSnapshotVersion(task),
+      })),
+    ];
   }
 
   private areStringArraysEqual(
