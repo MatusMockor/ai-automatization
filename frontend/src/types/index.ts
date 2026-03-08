@@ -16,6 +16,8 @@ export type ReviewGateStatus =
   | 'timeout_continue';
 export type ReviewDecision = 'continue' | 'block' | 'fix';
 export type ReviewVerdict = 'pass' | 'fail' | 'error';
+export type ExecutionTriggerType = 'manual' | 'automation_rule' | 'schedule';
+export type ExecutionDraftStatus = 'ready' | 'superseded';
 
 export interface Execution {
   id: string;
@@ -52,6 +54,11 @@ export interface Execution {
   pullRequestTitle: string | null;
   automationCompletedAt: string | null;
   idempotencyKey: string | null;
+  triggerType: ExecutionTriggerType;
+  originRuleId: string | null;
+  sourceTaskSnapshotUpdatedAt: string | null;
+  isDraft: boolean;
+  draftStatus: ExecutionDraftStatus | null;
 }
 
 export interface CreateExecutionRequest {
@@ -179,7 +186,10 @@ export interface TaskFeedItem {
   matchedRuleId: string | null;
   matchedRuleName: string | null;
   suggestedAction: ExecutionAction | null;
-  automationState: 'none' | 'matched';
+  automationMode: 'suggest' | 'draft' | null;
+  draftExecutionId: string | null;
+  draftStatus: ExecutionDraftStatus | null;
+  automationState: 'none' | 'matched' | 'drafted';
   updatedAt: string;
 }
 
@@ -283,12 +293,14 @@ export interface DeleteRepositoryDefaultRequest {
 // Automation Rules
 
 export type AutomationRuleScopeType = 'asana_workspace' | 'asana_project' | 'jira_project';
+export type AutomationRuleMode = 'suggest' | 'draft';
 
 export interface AutomationRule {
   id: string;
   name: string;
   enabled: boolean;
   priority: number;
+  mode: AutomationRuleMode;
   provider: TaskManagerProvider;
   scopeType: AutomationRuleScopeType | null;
   scopeId: string | null;
@@ -296,6 +308,7 @@ export interface AutomationRule {
   taskStatuses: TaskFeedStatus[] | null;
   repositoryId: string;
   suggestedAction: ExecutionAction | null;
+  executionAction: ExecutionAction | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -306,17 +319,20 @@ export interface CreateAutomationRuleRequest {
   repositoryId: string;
   enabled?: boolean;
   priority?: number;
+  mode?: AutomationRuleMode;
   scopeType?: AutomationRuleScopeType;
   scopeId?: string;
   titleContains?: string[] | null;
   taskStatuses?: TaskFeedStatus[] | null;
   suggestedAction?: ExecutionAction | null;
+  executionAction?: ExecutionAction | null;
 }
 
 export interface UpdateAutomationRuleRequest {
   name?: string;
   enabled?: boolean;
   priority?: number;
+  mode?: AutomationRuleMode;
   provider?: TaskManagerProvider;
   scopeType?: AutomationRuleScopeType | null;
   scopeId?: string | null;
@@ -324,4 +340,5 @@ export interface UpdateAutomationRuleRequest {
   taskStatuses?: TaskFeedStatus[] | null;
   repositoryId?: string;
   suggestedAction?: ExecutionAction | null;
+  executionAction?: ExecutionAction | null;
 }
