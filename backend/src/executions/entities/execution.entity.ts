@@ -14,9 +14,11 @@ import { getTimestampColumnType } from '../../common/utils/database-column.utils
 import type {
   AutomationStatus,
   ExecutionAction,
+  ExecutionDraftStatus,
   ExecutionOrchestrationState,
   ExecutionRole,
   ExecutionStatus,
+  ExecutionTriggerType,
   ReviewGateStatus,
   TaskSource,
 } from '../interfaces/execution.types';
@@ -26,6 +28,7 @@ const EXECUTION_DATETIME_COLUMN_TYPE = getTimestampColumnType();
 @Entity({ name: 'executions' })
 @Index('IDX_executions_user_created_at', ['userId', 'createdAt'])
 @Index('IDX_executions_user_status', ['userId', 'status'])
+@Index('IDX_executions_user_task_draft', ['userId', 'taskId', 'isDraft'])
 export class Execution {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -91,6 +94,14 @@ export class Execution {
   action!: ExecutionAction;
 
   @Column({
+    name: 'trigger_type',
+    type: 'varchar',
+    length: 32,
+    default: 'manual',
+  })
+  triggerType!: ExecutionTriggerType;
+
+  @Column({
     name: 'execution_role',
     type: 'varchar',
     length: 16,
@@ -103,6 +114,27 @@ export class Execution {
 
   @Column({ name: 'root_execution_id', type: 'uuid' })
   rootExecutionId!: string;
+
+  @Column({ name: 'origin_rule_id', type: 'uuid', nullable: true })
+  originRuleId!: string | null;
+
+  @Column({
+    name: 'source_task_snapshot_updated_at',
+    type: EXECUTION_DATETIME_COLUMN_TYPE,
+    nullable: true,
+  })
+  sourceTaskSnapshotUpdatedAt!: Date | null;
+
+  @Column({ name: 'is_draft', type: 'boolean', default: false })
+  isDraft!: boolean;
+
+  @Column({
+    name: 'draft_status',
+    type: 'varchar',
+    length: 16,
+    nullable: true,
+  })
+  draftStatus!: ExecutionDraftStatus | null;
 
   @Column({
     name: 'review_gate_status',

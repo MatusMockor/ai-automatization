@@ -15,6 +15,7 @@ import {
 } from 'class-validator';
 import {
   AUTOMATION_RULE_ACTIONS,
+  AUTOMATION_RULE_MODES,
   AUTOMATION_RULE_SCOPE_TYPES,
   TASK_ITEM_STATUSES,
   normalizeOptionalStringTransform,
@@ -50,6 +51,12 @@ export class CreateAutomationRuleDto {
   @IsOptional()
   @Transform(normalizeOptionalStringTransform)
   @ValidateIf((_, value: unknown) => value !== undefined)
+  @IsIn(AUTOMATION_RULE_MODES)
+  mode?: (typeof AUTOMATION_RULE_MODES)[number];
+
+  @IsOptional()
+  @Transform(normalizeOptionalStringTransform)
+  @ValidateIf((_, value: unknown) => value !== undefined)
   @IsIn(AUTOMATION_RULE_SCOPE_TYPES)
   scopeType?: (typeof AUTOMATION_RULE_SCOPE_TYPES)[number];
 
@@ -78,6 +85,12 @@ export class CreateAutomationRuleDto {
 
   @IsUUID()
   repositoryId!: string;
+
+  @IsOptional()
+  @Transform(normalizeOptionalStringTransform)
+  @ValidateIf((_, value: unknown) => value !== undefined)
+  @IsIn(AUTOMATION_RULE_ACTIONS)
+  executionAction?: (typeof AUTOMATION_RULE_ACTIONS)[number];
 
   @IsOptional()
   @Transform(normalizeOptionalStringTransform)

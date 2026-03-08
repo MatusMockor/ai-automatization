@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AutomationRulesModule } from '../automation-rules/automation-rules.module';
 import { RepositoriesModule } from '../repositories/repositories.module';
 import { EncryptionModule } from '../common/encryption/encryption.module';
+import { ExecutionsModule } from '../executions/executions.module';
 import { UserSettings } from '../settings/entities/user-settings.entity';
 import { TaskManagerConnection } from '../task-managers/entities/task-manager-connection.entity';
 import { TaskManagersModule } from '../task-managers/task-managers.module';
@@ -12,6 +13,7 @@ import { SyncedTask } from './entities/synced-task.entity';
 import { TaskScopeRepositoryDefault } from './entities/task-scope-repository-default.entity';
 import { TaskSyncRun } from './entities/task-sync-run.entity';
 import { TaskRepositoryDefaultsService } from './task-repository-defaults.service';
+import { TaskAutomationOrchestratorService } from './task-automation-orchestrator.service';
 import { TaskSyncSchedulerService } from './task-sync-scheduler.service';
 import { TaskSyncService } from './task-sync.service';
 import { TasksService } from './tasks.service';
@@ -21,6 +23,7 @@ import { TasksService } from './tasks.service';
     AutomationRulesModule,
     TaskManagersModule,
     RepositoriesModule,
+    ExecutionsModule,
     EncryptionModule,
     TypeOrmModule.forFeature([
       TaskManagerConnection,
@@ -36,6 +39,7 @@ import { TasksService } from './tasks.service';
     TasksService,
     TaskSyncService,
     TaskRepositoryDefaultsService,
+    TaskAutomationOrchestratorService,
     TaskSyncSchedulerService,
   ],
 })

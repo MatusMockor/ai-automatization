@@ -43,3 +43,41 @@ export const parseOptionalInteger = (
 
   return Number.parseInt(normalizedValue, 10);
 };
+
+type ParseOptionalBooleanOptions = {
+  nullAsUndefined?: boolean;
+};
+
+export const parseOptionalBoolean = (
+  value: unknown,
+  options: ParseOptionalBooleanOptions = {},
+): unknown => {
+  const { nullAsUndefined = false } = options;
+
+  if (value === undefined || value === '') {
+    return undefined;
+  }
+
+  if (value === null) {
+    return nullAsUndefined ? undefined : null;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const normalizedValue = value.trim().toLowerCase();
+  if (normalizedValue === 'true') {
+    return true;
+  }
+
+  if (normalizedValue === 'false') {
+    return false;
+  }
+
+  return value;
+};

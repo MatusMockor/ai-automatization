@@ -8,6 +8,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { parseOptionalBoolean } from '../../common/utils/parse.utils';
 import type {
   ExecutionAction,
   TaskSource,
@@ -17,25 +18,7 @@ const ACTIONS = ['fix', 'feature', 'plan'] as const;
 const TASK_SOURCES = ['asana', 'jira', 'manual'] as const;
 
 function toOptionalBoolean(value: unknown): boolean | undefined | unknown {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (typeof value === 'boolean') {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === 'true') {
-      return true;
-    }
-    if (normalized === 'false') {
-      return false;
-    }
-  }
-
-  return value;
+  return parseOptionalBoolean(value) as boolean | undefined | unknown;
 }
 
 export class CreateExecutionDto {

@@ -1,33 +1,57 @@
 import { BadRequestException } from '@nestjs/common';
 import { Repository } from 'typeorm';
+import { ExecutionsService } from '../executions/executions.service';
 import { RepositoriesService } from '../repositories/repositories.service';
 import { SyncedTaskScope } from '../tasks/entities/synced-task-scope.entity';
+import { SyncedTask } from '../tasks/entities/synced-task.entity';
 import { AutomationRulesService } from './automation-rules.service';
 import { AutomationRule } from './entities/automation-rule.entity';
 
 describe('AutomationRulesService', () => {
+  const waitForBackgroundReconcile = async (): Promise<void> => {
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    await Promise.resolve();
+  };
+
   const createService = () => {
     const automationRulesRepository = {
       find: jest.fn(),
       findOneBy: jest.fn(),
-      create: jest.fn(),
-      save: jest.fn(),
+      create: jest.fn((input: Partial<AutomationRule>) => input),
+      save: jest.fn(async (input: Partial<AutomationRule>) => input),
       remove: jest.fn(),
     } as unknown as jest.Mocked<Repository<AutomationRule>>;
+
+    const syncedTaskRepository = {
+      find: jest.fn(),
+    } as unknown as jest.Mocked<Repository<SyncedTask>>;
 
     const repositoriesService = {
       assertOwnedRepository: jest.fn(),
     } as unknown as jest.Mocked<RepositoriesService>;
 
+    const executionsService = {
+      listReadyDraftTaskIdsForUser: jest.fn(),
+      createOrRefreshDraftForTask: jest.fn(),
+      supersedeReadyDraftsForTask: jest.fn(),
+      supersedeReadyDraftsForTaskIds: jest.fn(),
+    } as unknown as jest.Mocked<ExecutionsService>;
+
     const service = new AutomationRulesService(
       automationRulesRepository,
+      syncedTaskRepository,
       repositoriesService,
+      executionsService,
     );
 
     return {
       service,
       automationRulesRepository,
+      syncedTaskRepository,
       repositoriesService,
+      executionsService,
     };
   };
 
@@ -63,11 +87,34 @@ describe('AutomationRulesService', () => {
     taskStatuses: ['open'],
     repositoryId: 'repo-1',
     repository: {} as never,
+    mode: 'suggest',
     suggestedAction: 'fix',
     createdAt: new Date('2026-03-01T10:00:00.000Z'),
     updatedAt: new Date('2026-03-01T10:00:00.000Z'),
     ...overrides,
   });
+
+  const createSyncedTask = (overrides: Partial<SyncedTask> = {}): SyncedTask =>
+    ({
+      id: 'task-db-1',
+      userId: 'user-1',
+      user: {} as never,
+      connectionId: 'connection-1',
+      connection: {} as never,
+      provider: 'asana',
+      externalId: 'TASK-1',
+      title: 'Backend automation fix',
+      description: 'Task description',
+      url: 'https://example.com/task',
+      status: 'open',
+      assignee: null,
+      sourceUpdatedAt: new Date('2026-03-21T10:00:00.000Z'),
+      lastSyncedAt: new Date('2026-03-21T10:05:00.000Z'),
+      scopes: [createTaskScope()],
+      createdAt: new Date('2026-03-21T10:05:00.000Z'),
+      updatedAt: new Date('2026-03-21T10:05:00.000Z'),
+      ...overrides,
+    }) as SyncedTask;
 
   it('lists active rules with deterministic priority ordering', async () => {
     const { service, automationRulesRepository } = createService();
@@ -112,7 +159,8 @@ describe('AutomationRulesService', () => {
       ruleId: 'rule-workspace',
       ruleName: 'Rule 1',
       repositoryId: 'repo-1',
-      suggestedAction: 'fix',
+      mode: 'suggest',
+      executionAction: 'fix',
     });
   });
 
@@ -175,7 +223,8 @@ describe('AutomationRulesService', () => {
       ruleId: 'winning-rule',
       ruleName: 'Winning rule',
       repositoryId: 'repo-winning',
-      suggestedAction: 'feature',
+      mode: 'suggest',
+      executionAction: 'feature',
     });
   });
 
@@ -222,7 +271,8 @@ describe('AutomationRulesService', () => {
       ruleId: 'rule-1',
       ruleName: 'Rule 1',
       repositoryId: 'repo-1',
-      suggestedAction: 'fix',
+      mode: 'suggest',
+      executionAction: 'fix',
     });
   });
 
@@ -248,7 +298,8 @@ describe('AutomationRulesService', () => {
       ruleId: 'rule-1',
       ruleName: 'Rule 1',
       repositoryId: 'repo-1',
-      suggestedAction: 'fix',
+      mode: 'suggest',
+      executionAction: 'fix',
     });
   });
 
@@ -264,5 +315,269 @@ describe('AutomationRulesService', () => {
         repositoryId: '4d5d9f85-8d13-4db8-b84c-6564e1e8ce21',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('requires executionAction when draft mode is used', async () => {
+    const { service, repositoriesService } = createService();
+    repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);
+
+    await expect(
+      service.createForUser('user-1', {
+        name: 'Draft rule without action',
+        provider: 'asana',
+        repositoryId: '4d5d9f85-8d13-4db8-b84c-6564e1e8ce21',
+        mode: 'draft',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('backfills matching synced tasks when creating an enabled draft rule', async () => {
+    const {
+      service,
+      automationRulesRepository,
+      syncedTaskRepository,
+      repositoriesService,
+      executionsService,
+    } = createService();
+    const rule = createRule({
+      mode: 'draft',
+      suggestedAction: 'feature',
+    });
+    const task = createSyncedTask();
+
+    repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);
+    automationRulesRepository.save.mockResolvedValue(rule);
+    automationRulesRepository.find.mockResolvedValue([rule]);
+    syncedTaskRepository.find.mockResolvedValue([task]);
+    executionsService.createOrRefreshDraftForTask.mockResolvedValue(
+      {} as never,
+    );
+    executionsService.listReadyDraftTaskIdsForUser.mockResolvedValue([]);
+
+    await service.createForUser('user-1', {
+      name: 'Draft rule',
+      provider: 'asana',
+      repositoryId: 'repo-1',
+      mode: 'draft',
+      executionAction: 'feature',
+      enabled: true,
+    });
+    await waitForBackgroundReconcile();
+
+    expect(executionsService.createOrRefreshDraftForTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        repositoryId: 'repo-1',
+        taskId: 'connection-1:asana:TASK-1',
+        action: 'feature',
+        originRuleId: 'rule-1',
+      }),
+    );
+  });
+
+  it('reconciles existing tasks when creating an enabled suggest rule', async () => {
+    const {
+      service,
+      automationRulesRepository,
+      syncedTaskRepository,
+      repositoriesService,
+      executionsService,
+    } = createService();
+    const rule = createRule({
+      mode: 'suggest',
+      suggestedAction: 'plan',
+    });
+    const task = createSyncedTask();
+
+    repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);
+    automationRulesRepository.save.mockResolvedValue(rule);
+    automationRulesRepository.find.mockResolvedValue([rule]);
+    syncedTaskRepository.find.mockResolvedValue([task]);
+    executionsService.listReadyDraftTaskIdsForUser.mockResolvedValue([
+      'connection-1:asana:TASK-1',
+    ]);
+    executionsService.supersedeReadyDraftsForTask.mockResolvedValue(1);
+
+    await service.createForUser('user-1', {
+      name: 'Suggest rule',
+      provider: 'asana',
+      repositoryId: 'repo-1',
+      mode: 'suggest',
+      executionAction: 'plan',
+      enabled: true,
+    });
+    await waitForBackgroundReconcile();
+
+    expect(executionsService.supersedeReadyDraftsForTask).toHaveBeenCalledWith(
+      'user-1',
+      'connection-1:asana:TASK-1',
+    );
+  });
+
+  it('rejects conflicting executionAction and suggestedAction aliases', async () => {
+    const { service, repositoriesService } = createService();
+    repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);
+
+    await expect(
+      service.createForUser('user-1', {
+        name: 'Conflicting aliases',
+        provider: 'asana',
+        repositoryId: '4d5d9f85-8d13-4db8-b84c-6564e1e8ce21',
+        executionAction: 'fix',
+        suggestedAction: 'plan',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('supersedes ready drafts when a rule update changes execution semantics', async () => {
+    const {
+      service,
+      automationRulesRepository,
+      syncedTaskRepository,
+      repositoriesService,
+      executionsService,
+    } = createService();
+    const rule = createRule();
+    const task = createSyncedTask();
+    const updatedRule = createRule({
+      repositoryId: 'repo-2',
+      suggestedAction: 'plan',
+      mode: 'draft',
+    });
+
+    automationRulesRepository.findOneBy.mockResolvedValue(rule);
+    repositoriesService.assertOwnedRepository.mockResolvedValue(undefined);
+    automationRulesRepository.save.mockImplementation(
+      async (input: Partial<AutomationRule>) =>
+        ({
+          ...updatedRule,
+          ...input,
+        }) as AutomationRule,
+    );
+    automationRulesRepository.find.mockResolvedValue([updatedRule]);
+    executionsService.listReadyDraftTaskIdsForUser.mockResolvedValue([
+      'connection-1:asana:TASK-1',
+    ]);
+    syncedTaskRepository.find.mockResolvedValue([task]);
+    executionsService.createOrRefreshDraftForTask.mockResolvedValue(
+      {} as never,
+    );
+
+    await service.updateForUser('user-1', rule.id, {
+      repositoryId: 'repo-2',
+      mode: 'draft',
+      executionAction: 'plan',
+    });
+    await waitForBackgroundReconcile();
+
+    expect(executionsService.listReadyDraftTaskIdsForUser).toHaveBeenCalledWith(
+      'user-1',
+      ['asana'],
+    );
+    expect(executionsService.createOrRefreshDraftForTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        repositoryId: 'repo-2',
+        taskId: 'connection-1:asana:TASK-1',
+        originRuleId: rule.id,
+        action: 'plan',
+      }),
+    );
+  });
+
+  it('does not supersede ready drafts when a rule rename keeps semantics unchanged', async () => {
+    const { service, automationRulesRepository, executionsService } =
+      createService();
+    const rule = createRule();
+
+    automationRulesRepository.findOneBy.mockResolvedValue(rule);
+    automationRulesRepository.save.mockImplementation(
+      async (input: Partial<AutomationRule>) =>
+        ({
+          ...rule,
+          ...input,
+        }) as AutomationRule,
+    );
+
+    await service.updateForUser('user-1', rule.id, {
+      name: 'Renamed rule',
+    });
+
+    expect(
+      executionsService.listReadyDraftTaskIdsForUser,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('re-evaluates ready drafts after deleting a rule', async () => {
+    const {
+      service,
+      automationRulesRepository,
+      syncedTaskRepository,
+      executionsService,
+    } = createService();
+    const rule = createRule();
+    const task = createSyncedTask();
+    const deleteCallOrder: string[] = [];
+
+    automationRulesRepository.findOneBy.mockResolvedValue(rule);
+    automationRulesRepository.remove.mockImplementation(async () => {
+      deleteCallOrder.push('remove');
+      return rule;
+    });
+    automationRulesRepository.find.mockResolvedValue([]);
+    executionsService.listReadyDraftTaskIdsForUser.mockImplementation(
+      async () => {
+        deleteCallOrder.push('reconcile');
+        return ['connection-1:asana:TASK-1'];
+      },
+    );
+    syncedTaskRepository.find.mockResolvedValue([task]);
+    executionsService.supersedeReadyDraftsForTask.mockResolvedValue(1);
+
+    await service.deleteForUser('user-1', rule.id);
+    await waitForBackgroundReconcile();
+
+    expect(automationRulesRepository.remove).toHaveBeenCalledWith(rule);
+    expect(deleteCallOrder).toEqual(['remove', 'reconcile']);
+    expect(executionsService.supersedeReadyDraftsForTask).toHaveBeenCalledWith(
+      'user-1',
+      'connection-1:asana:TASK-1',
+    );
+  });
+
+  it('re-evaluates ready drafts when rule priority changes', async () => {
+    const {
+      service,
+      automationRulesRepository,
+      syncedTaskRepository,
+      executionsService,
+    } = createService();
+    const rule = createRule();
+    const task = createSyncedTask();
+
+    automationRulesRepository.findOneBy.mockResolvedValue(rule);
+    automationRulesRepository.save.mockImplementation(
+      async (input: Partial<AutomationRule>) =>
+        ({
+          ...rule,
+          ...input,
+        }) as AutomationRule,
+    );
+    automationRulesRepository.find.mockResolvedValue([rule]);
+    executionsService.listReadyDraftTaskIdsForUser.mockResolvedValue([
+      'connection-1:asana:TASK-1',
+    ]);
+    syncedTaskRepository.find.mockResolvedValue([task]);
+    executionsService.supersedeReadyDraftsForTask.mockResolvedValue(1);
+
+    await service.updateForUser('user-1', rule.id, {
+      priority: 200,
+    });
+    await waitForBackgroundReconcile();
+
+    expect(executionsService.listReadyDraftTaskIdsForUser).toHaveBeenCalledWith(
+      'user-1',
+      ['asana'],
+    );
   });
 });

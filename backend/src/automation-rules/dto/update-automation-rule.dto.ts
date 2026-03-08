@@ -15,6 +15,7 @@ import {
 } from 'class-validator';
 import {
   AUTOMATION_RULE_ACTIONS,
+  AUTOMATION_RULE_MODES,
   AUTOMATION_RULE_SCOPE_TYPES,
   TASK_ITEM_STATUSES,
   normalizeNullableStringTransform,
@@ -49,6 +50,11 @@ export class UpdateAutomationRuleDto {
   @IsIn(['asana', 'jira'])
   provider?: 'asana' | 'jira';
 
+  @ValidateIf((_, value: unknown) => value !== undefined)
+  @Transform(normalizeOptionalStringTransform)
+  @IsIn(AUTOMATION_RULE_MODES)
+  mode?: (typeof AUTOMATION_RULE_MODES)[number];
+
   @IsOptional()
   @Transform(normalizeNullableStringTransform)
   @ValidateIf((_, value: unknown) => value !== undefined && value !== null)
@@ -81,6 +87,12 @@ export class UpdateAutomationRuleDto {
   @ValidateIf((_, value: unknown) => value !== undefined)
   @IsUUID()
   repositoryId?: string;
+
+  @IsOptional()
+  @Transform(normalizeNullableStringTransform)
+  @ValidateIf((_, value: unknown) => value !== undefined && value !== null)
+  @IsIn(AUTOMATION_RULE_ACTIONS)
+  executionAction?: (typeof AUTOMATION_RULE_ACTIONS)[number] | null;
 
   @IsOptional()
   @Transform(normalizeNullableStringTransform)

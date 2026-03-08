@@ -74,6 +74,8 @@ describe('AutomationRules (e2e)', () => {
         titleContains: ['backend', 'fix'],
         taskStatuses: ['open'],
         repositoryId: repository.id,
+        mode: 'draft',
+        executionAction: 'fix',
         suggestedAction: 'fix',
         priority: 120,
       },
@@ -89,6 +91,8 @@ describe('AutomationRules (e2e)', () => {
       titleContains: string[] | null;
       taskStatuses: string[] | null;
       repositoryId: string;
+      mode: string;
+      executionAction: string | null;
       suggestedAction: string | null;
       priority: number;
     }>();
@@ -101,6 +105,8 @@ describe('AutomationRules (e2e)', () => {
         titleContains: ['backend', 'fix'],
         taskStatuses: ['open'],
         repositoryId: repository.id,
+        mode: 'draft',
+        executionAction: 'fix',
         suggestedAction: 'fix',
         priority: 120,
       }),
@@ -134,6 +140,8 @@ describe('AutomationRules (e2e)', () => {
         scopeId: null,
         titleContains: ['platform'],
         taskStatuses: ['in_progress'],
+        mode: 'suggest',
+        executionAction: 'feature',
         suggestedAction: 'feature',
       },
     });
@@ -147,6 +155,8 @@ describe('AutomationRules (e2e)', () => {
         scopeId: null,
         titleContains: ['platform'],
         taskStatuses: ['in_progress'],
+        mode: 'suggest',
+        executionAction: 'feature',
         suggestedAction: 'feature',
       }),
     );

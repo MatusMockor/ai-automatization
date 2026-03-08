@@ -1,6 +1,9 @@
 export type TaskSource = 'jira' | 'asana' | 'manual';
 export type TaskStatus = 'open' | 'in_progress' | 'done' | 'closed';
 export type ExecutionAction = 'fix' | 'feature' | 'plan';
+export type ExecutionDraftStatus = 'ready' | 'superseded';
+export type AutomationRuleMode = 'suggest' | 'draft';
+export type TaskAutomationState = 'none' | 'matched' | 'drafted';
 export type ExecutionRole = 'implementation' | 'review' | 'remediation';
 export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type ExecutionOrchestrationState = 'queued' | 'running' | 'finalizing' | 'awaiting_review_decision' | 'done' | 'failed';
@@ -17,7 +20,6 @@ export type ReviewGateStatus =
 export type ReviewDecision = 'continue' | 'block' | 'fix';
 export type ReviewVerdict = 'pass' | 'fail' | 'error';
 export type ExecutionTriggerType = 'manual' | 'automation_rule' | 'schedule';
-export type ExecutionDraftStatus = 'ready' | 'superseded';
 
 export interface Execution {
   id: string;
@@ -186,10 +188,10 @@ export interface TaskFeedItem {
   matchedRuleId: string | null;
   matchedRuleName: string | null;
   suggestedAction: ExecutionAction | null;
-  automationMode: 'suggest' | 'draft' | null;
+  automationMode: AutomationRuleMode | null;
   draftExecutionId: string | null;
   draftStatus: ExecutionDraftStatus | null;
-  automationState: 'none' | 'matched' | 'drafted';
+  automationState: TaskAutomationState;
   updatedAt: string;
 }
 
@@ -293,22 +295,21 @@ export interface DeleteRepositoryDefaultRequest {
 // Automation Rules
 
 export type AutomationRuleScopeType = 'asana_workspace' | 'asana_project' | 'jira_project';
-export type AutomationRuleMode = 'suggest' | 'draft';
 
 export interface AutomationRule {
   id: string;
   name: string;
   enabled: boolean;
   priority: number;
-  mode: AutomationRuleMode;
   provider: TaskManagerProvider;
   scopeType: AutomationRuleScopeType | null;
   scopeId: string | null;
   titleContains: string[] | null;
   taskStatuses: TaskFeedStatus[] | null;
   repositoryId: string;
-  suggestedAction: ExecutionAction | null;
+  mode: AutomationRuleMode;
   executionAction: ExecutionAction | null;
+  suggestedAction: ExecutionAction | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -324,21 +325,21 @@ export interface CreateAutomationRuleRequest {
   scopeId?: string;
   titleContains?: string[] | null;
   taskStatuses?: TaskFeedStatus[] | null;
-  suggestedAction?: ExecutionAction | null;
   executionAction?: ExecutionAction | null;
+  suggestedAction?: ExecutionAction | null;
 }
 
 export interface UpdateAutomationRuleRequest {
   name?: string;
   enabled?: boolean;
   priority?: number;
-  mode?: AutomationRuleMode;
   provider?: TaskManagerProvider;
   scopeType?: AutomationRuleScopeType | null;
   scopeId?: string | null;
   titleContains?: string[] | null;
   taskStatuses?: TaskFeedStatus[] | null;
   repositoryId?: string;
-  suggestedAction?: ExecutionAction | null;
+  mode?: AutomationRuleMode;
   executionAction?: ExecutionAction | null;
+  suggestedAction?: ExecutionAction | null;
 }

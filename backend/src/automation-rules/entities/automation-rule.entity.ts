@@ -24,6 +24,7 @@ export type AutomationRuleScopeType =
   | 'asana_workspace'
   | 'asana_project'
   | 'jira_project';
+export type AutomationRuleMode = 'suggest' | 'draft';
 
 @Entity({ name: 'automation_rules' })
 @Check(
@@ -42,6 +43,11 @@ export type AutomationRuleScopeType =
 @Check(
   'CHK_automation_rules_suggested_action',
   `suggested_action IS NULL OR suggested_action IN ('fix', 'feature', 'plan')`,
+)
+@Check('CHK_automation_rules_mode', `mode IN ('suggest', 'draft')`)
+@Check(
+  'CHK_automation_rules_draft_action_required',
+  `mode <> 'draft' OR suggested_action IS NOT NULL`,
 )
 @Index('IDX_automation_rules_user_provider_enabled', [
   'userId',
@@ -91,6 +97,9 @@ export class AutomationRule {
   @ManyToOne(() => ManagedRepository, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'repository_id' })
   repository!: ManagedRepository;
+
+  @Column({ type: 'varchar', length: 16, default: 'suggest' })
+  mode!: AutomationRuleMode;
 
   @Column({
     name: 'suggested_action',

@@ -1,20 +1,25 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import type { ExecutionAction } from '../executions/interfaces/execution.types';
+import { ExecutionsService } from '../executions/executions.service';
 import { RepositoriesService } from '../repositories/repositories.service';
 import type { TaskItemStatus } from '../task-managers/interfaces/task-manager-provider.interface';
 import { SyncedTaskScope } from '../tasks/entities/synced-task-scope.entity';
 import { SyncedTask } from '../tasks/entities/synced-task.entity';
+import { buildTaskFeedId } from '../tasks/utils/task-feed-id.utils';
+import { resolveTaskSnapshotVersion } from '../tasks/utils/task-snapshot-version.utils';
 import { AutomationRuleResponseDto } from './dto/automation-rule-response.dto';
 import { CreateAutomationRuleDto } from './dto/create-automation-rule.dto';
 import { UpdateAutomationRuleDto } from './dto/update-automation-rule.dto';
 import {
   AutomationRule,
+  AutomationRuleMode,
   AutomationRuleScopeType,
 } from './entities/automation-rule.entity';
 
@@ -22,7 +27,8 @@ export type AutomationRuleMatch = {
   ruleId: string;
   ruleName: string;
   repositoryId: string;
-  suggestedAction: ExecutionAction | null;
+  mode: AutomationRuleMode;
+  executionAction: ExecutionAction | null;
 };
 
 type TaskSnapshotLike = Pick<SyncedTask, 'provider' | 'title' | 'status'> & {
@@ -31,10 +37,21 @@ type TaskSnapshotLike = Pick<SyncedTask, 'provider' | 'title' | 'status'> & {
 
 @Injectable()
 export class AutomationRulesService {
+  private readonly logger = new Logger(AutomationRulesService.name);
+  private readonly queuedReconcileProviders = new Map<
+    string,
+    Set<AutomationRule['provider']>
+  >();
+  private readonly scheduledReconcileUsers = new Set<string>();
+  private readonly processingReconcileUsers = new Set<string>();
+
   constructor(
     @InjectRepository(AutomationRule)
     private readonly automationRulesRepository: Repository<AutomationRule>,
+    @InjectRepository(SyncedTask)
+    private readonly syncedTaskRepository: Repository<SyncedTask>,
     private readonly repositoriesService: RepositoriesService,
+    private readonly executionsService: ExecutionsService,
   ) {}
 
   async listForUser(userId: string): Promise<AutomationRuleResponseDto[]> {
@@ -89,10 +106,16 @@ export class AutomationRulesService {
       titleContains: dto.titleContains ?? null,
       taskStatuses: dto.taskStatuses ?? null,
       repositoryId: dto.repositoryId,
-      suggestedAction: dto.suggestedAction ?? null,
+      mode: dto.mode ?? 'suggest',
+      suggestedAction: this.resolveExecutionAction(dto),
     });
 
+    this.validateModeAndAction(rule.mode, rule.suggestedAction);
+
     const savedRule = await this.automationRulesRepository.save(rule);
+    if (savedRule.enabled) {
+      this.enqueueReconcileReadyDrafts(userId, [savedRule.provider]);
+    }
     return this.mapToResponse(savedRule);
   }
 
@@ -108,6 +131,7 @@ export class AutomationRulesService {
     }
 
     const rule = await this.getOwnedRule(userId, ruleId);
+    const previousRule = this.cloneRule(rule);
 
     if (dto.name !== undefined) {
       rule.name = dto.name;
@@ -120,6 +144,9 @@ export class AutomationRulesService {
     }
     if (dto.provider !== undefined) {
       rule.provider = dto.provider;
+    }
+    if (dto.mode !== undefined) {
+      rule.mode = dto.mode;
     }
     if (dto.scopeType !== undefined) {
       rule.scopeType = dto.scopeType ?? null;
@@ -140,8 +167,11 @@ export class AutomationRulesService {
       );
       rule.repositoryId = dto.repositoryId;
     }
-    if (dto.suggestedAction !== undefined) {
-      rule.suggestedAction = dto.suggestedAction ?? null;
+    if (
+      dto.executionAction !== undefined ||
+      dto.suggestedAction !== undefined
+    ) {
+      rule.suggestedAction = this.resolveExecutionAction(dto);
     }
 
     this.validateScopeCompatibility(
@@ -149,14 +179,23 @@ export class AutomationRulesService {
       rule.scopeType,
       rule.scopeId,
     );
+    this.validateModeAndAction(rule.mode, rule.suggestedAction);
 
     const savedRule = await this.automationRulesRepository.save(rule);
+    if (this.shouldReconcileDrafts(previousRule, savedRule)) {
+      this.enqueueReconcileReadyDrafts(userId, [
+        previousRule.provider,
+        savedRule.provider,
+      ]);
+    }
+
     return this.mapToResponse(savedRule);
   }
 
   async deleteForUser(userId: string, ruleId: string): Promise<void> {
     const rule = await this.getOwnedRule(userId, ruleId);
     await this.automationRulesRepository.remove(rule);
+    this.enqueueReconcileReadyDrafts(userId, [rule.provider]);
   }
 
   resolveTaskMatch(
@@ -178,7 +217,8 @@ export class AutomationRulesService {
         ruleId: rule.id,
         ruleName: rule.name,
         repositoryId: rule.repositoryId,
-        suggestedAction: rule.suggestedAction,
+        mode: rule.mode,
+        executionAction: rule.suggestedAction,
       };
     }
 
@@ -279,6 +319,17 @@ export class AutomationRulesService {
     }
   }
 
+  private validateModeAndAction(
+    mode: AutomationRuleMode,
+    executionAction: ExecutionAction | null,
+  ): void {
+    if (mode === 'draft' && executionAction === null) {
+      throw new BadRequestException(
+        'executionAction is required when mode is draft',
+      );
+    }
+  }
+
   private async getOwnedRule(
     userId: string,
     ruleId: string,
@@ -295,19 +346,234 @@ export class AutomationRulesService {
     return rule;
   }
 
+  private cloneRule(rule: AutomationRule): AutomationRule {
+    return {
+      ...rule,
+      titleContains: rule.titleContains ? [...rule.titleContains] : null,
+      taskStatuses: rule.taskStatuses ? [...rule.taskStatuses] : null,
+    };
+  }
+
+  private shouldReconcileDrafts(
+    previousRule: AutomationRule,
+    nextRule: AutomationRule,
+  ): boolean {
+    return (
+      previousRule.enabled !== nextRule.enabled ||
+      previousRule.priority !== nextRule.priority ||
+      previousRule.provider !== nextRule.provider ||
+      previousRule.scopeType !== nextRule.scopeType ||
+      previousRule.scopeId !== nextRule.scopeId ||
+      previousRule.repositoryId !== nextRule.repositoryId ||
+      previousRule.mode !== nextRule.mode ||
+      previousRule.suggestedAction !== nextRule.suggestedAction ||
+      !this.areStringArraysEqual(
+        previousRule.titleContains,
+        nextRule.titleContains,
+      ) ||
+      !this.areStringArraysEqual(
+        previousRule.taskStatuses,
+        nextRule.taskStatuses,
+      )
+    );
+  }
+
+  private async reconcileReadyDraftsForUser(
+    userId: string,
+    providers: Array<AutomationRule['provider']>,
+  ): Promise<void> {
+    const normalizedProviders = [...new Set(providers)];
+    const activeRules = await this.listActiveRulesForUser(userId);
+    const tasks = await this.syncedTaskRepository.find({
+      where: {
+        userId,
+        provider: In(normalizedProviders),
+      },
+      relations: {
+        scopes: true,
+      },
+      order: {
+        createdAt: 'ASC',
+      },
+    });
+
+    for (const task of tasks) {
+      const taskId = buildTaskFeedId(task);
+      const match = this.resolveTaskMatch(task, activeRules);
+      if (!match || match.mode !== 'draft' || match.executionAction === null) {
+        await this.executionsService.supersedeReadyDraftsForTask(
+          userId,
+          taskId,
+        );
+        continue;
+      }
+
+      await this.executionsService.createOrRefreshDraftForTask({
+        userId,
+        repositoryId: match.repositoryId,
+        taskId,
+        taskExternalId: task.externalId,
+        taskTitle: task.title,
+        taskDescription: task.description ?? null,
+        taskSource: task.provider,
+        action: match.executionAction,
+        originRuleId: match.ruleId,
+        sourceTaskSnapshotUpdatedAt: resolveTaskSnapshotVersion(task),
+      });
+    }
+
+    const readyDraftTaskIds =
+      await this.executionsService.listReadyDraftTaskIdsForUser(
+        userId,
+        normalizedProviders,
+      );
+    const processedTaskIds = new Set(
+      tasks.map((task) => buildTaskFeedId(task)),
+    );
+    const staleTaskIds = readyDraftTaskIds.filter(
+      (taskId) => !processedTaskIds.has(taskId),
+    );
+    if (staleTaskIds.length > 0) {
+      await this.executionsService.supersedeReadyDraftsForTaskIds(
+        userId,
+        staleTaskIds,
+      );
+    }
+  }
+
+  private enqueueReconcileReadyDrafts(
+    userId: string,
+    providers: Array<AutomationRule['provider']>,
+  ): void {
+    const queuedProviders =
+      this.queuedReconcileProviders.get(userId) ??
+      new Set<AutomationRule['provider']>();
+    for (const provider of providers) {
+      queuedProviders.add(provider);
+    }
+    this.queuedReconcileProviders.set(userId, queuedProviders);
+
+    if (
+      this.scheduledReconcileUsers.has(userId) ||
+      this.processingReconcileUsers.has(userId)
+    ) {
+      return;
+    }
+
+    this.scheduledReconcileUsers.add(userId);
+    setImmediate(() => {
+      this.scheduledReconcileUsers.delete(userId);
+      void this.processQueuedReconcile(userId);
+    });
+  }
+
+  private async processQueuedReconcile(userId: string): Promise<void> {
+    if (this.processingReconcileUsers.has(userId)) {
+      return;
+    }
+
+    this.processingReconcileUsers.add(userId);
+    try {
+      while (true) {
+        const providers = this.drainQueuedReconcileProviders(userId);
+        if (providers.length === 0) {
+          return;
+        }
+
+        try {
+          await this.reconcileReadyDraftsForUser(userId, providers);
+        } catch (error) {
+          this.logger.error(
+            `Failed to reconcile automation drafts for user ${userId}`,
+            error instanceof Error ? error.stack : String(error),
+          );
+        }
+      }
+    } finally {
+      this.processingReconcileUsers.delete(userId);
+
+      if (
+        (this.queuedReconcileProviders.get(userId)?.size ?? 0) > 0 &&
+        !this.scheduledReconcileUsers.has(userId)
+      ) {
+        this.scheduledReconcileUsers.add(userId);
+        setImmediate(() => {
+          this.scheduledReconcileUsers.delete(userId);
+          void this.processQueuedReconcile(userId);
+        });
+      }
+    }
+  }
+
+  private drainQueuedReconcileProviders(
+    userId: string,
+  ): Array<AutomationRule['provider']> {
+    const providers = this.queuedReconcileProviders.get(userId);
+    if (!providers || providers.size === 0) {
+      return [];
+    }
+
+    this.queuedReconcileProviders.delete(userId);
+    return [...providers];
+  }
+
+  private areStringArraysEqual(
+    left: string[] | null,
+    right: string[] | null,
+  ): boolean {
+    if (left === null || right === null) {
+      return left === right;
+    }
+
+    if (left.length !== right.length) {
+      return false;
+    }
+
+    return left.every((value, index) => value === right[index]);
+  }
+
   private isPatchEmpty(dto: UpdateAutomationRuleDto): boolean {
     return (
       dto.name === undefined &&
       dto.enabled === undefined &&
       dto.priority === undefined &&
       dto.provider === undefined &&
+      dto.mode === undefined &&
       dto.scopeType === undefined &&
       dto.scopeId === undefined &&
       dto.titleContains === undefined &&
       dto.taskStatuses === undefined &&
       dto.repositoryId === undefined &&
+      dto.executionAction === undefined &&
       dto.suggestedAction === undefined
     );
+  }
+
+  private resolveExecutionAction(
+    dto: Pick<
+      CreateAutomationRuleDto | UpdateAutomationRuleDto,
+      'executionAction' | 'suggestedAction'
+    >,
+  ): ExecutionAction | null {
+    if (
+      dto.executionAction !== undefined &&
+      dto.suggestedAction !== undefined &&
+      dto.executionAction !== dto.suggestedAction
+    ) {
+      throw new BadRequestException(
+        'executionAction and suggestedAction must match when both are provided',
+      );
+    }
+
+    if (dto.executionAction !== undefined) {
+      return dto.executionAction ?? null;
+    }
+
+    if (dto.suggestedAction !== undefined) {
+      return dto.suggestedAction ?? null;
+    }
+
+    return null;
   }
 
   private mapToResponse(rule: AutomationRule): AutomationRuleResponseDto {
@@ -322,6 +588,8 @@ export class AutomationRulesService {
       titleContains: rule.titleContains,
       taskStatuses: rule.taskStatuses,
       repositoryId: rule.repositoryId,
+      mode: rule.mode,
+      executionAction: rule.suggestedAction,
       suggestedAction: rule.suggestedAction,
       createdAt: rule.createdAt,
       updatedAt: rule.updatedAt,

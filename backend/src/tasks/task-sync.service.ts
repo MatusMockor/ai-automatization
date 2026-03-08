@@ -28,6 +28,8 @@ import {
   TaskSyncRun,
   TaskSyncTriggerType,
 } from './entities/task-sync-run.entity';
+import { TaskAutomationOrchestratorService } from './task-automation-orchestrator.service';
+import { buildTaskFeedId } from './utils/task-feed-id.utils';
 
 type AggregatedTask = {
   task: ProviderTask;
@@ -44,6 +46,13 @@ type AggregatedTask = {
       };
     }
   >;
+};
+
+type SyncConnectionResult = {
+  tasksUpserted: number;
+  tasksDeleted: number;
+  taskIds: string[];
+  deletedTaskFeedIds: string[];
 };
 
 @Injectable()
@@ -63,6 +72,7 @@ export class TaskSyncService {
     private readonly taskSyncRunRepository: Repository<TaskSyncRun>,
     private readonly encryptionService: EncryptionService,
     private readonly providerRegistry: TaskManagerProviderRegistry,
+    private readonly taskAutomationOrchestratorService: TaskAutomationOrchestratorService,
     private readonly configService: ConfigService,
   ) {
     this.pageLimit = parsePositiveInteger(
@@ -362,12 +372,20 @@ export class TaskSyncService {
       let tasksDeleted = 0;
       let connectionsDone = 0;
       const connectionErrors: string[] = [];
+      const changedTaskIds = new Set<string>();
+      const deletedTaskFeedIds = new Set<string>();
 
       for (const connection of connections) {
         try {
           const synced = await this.syncConnection(connection);
           tasksUpserted += synced.tasksUpserted;
           tasksDeleted += synced.tasksDeleted;
+          for (const taskId of synced.taskIds) {
+            changedTaskIds.add(taskId);
+          }
+          for (const taskId of synced.deletedTaskFeedIds) {
+            deletedTaskFeedIds.add(taskId);
+          }
 
           await this.connectionRepository.update(
             { id: connection.id },
@@ -404,6 +422,20 @@ export class TaskSyncService {
         }
       }
 
+      if (changedTaskIds.size > 0) {
+        await this.taskAutomationOrchestratorService.processSyncedTasks(
+          run.userId,
+          [...changedTaskIds],
+        );
+      }
+
+      if (deletedTaskFeedIds.size > 0) {
+        await this.taskAutomationOrchestratorService.supersedeDraftsForTaskIds(
+          run.userId,
+          [...deletedTaskFeedIds],
+        );
+      }
+
       await this.taskSyncRunRepository.update(
         { id: run.id },
         {
@@ -432,7 +464,7 @@ export class TaskSyncService {
 
   private async syncConnection(
     connection: TaskManagerConnection,
-  ): Promise<{ tasksUpserted: number; tasksDeleted: number }> {
+  ): Promise<SyncConnectionResult> {
     const config = this.toConnectionConfig(connection);
     const providerType = this.toProviderType(connection.provider);
     const provider = this.providerRegistry.getProvider(providerType);
@@ -456,7 +488,9 @@ export class TaskSyncService {
 
       return {
         tasksUpserted: 0,
-        tasksDeleted: deleted,
+        tasksDeleted: deleted.count,
+        taskIds: [],
+        deletedTaskFeedIds: deleted.taskFeedIds,
       };
     }
 
@@ -489,9 +523,17 @@ export class TaskSyncService {
         ),
     );
 
+    const persistedTasks = await this.findPersistedTasks(
+      this.syncedTaskRepository,
+      connection.id,
+      externalIds,
+    );
+
     return {
       tasksUpserted: upsertRows.length,
-      tasksDeleted: deleted,
+      tasksDeleted: deleted.count,
+      taskIds: persistedTasks.map((task) => task.id),
+      deletedTaskFeedIds: deleted.taskFeedIds,
     };
   }
 
@@ -612,7 +654,7 @@ export class TaskSyncService {
     >,
     externalIds: string[],
     tasksByExternalId: Map<string, AggregatedTask>,
-  ): Promise<number> {
+  ): Promise<{ count: number; taskFeedIds: string[] }> {
     const syncedTaskRepository = manager.getRepository(SyncedTask);
     const syncedTaskScopeRepository = manager.getRepository(SyncedTaskScope);
 
@@ -755,24 +797,71 @@ export class TaskSyncService {
   private async deleteAllTasksForConnection(
     syncedTaskRepository: Repository<SyncedTask>,
     connectionId: string,
-  ): Promise<number> {
+  ): Promise<{ count: number; taskFeedIds: string[] }> {
+    const deletedTasks = await syncedTaskRepository.find({
+      where: { connectionId },
+      select: {
+        connectionId: true,
+        provider: true,
+        externalId: true,
+      },
+    });
+
     const result = await syncedTaskRepository.delete({ connectionId });
-    return result.affected ?? 0;
+
+    return {
+      count: result.affected ?? 0,
+      taskFeedIds: deletedTasks.map((task) => buildTaskFeedId(task)),
+    };
   }
 
   private async deleteStaleTasks(
     syncedTaskRepository: Repository<SyncedTask>,
     connectionId: string,
     syncTimestamp: Date,
-  ): Promise<number> {
-    const result = await syncedTaskRepository
-      .createQueryBuilder()
-      .delete()
-      .where('"connection_id" = :connectionId', { connectionId })
-      .andWhere('"last_synced_at" < :syncTimestamp', { syncTimestamp })
-      .execute();
+  ): Promise<{ count: number; taskFeedIds: string[] }> {
+    const staleTasks = await syncedTaskRepository.find({
+      where: {
+        connectionId,
+      },
+      select: {
+        id: true,
+        connectionId: true,
+        provider: true,
+        externalId: true,
+        lastSyncedAt: true,
+      },
+    });
+    const staleTaskRows = staleTasks.filter((task) => {
+      const lastSyncedAt =
+        task.lastSyncedAt instanceof Date
+          ? task.lastSyncedAt
+          : task.lastSyncedAt
+            ? new Date(task.lastSyncedAt)
+            : null;
 
-    return result.affected ?? 0;
+      return (
+        lastSyncedAt !== null &&
+        Number.isFinite(lastSyncedAt.getTime()) &&
+        lastSyncedAt.getTime() < syncTimestamp.getTime()
+      );
+    });
+
+    if (staleTaskRows.length === 0) {
+      return {
+        count: 0,
+        taskFeedIds: [],
+      };
+    }
+
+    const result = await syncedTaskRepository.delete({
+      id: In(staleTaskRows.map((task) => task.id)),
+    });
+
+    return {
+      count: result.affected ?? 0,
+      taskFeedIds: staleTaskRows.map((task) => buildTaskFeedId(task)),
+    };
   }
 
   private toConnectionConfig(
