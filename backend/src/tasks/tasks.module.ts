@@ -4,11 +4,15 @@ import { AutomationRulesModule } from '../automation-rules/automation-rules.modu
 import { RepositoriesModule } from '../repositories/repositories.module';
 import { EncryptionModule } from '../common/encryption/encryption.module';
 import { ExecutionsModule } from '../executions/executions.module';
+import { Execution } from '../executions/entities/execution.entity';
 import { ManualTask } from '../manual-tasks/entities/manual-task.entity';
 import { UserSettings } from '../settings/entities/user-settings.entity';
 import { TaskManagerConnection } from '../task-managers/entities/task-manager-connection.entity';
 import { TaskManagersModule } from '../task-managers/task-managers.module';
+import { AutomationInboxController } from './automation-inbox.controller';
+import { AutomationInboxService } from './automation-inbox.service';
 import { TasksController } from './tasks.controller';
+import { TaskAutomationControl } from './entities/task-automation-control.entity';
 import { SyncedTaskScope } from './entities/synced-task-scope.entity';
 import { SyncedTask } from './entities/synced-task.entity';
 import { TaskScopeRepositoryDefault } from './entities/task-scope-repository-default.entity';
@@ -30,15 +34,18 @@ import { TasksService } from './tasks.service';
       TaskManagerConnection,
       SyncedTask,
       ManualTask,
+      Execution,
       SyncedTaskScope,
       TaskSyncRun,
       TaskScopeRepositoryDefault,
+      TaskAutomationControl,
       UserSettings,
     ]),
   ],
-  controllers: [TasksController],
+  controllers: [TasksController, AutomationInboxController],
   providers: [
     TasksService,
+    AutomationInboxService,
     TaskSyncService,
     TaskRepositoryDefaultsService,
     TaskAutomationOrchestratorService,

@@ -37,6 +37,7 @@ import { SyncedTaskScope } from './entities/synced-task-scope.entity';
 import { SyncedTask } from './entities/synced-task.entity';
 import { TaskRepositoryDefaultsService } from './task-repository-defaults.service';
 import { TaskSyncService } from './task-sync.service';
+import { ResolvedTaskFeedItem } from './task-feed.types';
 import {
   buildManualTaskFeedId,
   buildTaskFeedId,
@@ -85,6 +86,35 @@ export class TasksService {
     userId: string,
     query: GetTasksQueryDto,
   ): Promise<TaskFeedResponseDto> {
+    const feedItems = await this.listTaskFeedItemsForUser(userId, query);
+    if (feedItems.length === 0) {
+      return {
+        repositoryId: query.repoId ?? null,
+        total: 0,
+        items: [],
+        errors: [],
+      };
+    }
+
+    const limit = this.resolveLimit(query.limit);
+    const items = feedItems
+      .slice(0, limit)
+      .map(({ sourceVersion, ...item }) => ({
+        ...item,
+      }));
+
+    return {
+      repositoryId: query.repoId ?? null,
+      total: items.length,
+      items,
+      errors: [],
+    };
+  }
+
+  async listTaskFeedItemsForUser(
+    userId: string,
+    query: GetTasksQueryDto,
+  ): Promise<ResolvedTaskFeedItem[]> {
     this.assertProviderScopeCompatibility(query);
 
     if (query.repoId) {
@@ -164,25 +194,7 @@ export class TasksService {
       ),
     ];
 
-    if (feedItems.length === 0) {
-      return {
-        repositoryId: query.repoId ?? null,
-        total: 0,
-        items: [],
-        errors: [],
-      };
-    }
-
-    const limit = this.resolveLimit(query.limit);
-    const sortedItems = feedItems.sort((a, b) => this.compareItems(a, b));
-    const items = sortedItems.slice(0, limit);
-
-    return {
-      repositoryId: query.repoId ?? null,
-      total: items.length,
-      items,
-      errors: [],
-    };
+    return feedItems.sort((a, b) => this.compareItems(a, b));
   }
 
   startSyncForUser(
@@ -354,7 +366,7 @@ export class TasksService {
       ReturnType<AutomationRulesService['listActiveRulesForUser']>
     >,
     draftLookup: Map<string, ExecutionDraftLookupItem[]>,
-  ): TaskFeedItemDto[] {
+  ): ResolvedTaskFeedItem[] {
     const groupedByConnection = new Map<string, SyncedTask[]>();
 
     for (const task of tasks) {
@@ -367,7 +379,7 @@ export class TasksService {
       groupedByConnection.set(task.connectionId, existingTasks);
     }
 
-    const items: TaskFeedItemDto[] = [];
+    const items: ResolvedTaskFeedItem[] = [];
 
     for (const [
       connectionId,
@@ -425,6 +437,7 @@ export class TasksService {
           manualWorkflowState: null,
           hasMultipleScopes: persistedTask.scopes.length > 1,
           updatedAt: this.taskUpdatedAt(persistedTask),
+          sourceVersion: this.resolveSourceVersion(persistedTask),
         });
       }
     }
@@ -441,7 +454,7 @@ export class TasksService {
       ReturnType<AutomationRulesService['listActiveRulesForUser']>
     >,
     draftLookup: Map<string, ExecutionDraftLookupItem[]>,
-  ): TaskFeedItemDto[] {
+  ): ResolvedTaskFeedItem[] {
     return tasks.map((task) => {
       const status = mapManualWorkflowStateToTaskStatus(task.workflowState);
       const automationMatch = this.automationRulesService.resolveTaskMatch(
@@ -498,6 +511,7 @@ export class TasksService {
             : task.workflowState,
         hasMultipleScopes: false,
         updatedAt: task.updatedAt.toISOString(),
+        sourceVersion: resolveManualTaskSnapshotVersion(task).toISOString(),
       };
     });
   }
@@ -612,7 +626,16 @@ export class TasksService {
     return (task.sourceUpdatedAt ?? task.updatedAt).toISOString();
   }
 
-  private compareItems(a: TaskFeedItemDto, b: TaskFeedItemDto): number {
+  private resolveSourceVersion(
+    task: Pick<SyncedTask, 'sourceUpdatedAt' | 'updatedAt'>,
+  ): string {
+    return (resolveTaskSnapshotVersion(task) ?? task.updatedAt).toISOString();
+  }
+
+  private compareItems(
+    a: ResolvedTaskFeedItem,
+    b: ResolvedTaskFeedItem,
+  ): number {
     if (a.updatedAt !== b.updatedAt) {
       return b.updatedAt.localeCompare(a.updatedAt);
     }
