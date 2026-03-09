@@ -11,6 +11,7 @@ import {
   GitBranch,
   ClipboardList,
   Zap,
+  Inbox,
   Settings,
 
   LogOut,
@@ -28,6 +29,7 @@ const navItems = [
   { to: '/repositories', icon: GitBranch, label: 'Repositories' },
   { to: '/manual-tasks', icon: ClipboardList, label: 'Manual Tasks' },
   { to: '/automation-rules', icon: Zap, label: 'Automation Rules' },
+  { to: '/automation-inbox', icon: Inbox, label: 'Automation Inbox' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 

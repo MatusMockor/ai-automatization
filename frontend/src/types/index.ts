@@ -343,3 +343,58 @@ export interface UpdateAutomationRuleRequest {
   executionAction?: ExecutionAction | null;
   suggestedAction?: ExecutionAction | null;
 }
+
+// Automation Inbox
+export type AutomationInboxReasonCode =
+  | 'draft_ready' | 'draft_superseded' | 'matched_rule_no_draft'
+  | 'no_repository_selected' | 'blocked_by_execution_failure'
+  | 'dismissed_until_change' | 'snoozed';
+
+export type AutomationInboxNextAction =
+  | 'start_draft' | 'supersede_draft' | 'edit_rule' | 'assign_repository' | 'none';
+
+export type AutomationInboxHistoryEventType =
+  | 'rule_matched' | 'draft_created' | 'draft_superseded'
+  | 'draft_started' | 'task_snoozed' | 'task_dismissed' | 'task_restored';
+
+export interface AutomationInboxItem {
+  taskKey: string;
+  taskId: string;
+  source: TaskSource;
+  title: string;
+  status: TaskFeedStatus;
+  updatedAt: string;
+  manualWorkflowState: string | null;
+  matchedRuleId: string | null;
+  matchedRuleName: string | null;
+  suggestedRepositoryId: string | null;
+  repositorySelectionSource: 'automation_rule' | 'asana_project' | 'jira_project' | 'provider_default' | null;
+  suggestedAction: ExecutionAction | null;
+  automationMode: AutomationRuleMode | null;
+  draftExecutionId: string | null;
+  draftStatus: ExecutionDraftStatus | null;
+  latestExecutionId: string | null;
+  latestExecutionStatus: ExecutionStatus | null;
+  reasonCode: AutomationInboxReasonCode;
+  reasonText: string;
+  nextAction: AutomationInboxNextAction;
+}
+
+export interface AutomationInboxResponse {
+  total: number;
+  items: AutomationInboxItem[];
+}
+
+export interface AutomationInboxHistoryEvent {
+  type: AutomationInboxHistoryEventType;
+  occurredAt: string;
+  executionId: string | null;
+  ruleId: string | null;
+  ruleName: string | null;
+  message: string;
+}
+
+export interface AutomationInboxHistoryResponse {
+  taskKey: string;
+  items: AutomationInboxHistoryEvent[];
+}
