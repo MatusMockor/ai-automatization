@@ -15,6 +15,7 @@ import { RepositoriesPage } from '@/pages/RepositoriesPage';
 import { ExecutionsPage } from '@/pages/ExecutionsPage';
 import { ManualTasksPage } from '@/pages/ManualTasksPage';
 import { AutomationRulesPage } from '@/pages/AutomationRulesPage';
+import { AutomationInboxPage } from '@/pages/AutomationInboxPage';
 
 function ThemedToaster() {
   const { resolved } = useTheme();
@@ -60,6 +61,7 @@ function App() {
                 <Route path="repositories" element={<RepositoriesPage />} />
                 <Route path="manual-tasks" element={<ManualTasksPage />} />
                 <Route path="automation-rules" element={<AutomationRulesPage />} />
+                <Route path="automation-inbox" element={<AutomationInboxPage />} />
                 <Route path="settings" element={<SettingsPage />} />
               </Route>
 
