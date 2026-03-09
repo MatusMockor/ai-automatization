@@ -18,6 +18,10 @@ export class CreateTaskAutomationControlsTable1742472000000 implements Migration
     }
 
     const timestampType = getTimestampColumnType();
+    const uuidDefault =
+      queryRunner.connection.options.type === 'postgres'
+        ? 'uuid_generate_v4()'
+        : undefined;
 
     await queryRunner.createTable(
       new Table({
@@ -29,7 +33,7 @@ export class CreateTaskAutomationControlsTable1742472000000 implements Migration
             isPrimary: true,
             isGenerated: true,
             generationStrategy: 'uuid',
-            default: 'uuid_generate_v4()',
+            ...(uuidDefault ? { default: uuidDefault } : {}),
           },
           {
             name: 'user_id',

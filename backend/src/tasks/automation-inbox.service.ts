@@ -218,12 +218,7 @@ export class AutomationInboxService {
     userId: string,
     taskKey: string,
   ): Promise<ResolvedTaskFeedItem> {
-    const taskFeedQuery = new GetTasksQueryDto();
-    const items = await this.tasksService.listTaskFeedItemsForUser(
-      userId,
-      taskFeedQuery,
-    );
-    const task = items.find((item) => item.id === taskKey);
+    const task = await this.tasksService.getTaskFeedItemByKey(userId, taskKey);
     if (!task) {
       throw new NotFoundException('Automation inbox task not found');
     }

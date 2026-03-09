@@ -41,6 +41,8 @@ import { ResolvedTaskFeedItem } from './task-feed.types';
 import {
   buildManualTaskFeedId,
   buildTaskFeedId,
+  extractManualTaskId,
+  extractTaskFeedIdentity,
 } from './utils/task-feed-id.utils';
 import {
   resolveManualTaskSnapshotVersion,
@@ -195,6 +197,80 @@ export class TasksService {
     ];
 
     return feedItems.sort((a, b) => this.compareItems(a, b));
+  }
+
+  async getTaskFeedItemByKey(
+    userId: string,
+    taskKey: string,
+  ): Promise<ResolvedTaskFeedItem | null> {
+    const manualTaskId = extractManualTaskId(taskKey);
+
+    if (manualTaskId) {
+      const manualTask = await this.manualTaskRepository.findOneBy({
+        id: manualTaskId,
+        userId,
+      });
+      if (!manualTask) {
+        return null;
+      }
+
+      const repositoryDefaultsLookup =
+        await this.taskRepositoryDefaultsService.buildLookupForUser(userId);
+      const activeRules =
+        await this.automationRulesService.listActiveRulesForUser(userId);
+      const draftLookup = this.buildDraftLookup(
+        await this.executionsService.listDraftsForTaskIds(userId, [taskKey]),
+      );
+
+      return this.buildManualFeedItem(
+        manualTask,
+        repositoryDefaultsLookup,
+        activeRules,
+        draftLookup,
+      );
+    }
+
+    const identity = extractTaskFeedIdentity(taskKey);
+    if (!identity) {
+      return null;
+    }
+
+    const persistedTask = await this.syncedTaskRepository.findOne({
+      where: {
+        userId,
+        connectionId: identity.connectionId,
+        provider: identity.provider,
+        externalId: identity.externalId,
+      },
+      relations: { scopes: true },
+    });
+    if (!persistedTask) {
+      return null;
+    }
+
+    const connections =
+      await this.taskManagersService.listConnectionsForUser(userId);
+    const connection = connections.find(
+      (candidate) => candidate.id === identity.connectionId,
+    );
+    if (!connection) {
+      return null;
+    }
+
+    const repositoryDefaultsLookup =
+      await this.taskRepositoryDefaultsService.buildLookupForUser(userId);
+    const activeRules =
+      await this.automationRulesService.listActiveRulesForUser(userId);
+    const draftLookup = this.buildDraftLookup(
+      await this.executionsService.listDraftsForTaskIds(userId, [taskKey]),
+    );
+
+    return this.buildSyncedFeedItem(
+      persistedTask,
+      repositoryDefaultsLookup,
+      activeRules,
+      draftLookup,
+    );
   }
 
   startSyncForUser(
@@ -390,55 +466,14 @@ export class TasksService {
       }
 
       for (const persistedTask of connectionTasks) {
-        const primaryScope = this.resolvePrimaryScope(persistedTask.scopes);
-        const automationMatch = this.automationRulesService.resolveTaskMatch(
-          persistedTask,
-          activeRules,
-        );
-        const taskId = buildTaskFeedId(persistedTask);
-        const draftOutcome = this.resolveDraftOutcome(
-          draftLookup.get(taskId) ?? [],
-          automationMatch,
-          resolveTaskSnapshotVersion(persistedTask),
-        );
-        const repositoryDefaultSuggestion =
-          this.taskRepositoryDefaultsService.resolveSuggestedRepository(
-            persistedTask.provider,
-            persistedTask.scopes,
+        items.push(
+          this.buildSyncedFeedItem(
+            persistedTask,
             repositoryDefaultsLookup,
-          );
-
-        items.push({
-          id: taskId,
-          connectionId,
-          externalId: persistedTask.externalId,
-          title: persistedTask.title,
-          description: persistedTask.description ?? '',
-          url: persistedTask.url ?? '',
-          status: persistedTask.status,
-          assignee: persistedTask.assignee,
-          source: persistedTask.provider,
-          primaryScopeType: primaryScope?.scopeType ?? null,
-          primaryScopeId: primaryScope?.scopeId ?? null,
-          primaryScopeName: primaryScope?.scopeName ?? null,
-          suggestedRepositoryId:
-            automationMatch?.repositoryId ??
-            repositoryDefaultSuggestion.repositoryId,
-          repositorySelectionSource: automationMatch
-            ? 'automation_rule'
-            : repositoryDefaultSuggestion.source,
-          matchedRuleId: automationMatch?.ruleId ?? null,
-          matchedRuleName: automationMatch?.ruleName ?? null,
-          suggestedAction: automationMatch?.executionAction ?? null,
-          automationMode: automationMatch?.mode ?? null,
-          draftExecutionId: draftOutcome.executionId,
-          draftStatus: draftOutcome.status,
-          automationState: draftOutcome.automationState,
-          manualWorkflowState: null,
-          hasMultipleScopes: persistedTask.scopes.length > 1,
-          updatedAt: this.taskUpdatedAt(persistedTask),
-          sourceVersion: this.resolveSourceVersion(persistedTask),
-        });
+            activeRules,
+            draftLookup,
+          ),
+        );
       }
     }
 
@@ -455,65 +490,145 @@ export class TasksService {
     >,
     draftLookup: Map<string, ExecutionDraftLookupItem[]>,
   ): ResolvedTaskFeedItem[] {
-    return tasks.map((task) => {
-      const status = mapManualWorkflowStateToTaskStatus(task.workflowState);
-      const automationMatch = this.automationRulesService.resolveTaskMatch(
-        {
-          provider: 'manual',
-          title: task.title,
-          status,
-          scopes: [],
-        },
+    return tasks.map((task) =>
+      this.buildManualFeedItem(
+        task,
+        repositoryDefaultsLookup,
         activeRules,
-      );
-      const taskId = buildManualTaskFeedId(task.id);
-      const draftOutcome = this.resolveDraftOutcome(
-        draftLookup.get(taskId) ?? [],
-        automationMatch,
-        resolveManualTaskSnapshotVersion(task),
-      );
-      const repositoryDefaultSuggestion =
-        this.taskRepositoryDefaultsService.resolveSuggestedRepository(
-          'manual',
-          [],
-          repositoryDefaultsLookup,
-        );
+        draftLookup,
+      ),
+    );
+  }
 
-      return {
-        id: taskId,
-        connectionId: 'manual',
-        externalId: task.id,
+  private buildSyncedFeedItem(
+    persistedTask: SyncedTask,
+    repositoryDefaultsLookup: Awaited<
+      ReturnType<TaskRepositoryDefaultsService['buildLookupForUser']>
+    >,
+    activeRules: Awaited<
+      ReturnType<AutomationRulesService['listActiveRulesForUser']>
+    >,
+    draftLookup: Map<string, ExecutionDraftLookupItem[]>,
+  ): ResolvedTaskFeedItem {
+    const primaryScope = this.resolvePrimaryScope(persistedTask.scopes);
+    const automationMatch = this.automationRulesService.resolveTaskMatch(
+      persistedTask,
+      activeRules,
+    );
+    const taskId = buildTaskFeedId(persistedTask);
+    const draftOutcome = this.resolveDraftOutcome(
+      draftLookup.get(taskId) ?? [],
+      automationMatch,
+      resolveTaskSnapshotVersion(persistedTask),
+    );
+    const repositoryDefaultSuggestion =
+      this.taskRepositoryDefaultsService.resolveSuggestedRepository(
+        persistedTask.provider,
+        persistedTask.scopes,
+        repositoryDefaultsLookup,
+      );
+
+    return {
+      id: taskId,
+      connectionId: persistedTask.connectionId,
+      externalId: persistedTask.externalId,
+      title: persistedTask.title,
+      description: persistedTask.description ?? '',
+      url: persistedTask.url ?? '',
+      status: persistedTask.status,
+      assignee: persistedTask.assignee,
+      source: persistedTask.provider,
+      primaryScopeType: primaryScope?.scopeType ?? null,
+      primaryScopeId: primaryScope?.scopeId ?? null,
+      primaryScopeName: primaryScope?.scopeName ?? null,
+      suggestedRepositoryId:
+        automationMatch?.repositoryId ??
+        repositoryDefaultSuggestion.repositoryId,
+      repositorySelectionSource: automationMatch
+        ? 'automation_rule'
+        : repositoryDefaultSuggestion.source,
+      matchedRuleId: automationMatch?.ruleId ?? null,
+      matchedRuleName: automationMatch?.ruleName ?? null,
+      suggestedAction: automationMatch?.executionAction ?? null,
+      automationMode: automationMatch?.mode ?? null,
+      draftExecutionId: draftOutcome.executionId,
+      draftStatus: draftOutcome.status,
+      automationState: draftOutcome.automationState,
+      manualWorkflowState: null,
+      hasMultipleScopes: persistedTask.scopes.length > 1,
+      updatedAt: this.taskUpdatedAt(persistedTask),
+      sourceVersion: this.resolveSourceVersion(persistedTask),
+    };
+  }
+
+  private buildManualFeedItem(
+    task: ManualTask,
+    repositoryDefaultsLookup: Awaited<
+      ReturnType<TaskRepositoryDefaultsService['buildLookupForUser']>
+    >,
+    activeRules: Awaited<
+      ReturnType<AutomationRulesService['listActiveRulesForUser']>
+    >,
+    draftLookup: Map<string, ExecutionDraftLookupItem[]>,
+  ): ResolvedTaskFeedItem {
+    const status = mapManualWorkflowStateToTaskStatus(task.workflowState);
+    const automationMatch = this.automationRulesService.resolveTaskMatch(
+      {
+        provider: 'manual',
         title: task.title,
-        description: task.description ?? '',
-        url: '',
         status,
-        assignee: null,
-        source: 'manual',
-        primaryScopeType: null,
-        primaryScopeId: null,
-        primaryScopeName: null,
-        suggestedRepositoryId:
-          automationMatch?.repositoryId ??
-          repositoryDefaultSuggestion.repositoryId,
-        repositorySelectionSource: automationMatch
-          ? 'automation_rule'
-          : repositoryDefaultSuggestion.source,
-        matchedRuleId: automationMatch?.ruleId ?? null,
-        matchedRuleName: automationMatch?.ruleName ?? null,
-        suggestedAction: automationMatch?.executionAction ?? null,
-        automationMode: automationMatch?.mode ?? null,
-        draftExecutionId: draftOutcome.executionId,
-        draftStatus: draftOutcome.status,
-        automationState: draftOutcome.automationState,
-        manualWorkflowState:
-          draftOutcome.automationState === 'drafted'
-            ? 'drafted'
-            : task.workflowState,
-        hasMultipleScopes: false,
-        updatedAt: task.updatedAt.toISOString(),
-        sourceVersion: resolveManualTaskSnapshotVersion(task).toISOString(),
-      };
-    });
+        scopes: [],
+      },
+      activeRules,
+    );
+    const taskId = buildManualTaskFeedId(task.id);
+    const snapshotVersion = resolveManualTaskSnapshotVersion(task);
+    const draftOutcome = this.resolveDraftOutcome(
+      draftLookup.get(taskId) ?? [],
+      automationMatch,
+      snapshotVersion,
+    );
+    const repositoryDefaultSuggestion =
+      this.taskRepositoryDefaultsService.resolveSuggestedRepository(
+        'manual',
+        [],
+        repositoryDefaultsLookup,
+      );
+
+    return {
+      id: taskId,
+      connectionId: 'manual',
+      externalId: task.id,
+      title: task.title,
+      description: task.description ?? '',
+      url: '',
+      status,
+      assignee: null,
+      source: 'manual',
+      primaryScopeType: null,
+      primaryScopeId: null,
+      primaryScopeName: null,
+      suggestedRepositoryId:
+        automationMatch?.repositoryId ??
+        repositoryDefaultSuggestion.repositoryId,
+      repositorySelectionSource: automationMatch
+        ? 'automation_rule'
+        : repositoryDefaultSuggestion.source,
+      matchedRuleId: automationMatch?.ruleId ?? null,
+      matchedRuleName: automationMatch?.ruleName ?? null,
+      suggestedAction: automationMatch?.executionAction ?? null,
+      automationMode: automationMatch?.mode ?? null,
+      draftExecutionId: draftOutcome.executionId,
+      draftStatus: draftOutcome.status,
+      automationState: draftOutcome.automationState,
+      manualWorkflowState:
+        draftOutcome.automationState === 'drafted'
+          ? 'drafted'
+          : task.workflowState,
+      hasMultipleScopes: false,
+      updatedAt: task.updatedAt.toISOString(),
+      sourceVersion: snapshotVersion.toISOString(),
+    };
   }
 
   private resolvePrimaryScope(
@@ -627,9 +742,9 @@ export class TasksService {
   }
 
   private resolveSourceVersion(
-    task: Pick<SyncedTask, 'sourceUpdatedAt' | 'updatedAt'>,
-  ): string {
-    return (resolveTaskSnapshotVersion(task) ?? task.updatedAt).toISOString();
+    task: Pick<SyncedTask, 'sourceUpdatedAt'>,
+  ): string | null {
+    return resolveTaskSnapshotVersion(task)?.toISOString() ?? null;
   }
 
   private compareItems(
