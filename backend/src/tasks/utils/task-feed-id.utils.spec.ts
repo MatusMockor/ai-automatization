@@ -44,5 +44,8 @@ describe('buildTaskFeedId', () => {
     expect(extractTaskFeedIdentity('manual:task-1')).toBeNull();
     expect(extractTaskFeedIdentity('connection-123:manual:task-1')).toBeNull();
     expect(extractTaskFeedIdentity('connection-123:jira:')).toBeNull();
+    expect(
+      extractTaskFeedIdentity('connection-123:jira:SCRUM-42:extra'),
+    ).toBeNull();
   });
 });

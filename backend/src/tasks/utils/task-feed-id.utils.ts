@@ -40,6 +40,9 @@ export function extractTaskFeedIdentity(
   if (secondSeparatorIndex <= firstSeparatorIndex + 1) {
     return null;
   }
+  if (taskId.indexOf(':', secondSeparatorIndex + 1) !== -1) {
+    return null;
+  }
 
   const connectionId = taskId.slice(0, firstSeparatorIndex).trim();
   const provider = taskId.slice(
