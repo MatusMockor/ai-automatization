@@ -2,6 +2,7 @@ import {
   buildManualTaskFeedId,
   buildTaskFeedId,
   extractManualTaskId,
+  extractTaskFeedIdentity,
 } from './task-feed-id.utils';
 
 describe('buildTaskFeedId', () => {
@@ -27,5 +28,21 @@ describe('buildTaskFeedId', () => {
     expect(() => buildManualTaskFeedId('   ')).toThrow(
       'Manual task id must not be empty',
     );
+  });
+
+  it('parses provider task feed identifiers', () => {
+    expect(
+      extractTaskFeedIdentity('connection-123:jira:SCRUM-42'),
+    ).toStrictEqual({
+      connectionId: 'connection-123',
+      provider: 'jira',
+      externalId: 'SCRUM-42',
+    });
+  });
+
+  it('returns null for unsupported or malformed provider task identifiers', () => {
+    expect(extractTaskFeedIdentity('manual:task-1')).toBeNull();
+    expect(extractTaskFeedIdentity('connection-123:manual:task-1')).toBeNull();
+    expect(extractTaskFeedIdentity('connection-123:jira:')).toBeNull();
   });
 });

@@ -13,6 +13,7 @@ describe('AutomationInboxService', () => {
   };
   const tasksService = {
     listTaskFeedItemsForUser: jest.fn(),
+    getTaskFeedItemByKey: jest.fn(),
   };
   const repositoriesService = {
     assertOwnedRepository: jest.fn(),
@@ -161,6 +162,38 @@ describe('AutomationInboxService', () => {
     expect(response.total).toBe(1);
     expect(response.items[0]).toMatchObject({
       reasonCode: 'matched_rule_no_draft',
+    });
+  });
+
+  it('keeps dismiss-until-change active when source version is unavailable', async () => {
+    tasksService.listTaskFeedItemsForUser.mockResolvedValue([
+      buildTask({
+        draftExecutionId: null,
+        draftStatus: null,
+        automationState: 'matched',
+        sourceVersion: null,
+      }),
+    ]);
+    executionRepository.find.mockResolvedValue([]);
+    taskAutomationControlRepository.find.mockResolvedValue([
+      {
+        taskKey: 'connection-1:asana:TASK-1',
+        controlType: 'dismiss_until_change',
+        untilAt: null,
+        isActive: true,
+        sourceVersion: null,
+        restoredAt: null,
+      },
+    ]);
+
+    const hiddenResponse = await service.listForUser('user-1', {});
+    const visibleResponse = await service.listForUser('user-1', {
+      includeSuppressed: true,
+    });
+
+    expect(hiddenResponse.total).toBe(0);
+    expect(visibleResponse.items[0]).toMatchObject({
+      reasonCode: 'dismissed_until_change',
     });
   });
 });
