@@ -234,33 +234,20 @@ export class AutomationInboxService {
       'controlType' | 'untilAt' | 'sourceVersion'
     >,
   ): Promise<void> {
-    const existingControl =
-      await this.taskAutomationControlRepository.findOneBy({
+    await this.taskAutomationControlRepository.upsert(
+      {
         userId,
         taskKey: task.id,
-      });
-
-    if (!existingControl) {
-      await this.taskAutomationControlRepository.save(
-        this.taskAutomationControlRepository.create({
-          userId,
-          taskKey: task.id,
-          controlType: values.controlType,
-          untilAt: values.untilAt,
-          sourceVersion: values.sourceVersion,
-          isActive: true,
-          restoredAt: null,
-        }),
-      );
-      return;
-    }
-
-    existingControl.controlType = values.controlType;
-    existingControl.untilAt = values.untilAt;
-    existingControl.sourceVersion = values.sourceVersion;
-    existingControl.isActive = true;
-    existingControl.restoredAt = null;
-    await this.taskAutomationControlRepository.save(existingControl);
+        controlType: values.controlType,
+        untilAt: values.untilAt,
+        sourceVersion: values.sourceVersion,
+        isActive: true,
+        restoredAt: null,
+      },
+      {
+        conflictPaths: ['userId', 'taskKey'],
+      },
+    );
   }
 
   private async loadControlLookup(
@@ -371,8 +358,13 @@ export class AutomationInboxService {
       repositorySelectionSource: task.repositorySelectionSource,
       suggestedAction: task.suggestedAction,
       automationMode: task.automationMode,
+      automationState: task.automationState,
       draftExecutionId: task.draftExecutionId,
       draftStatus: task.draftStatus,
+      executionGroupId: task.executionGroupId,
+      groupStatus: task.groupStatus,
+      groupRepositoryIds: task.groupRepositoryIds,
+      coordinatedDraftCount: task.coordinatedDraftCount,
       latestExecutionId: latestExecution?.id ?? null,
       latestExecutionStatus: latestExecution?.status ?? null,
       reasonCode: resolvedReason.reasonCode,
@@ -546,20 +538,7 @@ export class AutomationInboxService {
     item: AutomationInboxItemDto,
     automationState: TaskAutomationState,
   ): boolean {
-    if (item.reasonCode === 'draft_ready') {
-      return automationState === 'drafted';
-    }
-
-    if (
-      item.reasonCode === 'draft_superseded' ||
-      item.reasonCode === 'matched_rule_no_draft' ||
-      item.reasonCode === 'blocked_by_execution_failure' ||
-      item.reasonCode === 'no_repository_selected'
-    ) {
-      return automationState === 'matched';
-    }
-
-    return false;
+    return item.automationState === automationState;
   }
 
   private buildExecutionHistoryItems(
@@ -626,7 +605,7 @@ export class AutomationInboxService {
     }
 
     const items: AutomationInboxHistoryResponseDto['items'] = [];
-    const controlOccurredAt = control.updatedAt.toISOString();
+    const controlOccurredAt = control.createdAt.toISOString();
 
     if (control.controlType === 'snooze') {
       items.push({
