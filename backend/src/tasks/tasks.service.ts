@@ -8,10 +8,6 @@ import {
   ExecutionDraftLookupItem,
   ExecutionsService,
 } from '../executions/executions.service';
-import {
-  ExecutionGroupsService,
-  type ExecutionGroupLookupItem,
-} from '../executions/execution-groups.service';
 import type {
   ExecutionDraftStatus,
   TaskAutomationState,
@@ -72,7 +68,6 @@ export class TasksService {
     private readonly manualTaskRepository: Repository<ManualTask>,
     private readonly automationRulesService: AutomationRulesService,
     private readonly executionsService: ExecutionsService,
-    private readonly executionGroupsService: ExecutionGroupsService,
     private readonly taskManagersService: TaskManagersService,
     private readonly taskSyncService: TaskSyncService,
     private readonly taskRepositoryDefaultsService: TaskRepositoryDefaultsService,
@@ -184,10 +179,6 @@ export class TasksService {
     const draftLookup = this.buildDraftLookup(
       await this.executionsService.listDraftsForTaskIds(userId, taskIds),
     );
-    const groupLookup = await this.executionGroupsService.buildLookupForTaskIds(
-      userId,
-      taskIds,
-    );
 
     const feedItems = [
       ...this.buildSyncedFeedItems(
@@ -196,14 +187,12 @@ export class TasksService {
         repositoryDefaultsLookup,
         activeRules,
         draftLookup,
-        groupLookup,
       ),
       ...this.buildManualFeedItems(
         manualTasks,
         repositoryDefaultsLookup,
         activeRules,
         draftLookup,
-        groupLookup,
       ),
     ];
 
@@ -232,17 +221,12 @@ export class TasksService {
       const draftLookup = this.buildDraftLookup(
         await this.executionsService.listDraftsForTaskIds(userId, [taskKey]),
       );
-      const groupLookup =
-        await this.executionGroupsService.buildLookupForTaskIds(userId, [
-          taskKey,
-        ]);
 
       return this.buildManualFeedItem(
         manualTask,
         repositoryDefaultsLookup,
         activeRules,
         draftLookup,
-        groupLookup,
       );
     }
 
@@ -280,17 +264,12 @@ export class TasksService {
     const draftLookup = this.buildDraftLookup(
       await this.executionsService.listDraftsForTaskIds(userId, [taskKey]),
     );
-    const groupLookup = await this.executionGroupsService.buildLookupForTaskIds(
-      userId,
-      [taskKey],
-    );
 
     return this.buildSyncedFeedItem(
       persistedTask,
       repositoryDefaultsLookup,
       activeRules,
       draftLookup,
-      groupLookup,
     );
   }
 
@@ -463,7 +442,6 @@ export class TasksService {
       ReturnType<AutomationRulesService['listActiveRulesForUser']>
     >,
     draftLookup: Map<string, ExecutionDraftLookupItem[]>,
-    groupLookup: Map<string, ExecutionGroupLookupItem>,
   ): ResolvedTaskFeedItem[] {
     const groupedByConnection = new Map<string, SyncedTask[]>();
 
@@ -494,7 +472,6 @@ export class TasksService {
             repositoryDefaultsLookup,
             activeRules,
             draftLookup,
-            groupLookup,
           ),
         );
       }
@@ -512,7 +489,6 @@ export class TasksService {
       ReturnType<AutomationRulesService['listActiveRulesForUser']>
     >,
     draftLookup: Map<string, ExecutionDraftLookupItem[]>,
-    groupLookup: Map<string, ExecutionGroupLookupItem>,
   ): ResolvedTaskFeedItem[] {
     return tasks.map((task) =>
       this.buildManualFeedItem(
@@ -520,7 +496,6 @@ export class TasksService {
         repositoryDefaultsLookup,
         activeRules,
         draftLookup,
-        groupLookup,
       ),
     );
   }
@@ -534,7 +509,6 @@ export class TasksService {
       ReturnType<AutomationRulesService['listActiveRulesForUser']>
     >,
     draftLookup: Map<string, ExecutionDraftLookupItem[]>,
-    groupLookup: Map<string, ExecutionGroupLookupItem>,
   ): ResolvedTaskFeedItem {
     const primaryScope = this.resolvePrimaryScope(persistedTask.scopes);
     const automationMatch = this.automationRulesService.resolveTaskMatch(
@@ -553,7 +527,6 @@ export class TasksService {
         persistedTask.scopes,
         repositoryDefaultsLookup,
       );
-    const group = groupLookup.get(taskId);
 
     return {
       id: taskId,
@@ -580,10 +553,10 @@ export class TasksService {
       automationMode: automationMatch?.mode ?? null,
       draftExecutionId: draftOutcome.executionId,
       draftStatus: draftOutcome.status,
-      executionGroupId: group?.executionGroupId ?? null,
-      groupStatus: group?.groupStatus ?? null,
-      groupRepositoryIds: group?.groupRepositoryIds ?? [],
-      coordinatedDraftCount: group?.coordinatedDraftCount ?? 0,
+      executionGroupId: null,
+      groupStatus: null,
+      groupRepositoryIds: [],
+      coordinatedDraftCount: 0,
       automationState: draftOutcome.automationState,
       manualWorkflowState: null,
       hasMultipleScopes: persistedTask.scopes.length > 1,
@@ -601,7 +574,6 @@ export class TasksService {
       ReturnType<AutomationRulesService['listActiveRulesForUser']>
     >,
     draftLookup: Map<string, ExecutionDraftLookupItem[]>,
-    groupLookup: Map<string, ExecutionGroupLookupItem>,
   ): ResolvedTaskFeedItem {
     const status = mapManualWorkflowStateToTaskStatus(task.workflowState);
     const automationMatch = this.automationRulesService.resolveTaskMatch(
@@ -626,7 +598,6 @@ export class TasksService {
         [],
         repositoryDefaultsLookup,
       );
-    const group = groupLookup.get(taskId);
 
     return {
       id: taskId,
@@ -653,10 +624,10 @@ export class TasksService {
       automationMode: automationMatch?.mode ?? null,
       draftExecutionId: draftOutcome.executionId,
       draftStatus: draftOutcome.status,
-      executionGroupId: group?.executionGroupId ?? null,
-      groupStatus: group?.groupStatus ?? null,
-      groupRepositoryIds: group?.groupRepositoryIds ?? [],
-      coordinatedDraftCount: group?.coordinatedDraftCount ?? 0,
+      executionGroupId: null,
+      groupStatus: null,
+      groupRepositoryIds: [],
+      coordinatedDraftCount: 0,
       automationState: draftOutcome.automationState,
       manualWorkflowState:
         draftOutcome.automationState === 'drafted'
