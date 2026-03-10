@@ -241,6 +241,7 @@ export class AutomationInboxService {
         controlType: values.controlType,
         untilAt: values.untilAt,
         sourceVersion: values.sourceVersion,
+        suppressedAt: new Date(),
         isActive: true,
         restoredAt: null,
       },
@@ -605,7 +606,9 @@ export class AutomationInboxService {
     }
 
     const items: AutomationInboxHistoryResponseDto['items'] = [];
-    const controlOccurredAt = control.createdAt.toISOString();
+    const controlOccurredAt = (
+      control.suppressedAt ?? control.createdAt
+    ).toISOString();
 
     if (control.controlType === 'snooze') {
       items.push({

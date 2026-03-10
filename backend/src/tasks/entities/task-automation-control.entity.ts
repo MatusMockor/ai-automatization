@@ -61,6 +61,13 @@ export class TaskAutomationControl {
   isActive!: boolean;
 
   @Column({
+    name: 'suppressed_at',
+    type: TASK_AUTOMATION_CONTROL_TIMESTAMP_TYPE,
+    nullable: true,
+  })
+  suppressedAt!: Date | null;
+
+  @Column({
     name: 'restored_at',
     type: TASK_AUTOMATION_CONTROL_TIMESTAMP_TYPE,
     nullable: true,
