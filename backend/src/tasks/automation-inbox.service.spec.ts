@@ -10,6 +10,7 @@ describe('AutomationInboxService', () => {
     find: jest.fn(),
     findOneBy: jest.fn(),
     save: jest.fn(),
+    upsert: jest.fn(),
   };
   const tasksService = {
     listTaskFeedItemsForUser: jest.fn(),
@@ -42,6 +43,10 @@ describe('AutomationInboxService', () => {
     automationMode: 'draft',
     draftExecutionId: 'draft-1',
     draftStatus: 'ready',
+    executionGroupId: null,
+    groupStatus: null,
+    groupRepositoryIds: [],
+    coordinatedDraftCount: 0,
     automationState: 'drafted',
     manualWorkflowState: null,
     hasMultipleScopes: false,

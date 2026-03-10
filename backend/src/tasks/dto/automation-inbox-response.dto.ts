@@ -1,6 +1,7 @@
 import type {
   ExecutionAction,
   ExecutionDraftStatus,
+  ExecutionGroupStatus,
   ExecutionStatus,
   TaskAutomationMode,
   TaskAutomationState,
@@ -40,8 +41,13 @@ export class AutomationInboxItemDto {
   repositorySelectionSource!: RepositorySelectionSource;
   suggestedAction!: ExecutionAction | null;
   automationMode!: TaskAutomationMode | null;
+  automationState!: TaskAutomationState;
   draftExecutionId!: string | null;
   draftStatus!: ExecutionDraftStatus | null;
+  executionGroupId!: string | null;
+  groupStatus!: ExecutionGroupStatus | null;
+  groupRepositoryIds!: string[];
+  coordinatedDraftCount!: number;
   latestExecutionId!: string | null;
   latestExecutionStatus!: ExecutionStatus | null;
   reasonCode!: AutomationInboxReasonCode;
