@@ -1,6 +1,7 @@
 import type {
   ExecutionAction,
   ExecutionDraftStatus,
+  ExecutionGroupStatus,
   TaskAutomationMode,
   TaskAutomationState,
   TaskSource,
@@ -48,6 +49,10 @@ export class TaskFeedItemDto {
   automationMode!: TaskAutomationMode | null;
   draftExecutionId!: string | null;
   draftStatus!: ExecutionDraftStatus | null;
+  executionGroupId!: string | null;
+  groupStatus!: ExecutionGroupStatus | null;
+  groupRepositoryIds!: string[];
+  coordinatedDraftCount!: number;
   automationState!: TaskAutomationState;
   manualWorkflowState!: ManualTaskWorkflowState | null;
   hasMultipleScopes!: boolean;
